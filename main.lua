@@ -768,7 +768,7 @@ function querySummaryWithGemini(summary, history, userQuery, callback)
     end)
 end
 
-local function parseImageDescription(response)
+function parseImageDescription(response)
     local description, ocrText = "لم يتم العثور على وصف.", "لم يتم العثور على نص."
     if response then
         local dM = response:match("Description:%s*([^\r\n]+)"); local tM = response:match("Text:%s*([^\r\n]+)")
@@ -777,6 +777,11 @@ local function parseImageDescription(response)
         elseif not dM and response:match("%S") and not tM and not response:match("Text:") then description = response end
     end
     return description, ocrText
+end
+
+-- Expose for testing if in test environment
+if luaunit then
+    _G.parseImageDescription = parseImageDescription
 end
 
 -- ### UI Window Functions
