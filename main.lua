@@ -76,12 +76,13 @@ end
 
 -- **Gemini Models**
 local geminiModels = {
-    { name = "Gemini 1.5 Flash", id = "gemini-1.5-flash" },
-    { name = "Gemini 2.0 Flash-Lite", id = "gemini-2.0-flash-lite" },
+    { name = "Gemini 2.5 Pro", id = "gemini-2.5-pro" },
+    { name = "Gemini 2.5 Flash", id = "gemini-2.5-flash" },
+    { name = "Gemini 2.5 Flash-Lite", id = "gemini-2.5-flash-lite" },
     { name = "Gemini 2.0 Flash", id = "gemini-2.0-flash" },
-    { name = "Gemini 2.5 Flash Preview 04-17", id = "gemini-2.5-flash-preview-04-17" }
+    { name = "Gemini 2.0 Flash-Lite", id = "gemini-2.0-flash-lite" }
 }
-local defaultGeminiModelId = "gemini-2.0-flash-lite"
+local defaultGeminiModelId = "gemini-2.5-flash"
 
 -- **Supported Languages** (for dictation and translation)
 local supportedLanguages = {
@@ -118,6 +119,8 @@ translateToLanguage = prefs.getString("translateToLanguage", defaultTranslateTo)
 customTtsEnabled = prefs.getBoolean("customTtsEnabled", false)
 selectedTtsEngine = prefs.getString("selectedTtsEngine", "")
 selectedTtsVoiceName = prefs.getString("selectedTtsVoiceName", "")
+-- Click Command Settings
+elementClickEnabled = prefs.getBoolean("elementClickEnabled", false)
 
 -- **Global Variables**
 stopDictation = false
@@ -213,7 +216,12 @@ function getFeedbackString(key, langCode, ...)
         tts_voice_changed = "تم تغيير صوت النطق إلى %s.",
         tts_voice_selection_placeholder = "(الصوت الافتراضي للمحرك)",
         tts_no_voices_for_engine = "(لا توجد أصوات متاحة لهذا المحرك)",
-        tts_select_engine_first_for_voices = "(اختر محركًا أولاً لعرض الأصوات)"
+        tts_select_engine_first_for_voices = "(اختر محركًا أولاً لعرض الأصوات)",
+        click_command_start = "جاري البحث عن عنصر '%s' للنقر عليه.",
+        click_command_success = "تم النقر بنجاح على '%s'.",
+        click_command_fail_not_found = "لم يتم العثور على عنصر قابل للنقر باسم '%s'.",
+        click_command_fail_generic = "فشل النقر على العنصر.",
+        click_command_disabled = "ميزة النقر على العناصر معطلة. قم بتفعيلها من الإعدادات."
     }
     local en_strings = {
         summarize_start = "Starting text summarization.",
@@ -265,7 +273,12 @@ function getFeedbackString(key, langCode, ...)
         tts_voice_changed = "TTS voice changed to %s.",
         tts_voice_selection_placeholder = "(Engine default voice)",
         tts_no_voices_for_engine = "(No voices available for this engine)",
-        tts_select_engine_first_for_voices = "(Select engine first to list voices)"
+        tts_select_engine_first_for_voices = "(Select engine first to list voices)",
+        click_command_start = "Searching for element '%s' to click.",
+        click_command_success = "Successfully clicked on '%s'.",
+        click_command_fail_not_found = "Could not find a clickable element named '%s'.",
+        click_command_fail_generic = "Failed to click the element.",
+        click_command_disabled = "The element clicking feature is disabled. Please enable it in settings."
     }
     local fr_strings = {
         summarize_start = "Début du résumé du texte.",
@@ -317,7 +330,12 @@ function getFeedbackString(key, langCode, ...)
         tts_voice_changed = "Voix TTS changée en %s.",
         tts_voice_selection_placeholder = "(Voix par défaut du moteur)",
         tts_no_voices_for_engine = "(Aucune voix disponible pour ce moteur)",
-        tts_select_engine_first_for_voices = "(Sélectionnez d'abord un moteur pour afficher les voix)"
+        tts_select_engine_first_for_voices = "(Sélectionnez d'abord un moteur pour afficher les voix)",
+        click_command_start = "Recherche de l'élément '%s' à cliquer.",
+        click_command_success = "Clic réussi sur '%s'.",
+        click_command_fail_not_found = "Impossible de trouver un élément cliquable nommé '%s'.",
+        click_command_fail_generic = "Échec du clic sur l'élément.",
+        click_command_disabled = "La fonction de clic sur les éléments est désactivée. Veuillez l'activer dans les paramètres."
     }
 
     local lang_map = { ["ar"] = ar_strings, ["en"] = en_strings, ["fr-FR"] = fr_strings }
@@ -750,7 +768,7 @@ function querySummaryWithGemini(summary, history, userQuery, callback)
     end)
 end
 
-local function parseImageDescription(response)
+function parseImageDescription(response)
     local description, ocrText = "لم يتم العثور على وصف.", "لم يتم العثور على نص."
     if response then
         local dM = response:match("Description:%s*([^\r\n]+)"); local tM = response:match("Text:%s*([^\r\n]+)")
@@ -759,6 +777,11 @@ local function parseImageDescription(response)
         elseif not dM and response:match("%S") and not tM and not response:match("Text:") then description = response end
     end
     return description, ocrText
+end
+
+-- Expose for testing if in test environment
+if luaunit then
+    _G.parseImageDescription = parseImageDescription
 end
 
 -- ### UI Window Functions
@@ -972,6 +995,64 @@ function takeScreenshotAndEncode(callback)
     if screenshotMode=="focus" then local n=service.getFocusView(); if n then pcall(function() service.getScreenShot(n,{onScreenCaptureDone=procBmp}) end); pcall(n.recycle,n) else pcall(function() service.getScreenShot({onScreenCaptureDone=procBmp}) end) end else pcall(function() service.getScreenShot({onScreenCaptureDone=procBmp}) end) end
 end
 
+-- ### Element Interaction Functions
+function findClickableNodeByText(node, targetText, foundNodes)
+    if not node then return end
+
+    local nodeText; local s_text = pcall(function() nodeText = node.getText() end); if not s_text then nodeText = nil end
+    local nodeDesc; local s_desc = pcall(function() nodeDesc = node.getContentDescription() end); if not s_desc then nodeDesc = nil end
+    local isClickable = false; local s_clickable = pcall(function() isClickable = node.isClickable() end)
+    local targetLower = targetText:lower()
+
+    if s_clickable and isClickable then
+        if nodeText and tostring(nodeText):lower() == targetLower then
+            table.insert(foundNodes, node:obtain())
+        elseif nodeDesc and tostring(nodeDesc):lower() == targetLower then
+            table.insert(foundNodes, node:obtain())
+        end
+    end
+
+    local childCount = 0; local s_count = pcall(function() childCount = node.getChildCount() end)
+    if s_count and childCount > 0 then
+        for i = 0, childCount - 1 do
+            local childNode; local s_child = pcall(function() childNode = node.getChild(i) end)
+            if s_child and childNode then
+                findClickableNodeByText(childNode, targetText, foundNodes)
+                pcall(childNode.recycle, childNode)
+            end
+        end
+    end
+end
+
+function performClickOnElement(targetText)
+    local currentDictLangDetails = getLanguageDetails(selectedLanguage)
+    if not elementClickEnabled then
+        service.asyncSpeak(getFeedbackString("click_command_disabled", currentDictLangDetails.code))
+        return
+    end
+
+    service.asyncSpeak(getFeedbackString("click_command_start", currentDictLangDetails.code, targetText))
+    local rootNode = service.getRootInActiveWindow()
+    if not rootNode then
+        service.asyncSpeak(getFeedbackString("click_command_fail_not_found", currentDictLangDetails.code, targetText))
+        return
+    end
+
+    local foundNodes = {}; findClickableNodeByText(rootNode, targetText, foundNodes); pcall(rootNode.recycle, rootNode)
+
+    if #foundNodes > 0 then
+        local nodeToClick = foundNodes[1] -- Click the first one found
+        local clickSuccess = false; local s_click = pcall(function() clickSuccess = nodeToClick.performAction(AccessibilityNodeInfo.ACTION_CLICK) end)
+        if s_click and clickSuccess then
+            service.asyncSpeak(getFeedbackString("click_command_success", currentDictLangDetails.code, targetText))
+        else
+            service.asyncSpeak(getFeedbackString("click_command_fail_generic", currentDictLangDetails.code))
+        end
+        for _, n in ipairs(foundNodes) do pcall(n.recycle, n) end
+    else
+        service.asyncSpeak(getFeedbackString("click_command_fail_not_found", currentDictLangDetails.code, targetText))
+    end
+end
 
 -- ### Settings Management
 function saveSettings()
@@ -986,6 +1067,7 @@ function saveSettings()
     imageDescriptionEnabled = imageDescriptionEnabled or false
     newTranslationFeatureEnabled = newTranslationFeatureEnabled or false
     customTtsEnabled = customTtsEnabled or false
+    elementClickEnabled = elementClickEnabled or false
 
     local editor = prefs.edit()
     editor.putString("language", selectedLanguage or defaultSelectedLanguage)
@@ -1003,6 +1085,7 @@ function saveSettings()
     editor.putBoolean("showFloatingSettingsButton", showFloatingSettingsButtonEnabled)
     editor.putBoolean("newTranslationFeatureEnabled", newTranslationFeatureEnabled)
     editor.putString("translateToLanguage", translateToLanguage or defaultTranslateTo)
+    editor.putBoolean("elementClickEnabled", elementClickEnabled)
     editor.putBoolean("customTtsEnabled", customTtsEnabled)
     editor.putString("selectedTtsEngine", selectedTtsEngine or "")
     editor.putString("selectedTtsVoiceName", selectedTtsVoiceName or "")
@@ -1155,6 +1238,13 @@ function openSettings()
     toggleFloatBtn.setChecked(showFloatingSettingsButtonEnabled)
     toggleFloatBtn.setOnCheckedChangeListener(function(_,isC) showFloatingSettingsButtonEnabled=isC end)
     contentL.addView(toggleFloatBtn)
+
+    addSectionHeader("التفاعل مع العناصر 👆") -- Translated
+    local toggleClickElemBtn = CheckBox(service)
+    toggleClickElemBtn.setText("تفعيل النقر على العناصر بالصوت (مثال: 'انقر على التالي')") -- Translated
+    toggleClickElemBtn.setChecked(elementClickEnabled)
+    toggleClickElemBtn.setOnCheckedChangeListener(function(_,isC) elementClickEnabled=isC end)
+    contentL.addView(toggleClickElemBtn)
 
     addSectionHeader("إعدادات الترجمة التلقائية 🌐") -- Translated
     local toggleNewTransBtn = CheckBox(service)
@@ -1706,6 +1796,26 @@ function startVoiceRecognition()
                         end
                     end)
                     return
+                end
+
+                -- Handle "Click on [element]" command
+                local click_keywords_ar = {"انقر على", "اضغط على"}
+                local click_keywords_en = {"click on", "press on", "press"}
+                local click_keywords_fr = {"clique sur", "appuie sur"}
+                local all_keywords = { ar = click_keywords_ar, en = click_keywords_en, ["fr-FR"] = click_keywords_fr }
+                local keywords_to_check = all_keywords[selectedLanguage] or {}
+
+                for _, keyword in ipairs(keywords_to_check) do
+                    local keyword_prefix = keyword .. " "
+                    if lowerRecognizedText:sub(1, #keyword_prefix) == keyword_prefix then
+                        local targetElementName = recognizedText:sub(#keyword_prefix + 1)
+                        if targetElementName and targetElementName:match("%S") then
+                            commandProcessed = true
+                            performClickOnElement(targetElementName)
+                            if shouldContinue then startListening() else cleanupResources() end
+                            return
+                        end
+                    end
                 end
 
                 if not commandProcessed and recognizedText and recognizedText:match("%S") then
