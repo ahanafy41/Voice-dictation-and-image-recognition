@@ -228,8 +228,11 @@ function startVoiceRecognition()
         onBufferReceived = function() end,
         onEndOfSpeech = function() end,
         onError = function(error)
-            -- Restart listening, as the user might just be silent.
-            startListening()
+            -- Stop listening on error. The script will need to be restarted.
+            if recognizer then
+                pcall(function() recognizer.destroy() end)
+                recognizer = nil
+            end
         end,
         onResults = function(results)
             local matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
@@ -238,7 +241,7 @@ function startVoiceRecognition()
 
                 if recognizedText == "الضبط" or recognizedText == "ضبط" or recognizedText == "الإعدادات" then
                     openSettings()
-                    -- Do not restart listening immediately, settings UI is open.
+                    -- Do not restart listening; settings UI will handle it.
                     return
                 end
 
@@ -249,21 +252,23 @@ function startVoiceRecognition()
                         if encodedImage then
                             queryImageWithGemini(encodedImage, recognizedText, function(geminiResponse)
                                 speak(geminiResponse)
-                                isQueryInProgress = false
-                                startListening() -- Listen for the next command after response.
+                                -- Stop after responding.
+                                pcall(function() service.stopSelf() end)
                             end)
                         else
                             speak(getFeedbackString("screenshot_failed"))
-                            isQueryInProgress = false
-                            startListening()
+                            -- Stop on failure.
+                            pcall(function() service.stopSelf() end)
                         end
                     end)
                 else
                     speak(getFeedbackString("query_already_running"))
-                    startListening() -- Listen again if a query is already running.
+                    -- Stop even if a query was already running.
+                     pcall(function() service.stopSelf() end)
                 end
             else
-                startListening() -- No matches, listen again.
+                 -- No matches, stop.
+                 pcall(function() service.stopSelf() end)
             end
         end,
         onPartialResults = function() end,
@@ -429,7 +434,7 @@ function openSettings()
     local closeBtn = Button(service)
     closeBtn.setText("إغلاق")
     closeBtn.setOnClickListener(hideSettings)
-    local lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_content, LinearLayout.LayoutParams.WRAP_CONTENT)
+    local lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
     lp.setMargins(20, 0, 0, 0)
     btnLayout.addView(closeBtn, lp)
 
