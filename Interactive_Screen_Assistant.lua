@@ -134,38 +134,91 @@ function initTextToSpeech(callback)
     pcall(function() tts = TextToSpeech(context, listener) end)
 end
 
-function speak(text)
+function speak(text, mode)
+    local queueMode = (mode == "add") and TextToSpeech.QUEUE_ADD or TextToSpeech.QUEUE_FLUSH
     if not isTtsInitialized or not tts then
         service.asyncSpeak(text)
         return
     end
-    pcall(function() tts.speak(text, TextToSpeech.QUEUE_FLUSH, nil, nil) end)
+    pcall(function() tts.speak(text, queueMode, nil, nil) end)
 end
 -- #endregion
 
 -- #region Core Logic
-function queryImageWithGemini(base64Image, userQuery, callback)
-    if geminiApiKey == "" then callback(getFeedbackString("api_key_missing")); return end
-    if not base64Image then callback("خطأ: بيانات الصورة غير متوفرة للاستعلام."); return end
-    if not userQuery or userQuery == "" then callback("خطأ: لم يتم تقديم أي استعلام."); return end
+function queryImageWithGemini(base64Image, userQuery, onChunk, onComplete, onError)
+    if geminiApiKey == "" then onError(getFeedbackString("api_key_missing")); return end
+    if not base64Image then onError("خطأ: بيانات الصورة غير متوفرة للاستعلام."); return end
+    if not userQuery or userQuery == "" then onError("خطأ: لم يتم تقديم أي استعلام."); return end
+
+    local Thread = require "java.lang.Thread"
+    local Runnable = require "java.lang.Runnable"
+    local URL = require "java.net.URL"
+    local BufferedReader = require "java.io.BufferedReader"
+    local InputStreamReader = require "java.io.InputStreamReader"
 
     local prompt = "أجب على السؤال التالي بناءً على الصورة المرفقة. كن دقيقًا وموجزًا. السؤال هو: " .. userQuery
     local modelToUse = selectedGeminiModelId or defaultGeminiModelId
-    local url = "https://generativelanguage.googleapis.com/v1beta/models/" .. modelToUse .. ":generateContent?key=" .. geminiApiKey
+    local urlString = "https://generativelanguage.googleapis.com/v1beta/models/" .. modelToUse .. ":streamGenerateContent?key=" .. geminiApiKey
     local requestBody = [[{ "contents": [{ "parts": [ {"text": "]] .. escapeJsonString(prompt) .. [["}, { "inline_data": { "mime_type": "image/png", "data": "]] .. base64Image .. [[" } } ] }] }]]
-    local headers = {["Content-Type"] = "application/json"}
 
-    Http.post(url, requestBody, headers, function(status, response)
-        if status == 200 then
-            local s, jR = pcall(function() return JSONObject(response) end)
-            if s and jR and jR.has("candidates") and jR.getJSONArray("candidates").length() > 0 and jR.getJSONArray("candidates").getJSONObject(0).has("content") and jR.getJSONArray("candidates").getJSONObject(0).getJSONObject("content").has("parts") and jR.getJSONArray("candidates").getJSONObject(0).getJSONObject("content").getJSONArray("parts").length() > 0 and jR.getJSONArray("candidates").getJSONObject(0).getJSONObject("content").getJSONArray("parts").getJSONObject(0).has("text") then
-                callback(jR.getJSONArray("candidates").getJSONObject(0).getJSONObject("content").getJSONArray("parts").getJSONObject(0).getString("text")); return
+    local networkRunnable = Runnable {
+        run = function()
+            local conn = nil
+            local pcall_success, pcall_result = pcall(function()
+                local url = URL(urlString)
+                conn = url.openConnection()
+                conn.setRequestMethod("POST")
+                conn.setRequestProperty("Content-Type", "application/json")
+                conn.setDoOutput(true)
+
+                local os = conn.getOutputStream()
+                os.write(requestBody:getBytes("UTF-8"))
+                os.close()
+
+                local status = conn.getResponseCode()
+                if status == 200 then
+                    local is = conn.getInputStream()
+                    local reader = BufferedReader(InputStreamReader(is))
+                    local line
+                    while true do
+                        line = reader.readLine()
+                        if line == nil then break end
+                        local cleanedLine = line:gsub("^%s*%[?%s*,?%s*", ""):gsub("%s*,?%s*]?%s*$", "")
+                        if cleanedLine ~= "" then
+                            service.post(function()
+                                local s, jR = pcall(function() return JSONObject(cleanedLine) end)
+                                if s and jR and jR.has("candidates") then
+                                    local candidates = jR.getJSONArray("candidates")
+                                    if candidates.length() > 0 then
+                                        local candidate = candidates.getJSONObject(0)
+                                        if candidate.has("content") and candidate.getJSONObject("content").has("parts") then
+                                            local parts = candidate.getJSONObject("content").getJSONArray("parts")
+                                            if parts.length() > 0 and parts.getJSONObject(0).has("text") then
+                                                local textChunk = parts.getJSONObject(0).getString("text")
+                                                onChunk(textChunk)
+                                            end
+                                        end
+                                    end
+                                end
+                            end)
+                        end
+                    end
+                    reader.close()
+                    service.post(onComplete)
+                else
+                    service.post(function() onError("خطأ: فشل طلب Gemini (الحالة: " .. status .. ")") end)
+                end
+            end)
+            if not pcall_success then
+                service.post(function() onError("خطأ في الاتصال: " .. tostring(pcall_result)) end)
             end
-            callback("خطأ: تعذر تحليل الاستجابة من Gemini.")
-        else
-            callback("خطأ: فشل طلب Gemini (الحالة: " .. status .. ")")
+            if conn then
+                conn.disconnect()
+            end
         end
-    end)
+    }
+    local networkThread = Thread(networkRunnable)
+    networkThread.start()
 end
 
 function takeScreenshotAndEncode(callback)
@@ -241,34 +294,60 @@ function startVoiceRecognition()
 
                 if recognizedText == "الضبط" or recognizedText == "ضبط" or recognizedText == "الإعدادات" then
                     openSettings()
-                    -- Do not restart listening; settings UI will handle it.
                     return
                 end
 
                 if not isQueryInProgress then
                     isQueryInProgress = true
-                    speak(getFeedbackString("command_processing", recognizedText))
+                    speak(getFeedbackString("command_processing", recognizedText), "flush")
                     takeScreenshotAndEncode(function(encodedImage)
                         if encodedImage then
-                            queryImageWithGemini(encodedImage, recognizedText, function(geminiResponse)
-                                speak(geminiResponse)
-                                -- Stop after responding.
+                            local sentenceBuffer = ""
+                            local firstSentenceSpoken = false
+                            local onChunk = function(textChunk)
+                                sentenceBuffer = sentenceBuffer .. textChunk
+                                while sentenceBuffer:match("[\.!\?]") do
+                                    local sentence, remaining = sentenceBuffer:match("([^%.\?!]+[%.\?!])(.*)")
+                                    if sentence then
+                                        if not firstSentenceSpoken then
+                                            speak(sentence, "flush")
+                                            firstSentenceSpoken = true
+                                        else
+                                            speak(sentence, "add")
+                                        end
+                                        sentenceBuffer = remaining
+                                    else
+                                        speak(sentenceBuffer, "add")
+                                        sentenceBuffer = ""
+                                    end
+                                end
+                            end
+                            local onComplete = function()
+                                if sentenceBuffer ~= "" then
+                                    speak(sentenceBuffer, "add")
+                                end
+                                Thread.sleep(3000)
                                 pcall(function() service.stopSelf() end)
-                            end)
+                            end
+                            local onError = function(errorMessage)
+                                speak(errorMessage, "flush")
+                                isQueryInProgress = false
+                                pcall(function() service.stopSelf() end)
+                            end
+
+                            queryImageWithGemini(encodedImage, recognizedText, onChunk, onComplete, onError)
                         else
-                            speak(getFeedbackString("screenshot_failed"))
-                            -- Stop on failure.
+                            speak(getFeedbackString("screenshot_failed"), "flush")
+                            isQueryInProgress = false
                             pcall(function() service.stopSelf() end)
                         end
                     end)
                 else
-                    speak(getFeedbackString("query_already_running"))
-                    -- Stop even if a query was already running.
-                     pcall(function() service.stopSelf() end)
+                    speak(getFeedbackString("query_already_running"), "flush")
+                    pcall(function() service.stopSelf() end)
                 end
             else
-                 -- No matches, stop.
-                 pcall(function() service.stopSelf() end)
+                pcall(function() service.stopSelf() end)
             end
         end,
         onPartialResults = function() end,
