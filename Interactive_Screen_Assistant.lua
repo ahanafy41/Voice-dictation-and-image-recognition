@@ -168,7 +168,7 @@ local function queryImageWithGemini(base64Image, userQuery, onChunk, onComplete,
     local urlString = "https://generativelanguage.googleapis.com/v1beta/models/" .. modelToUse .. ":streamGenerateContent?key=" .. geminiApiKey
     local requestBody = [[{ "contents": [{ "parts": [ {"text": "]] .. escapeJsonString(prompt) .. [["}, { "inline_data": { "mime_type": "image/png", "data": "]] .. base64Image .. [[" } } ] }] }]]
 
-    local networkRunnable = Runnable {
+    local networkRunnable = luajava.createProxy("java.lang.Runnable", {
         run = function()
             local conn = nil
             local pcall_success, pcall_result = pcall(function()
@@ -192,7 +192,7 @@ local function queryImageWithGemini(base64Image, userQuery, onChunk, onComplete,
                         if line == nil then break end
                         local cleanedLine = line:gsub("^%s*%[?%s*,?%s*", ""):gsub("%s*,?%s*]?%s*$", "")
                         if cleanedLine ~= "" then
-                            mainHandler:post(Runnable { run = function()
+                            local runnable = luajava.createProxy("java.lang.Runnable", { run = function()
                                 local s, jR = pcall(function() return JSONObject(cleanedLine) end)
                                 if s and jR and jR.has("candidates") then
                                     local candidates = jR.getJSONArray("candidates")
@@ -208,22 +208,23 @@ local function queryImageWithGemini(base64Image, userQuery, onChunk, onComplete,
                                     end
                                 end
                             end })
+                            mainHandler:post(runnable)
                         end
                     end
                     reader.close()
-                    mainHandler:post(Runnable { run = onComplete })
+                    mainHandler:post(luajava.createProxy("java.lang.Runnable", { run = onComplete }))
                 else
-                    mainHandler:post(Runnable { run = function() onError("خطأ: فشل طلب Gemini (الحالة: " .. status .. ")") end })
+                    mainHandler:post(luajava.createProxy("java.lang.Runnable", { run = function() onError("خطأ: فشل طلب Gemini (الحالة: " .. status .. ")") end }))
                 end
             end)
             if not pcall_success then
-                mainHandler:post(Runnable { run = function() onError("خطأ في الاتصال: " .. tostring(pcall_result)) end })
+                mainHandler:post(luajava.createProxy("java.lang.Runnable", { run = function() onError("خطأ في الاتصال: " .. tostring(pcall_result)) end }))
             end
             if conn then
                 conn.disconnect()
             end
         end
-    }
+    })
     local networkThread = Thread(networkRunnable)
     networkThread.start()
 end
@@ -281,7 +282,7 @@ startVoiceRecognition = function()
 
     local startListening
 
-    local listener = RecognitionListener {
+    local listener = luajava.createProxy("android.speech.RecognitionListener", {
         onReadyForSpeech = function() speak(getFeedbackString("listening_speak_now")) end,
         onBeginningOfSpeech = function() end,
         onRmsChanged = function() end,
@@ -358,7 +359,7 @@ startVoiceRecognition = function()
         end,
         onPartialResults = function() end,
         onEvent = function() end
-    }
+    })
 
     startListening = function()
         if recognizer then
@@ -446,7 +447,9 @@ openSettings = function()
     local apiKeyIn = EditText(service)
     apiKeyIn.setText(geminiApiKey or "")
     apiKeyIn.setHint("أدخل المفتاح هنا")
-    apiKeyIn.addTextChangedListener{onTextChanged=function(s) geminiApiKey = s and s.toString() or "" end}
+    apiKeyIn.addTextChangedListener(luajava.createProxy("android.text.TextWatcher", {
+        onTextChanged = function(s) geminiApiKey = s and s.toString() or "" end
+    }))
     contentL.addView(apiKeyIn)
 
     local modelLbl = TextView(service)
@@ -468,17 +471,17 @@ openSettings = function()
     local currentModelIndex = -1
     for i, id in ipairs(modelIds) do if id == selectedGeminiModelId then currentModelIndex = i - 1; break end end
     if currentModelIndex ~= -1 then modelSpinner.setSelection(currentModelIndex) end
-    modelSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener {
+    modelSpinner.setOnItemSelectedListener(luajava.createProxy("android.widget.AdapterView$OnItemSelectedListener", {
         onItemSelected = function(_, _, position, _) selectedGeminiModelId = modelIds[position + 1] end,
         onNothingSelected = function() end
-    })
+    }))
     contentL.addView(modelSpinner)
 
     local testApiBtn = Button(service)
     testApiBtn.setText("اختبار المفتاح والنموذج")
-    testApiBtn.setOnClickListener(function()
-        testGeminiApiKey(geminiApiKey, selectedGeminiModelId, function(_, msg) speak(msg) end)
-    end)
+    testApiBtn.setOnClickListener(luajava.createProxy("android.view.View$OnClickListener", {
+        onClick = function() testGeminiApiKey(geminiApiKey, selectedGeminiModelId, function(_, msg) speak(msg) end) end
+    }))
     contentL.addView(testApiBtn)
 
     local screenshotLbl = TextView(service)
@@ -494,9 +497,11 @@ openSettings = function()
     focusRb.setContentDescription("اختيار وضع العنصر المحدد")
     screenshotGroup.addView(fullRb); screenshotGroup.addView(focusRb)
     if screenshotMode == "focus" then screenshotGroup.check(focusRb.getId()) else screenshotGroup.check(fullRb.getId()) end
-    screenshotGroup.setOnCheckedChangeListener(function(_, checkedId)
-        if checkedId == focusRb.getId() then screenshotMode = "focus" else screenshotMode = "full" end
-    end)
+    screenshotGroup.setOnCheckedChangeListener(luajava.createProxy("android.widget.RadioGroup$OnCheckedChangeListener", {
+        onCheckedChanged = function(_, checkedId)
+            if checkedId == focusRb.getId() then screenshotMode = "focus" else screenshotMode = "full" end
+        end
+    }))
     contentL.addView(screenshotGroup)
 
     local btnLayout = LinearLayout(service)
@@ -506,12 +511,12 @@ openSettings = function()
 
     local saveBtn = Button(service)
     saveBtn.setText("حفظ")
-    saveBtn.setOnClickListener(saveSettings)
+    saveBtn.setOnClickListener(luajava.createProxy("android.view.View$OnClickListener", { onClick = saveSettings }))
     btnLayout.addView(saveBtn)
 
     local closeBtn = Button(service)
     closeBtn.setText("إغلاق")
-    closeBtn.setOnClickListener(hideSettings)
+    closeBtn.setOnClickListener(luajava.createProxy("android.view.View$OnClickListener", { onClick = hideSettings }))
     local lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
     lp.setMargins(20, 0, 0, 0)
     btnLayout.addView(closeBtn, lp)
