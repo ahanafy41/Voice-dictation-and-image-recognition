@@ -35,6 +35,11 @@ import "android.R"
 import "android.widget.AdapterView"
 import "android.speech.tts.TextToSpeech"
 import "java.util.Locale"
+import "java.lang.Thread"
+import "java.lang.Runnable"
+import "java.net.URL"
+import "java.io.BufferedReader"
+import "java.io.InputStreamReader"
 -- #endregion
 
 -- Forward declarations for circular dependencies
@@ -154,12 +159,6 @@ local function queryImageWithGemini(base64Image, userQuery, onChunk, onComplete,
     if geminiApiKey == "" then onError(getFeedbackString("api_key_missing")); return end
     if not base64Image then onError("خطأ: بيانات الصورة غير متوفرة للاستعلام."); return end
     if not userQuery or userQuery == "" then onError("خطأ: لم يتم تقديم أي استعلام."); return end
-
-    local Thread = require "java.lang.Thread"
-    local Runnable = require "java.lang.Runnable"
-    local URL = require "java.net.URL"
-    local BufferedReader = require "java.io.BufferedReader"
-    local InputStreamReader = require "java.io.InputStreamReader"
 
     local prompt = "أجب على السؤال التالي بناءً على الصورة المرفقة. كن دقيقًا وموجزًا. السؤال هو: " .. userQuery
     local modelToUse = selectedGeminiModelId or defaultGeminiModelId
