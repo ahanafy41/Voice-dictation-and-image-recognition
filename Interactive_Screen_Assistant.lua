@@ -35,6 +35,8 @@ import "android.R"
 import "android.widget.AdapterView"
 import "android.speech.tts.TextToSpeech"
 import "java.util.Locale"
+import "android.os.Handler"
+import "android.os.Looper"
 import "java.lang.Thread"
 import "java.lang.Runnable"
 import "java.net.URL"
@@ -84,6 +86,7 @@ local settingsDialog = nil
 local isQueryInProgress = false
 local tts = nil
 local isTtsInitialized = false
+local mainHandler = Handler(Looper.getMainLooper())
 -- #endregion
 
 -- #region Helper Functions
@@ -189,7 +192,7 @@ local function queryImageWithGemini(base64Image, userQuery, onChunk, onComplete,
                         if line == nil then break end
                         local cleanedLine = line:gsub("^%s*%[?%s*,?%s*", ""):gsub("%s*,?%s*]?%s*$", "")
                         if cleanedLine ~= "" then
-                            service.post(function()
+                            mainHandler:post(Runnable { run = function()
                                 local s, jR = pcall(function() return JSONObject(cleanedLine) end)
                                 if s and jR and jR.has("candidates") then
                                     local candidates = jR.getJSONArray("candidates")
@@ -204,17 +207,17 @@ local function queryImageWithGemini(base64Image, userQuery, onChunk, onComplete,
                                         end
                                     end
                                 end
-                            end)
+                            end })
                         end
                     end
                     reader.close()
-                    service.post(onComplete)
+                    mainHandler:post(Runnable { run = onComplete })
                 else
-                    service.post(function() onError("خطأ: فشل طلب Gemini (الحالة: " .. status .. ")") end)
+                    mainHandler:post(Runnable { run = function() onError("خطأ: فشل طلب Gemini (الحالة: " .. status .. ")") end })
                 end
             end)
             if not pcall_success then
-                service.post(function() onError("خطأ في الاتصال: " .. tostring(pcall_result)) end)
+                mainHandler:post(Runnable { run = function() onError("خطأ في الاتصال: " .. tostring(pcall_result)) end })
             end
             if conn then
                 conn.disconnect()
