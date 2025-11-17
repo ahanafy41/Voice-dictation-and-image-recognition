@@ -37,8 +37,13 @@ import "android.speech.tts.TextToSpeech"
 import "java.util.Locale"
 -- #endregion
 
+-- Forward declarations for circular dependencies
+local startVoiceRecognition
+local openSettings
+local hideSettings
+
 -- #region Utility Functions
-function escapeJsonString(str)
+local function escapeJsonString(str)
     if not str then return "" end
     str = str:gsub('\\', '\\\\')
     str = str:gsub('"', '\\"')
@@ -57,14 +62,14 @@ local geminiModels = {
 local defaultGeminiModelId = "gemini-2.5-flash"
 
 local prefs = service.getSharedPreferences("screen_assistant_settings", Context.MODE_PRIVATE)
-geminiApiKey = prefs.getString("geminiApiKey", "")
+local geminiApiKey = prefs.getString("geminiApiKey", "")
 local loadedModelId = prefs.getString("geminiModelId", defaultGeminiModelId)
 local isValidModel = false
 for _, model in ipairs(geminiModels) do
     if model.id == loadedModelId then isValidModel = true; break end
 end
-selectedGeminiModelId = isValidModel and loadedModelId or defaultGeminiModelId
-screenshotMode = prefs.getString("screenshotMode", "full")
+local selectedGeminiModelId = isValidModel and loadedModelId or defaultGeminiModelId
+local screenshotMode = prefs.getString("screenshotMode", "full")
 -- #endregion
 
 -- #region Global Variables
@@ -77,7 +82,7 @@ local isTtsInitialized = false
 -- #endregion
 
 -- #region Helper Functions
-function getFeedbackString(key, langCode, ...)
+local function getFeedbackString(key, ...)
     local args = {...}
     local ar_strings = {
         command_settings = "فتح الإعدادات.",
@@ -112,7 +117,7 @@ end
 -- #endregion
 
 -- #region Text-to-Speech
-function initTextToSpeech(callback)
+local function initTextToSpeech(callback)
     if tts then
         pcall(function() tts.stop(); tts.shutdown() end)
         tts = nil
@@ -134,7 +139,7 @@ function initTextToSpeech(callback)
     pcall(function() tts = TextToSpeech(context, listener) end)
 end
 
-function speak(text, mode)
+local function speak(text, mode)
     local queueMode = (mode == "add") and TextToSpeech.QUEUE_ADD or TextToSpeech.QUEUE_FLUSH
     if not isTtsInitialized or not tts then
         service.asyncSpeak(text)
@@ -145,7 +150,7 @@ end
 -- #endregion
 
 -- #region Core Logic
-function queryImageWithGemini(base64Image, userQuery, onChunk, onComplete, onError)
+local function queryImageWithGemini(base64Image, userQuery, onChunk, onComplete, onError)
     if geminiApiKey == "" then onError(getFeedbackString("api_key_missing")); return end
     if not base64Image then onError("خطأ: بيانات الصورة غير متوفرة للاستعلام."); return end
     if not userQuery or userQuery == "" then onError("خطأ: لم يتم تقديم أي استعلام."); return end
@@ -221,7 +226,7 @@ function queryImageWithGemini(base64Image, userQuery, onChunk, onComplete, onErr
     networkThread.start()
 end
 
-function takeScreenshotAndEncode(callback)
+local function takeScreenshotAndEncode(callback)
     local function processBitmap(bmp)
         if bmp then
             local success, result = pcall(function()
@@ -259,7 +264,7 @@ end
 -- #endregion
 
 -- #region Voice Recognition
-function startVoiceRecognition()
+startVoiceRecognition = function()
     if recognizer then pcall(function() recognizer.destroy() end); recognizer = nil; collectgarbage("collect") end
     if not SpeechRecognizer.isRecognitionAvailable(service) then
         speak(getFeedbackString("error_speech_unavailable")); return
@@ -280,8 +285,7 @@ function startVoiceRecognition()
         onRmsChanged = function() end,
         onBufferReceived = function() end,
         onEndOfSpeech = function() end,
-        onError = function(error)
-            -- Stop listening on error. The script will need to be restarted.
+        onError = function()
             if recognizer then
                 pcall(function() recognizer.destroy() end)
                 recognizer = nil
@@ -306,8 +310,8 @@ function startVoiceRecognition()
                             local firstSentenceSpoken = false
                             local onChunk = function(textChunk)
                                 sentenceBuffer = sentenceBuffer .. textChunk
-                                while sentenceBuffer:match("[\.!\?]") do
-                                    local sentence, remaining = sentenceBuffer:match("([^%.\?!]+[%.\?!])(.*)")
+                                while sentenceBuffer:match("[%.!%?]") do
+                                    local sentence, remaining = sentenceBuffer:match("([^%.!%?]+[%.!%?])(.*)")
                                     if sentence then
                                         if not firstSentenceSpoken then
                                             speak(sentence, "flush")
@@ -368,7 +372,7 @@ end
 
 -- #region Settings UI
 
-function saveSettings()
+local function saveSettings()
     local editor = prefs.edit()
     editor.putString("geminiApiKey", geminiApiKey or "")
     editor.putString("geminiModelId", selectedGeminiModelId or defaultGeminiModelId)
@@ -378,16 +382,15 @@ function saveSettings()
     hideSettings()
 end
 
-function hideSettings()
+hideSettings = function()
     if settingsDialog then
         pcall(function() wm.removeView(settingsDialog) end)
         settingsDialog = nil
     end
-    -- After closing settings, restart listening for commands.
     startVoiceRecognition()
 end
 
-function testGeminiApiKey(key, modelId, callback)
+local function testGeminiApiKey(key, modelId, callback)
     if not key or key == "" then callback(false, getFeedbackString("error_gemini_api_test_fail_empty")); return end
     if not modelId or modelId == "" then callback(false, getFeedbackString("error_gemini_api_test_fail_model")); return end
 
@@ -395,7 +398,7 @@ function testGeminiApiKey(key, modelId, callback)
     local url = "https://generativelanguage.googleapis.com/v1beta/models/"..modelId..":generateContent?key="..key
     local requestBody = [[{ "contents": [{ "parts": [ {"text": "Hello"} ] }] }]]
     local headers = {["Content-Type"]="application/json"}
-    Http.post(url, requestBody, headers, function(status, response)
+    Http.post(url, requestBody, headers, function(status)
         local msg
         if status == 200 then
             msg = getFeedbackString("error_gemini_api_test_success", modelId)
@@ -411,9 +414,9 @@ function testGeminiApiKey(key, modelId, callback)
 end
 
 
-function openSettings()
+openSettings = function()
     if settingsDialog then return end
-    if recognizer then pcall(function() recognizer.cancel() end) end -- Stop listening while in settings
+    if recognizer then pcall(function() recognizer.cancel() end) end
 
     settingsDialog = LinearLayout(service)
     settingsDialog.setOrientation(LinearLayout.VERTICAL)
@@ -434,7 +437,6 @@ function openSettings()
     titleTxt.setPadding(0, 0, 0, 30)
     contentL.addView(titleTxt)
 
-    -- API Key
     local apiKeyLbl = TextView(service)
     apiKeyLbl.setText("مفتاح Gemini API:")
     apiKeyLbl.setTextColor(0xFF000000)
@@ -445,7 +447,6 @@ function openSettings()
     apiKeyIn.addTextChangedListener{onTextChanged=function(s) geminiApiKey = s and s.toString() or "" end}
     contentL.addView(apiKeyIn)
 
-    -- Gemini Model
     local modelLbl = TextView(service)
     modelLbl.setText("نموذج Gemini:")
     modelLbl.setTextColor(0xFF000000)
@@ -471,16 +472,13 @@ function openSettings()
     })
     contentL.addView(modelSpinner)
 
-    -- Test API Button
     local testApiBtn = Button(service)
     testApiBtn.setText("اختبار المفتاح والنموذج")
     testApiBtn.setOnClickListener(function()
-        testGeminiApiKey(geminiApiKey, selectedGeminiModelId, function(isSuccess, msg) speak(msg) end)
+        testGeminiApiKey(geminiApiKey, selectedGeminiModelId, function(_, msg) speak(msg) end)
     end)
     contentL.addView(testApiBtn)
 
-
-    -- Screenshot Mode
     local screenshotLbl = TextView(service)
     screenshotLbl.setText("وضع لقطة الشاشة:")
     screenshotLbl.setTextColor(0xFF000000)
@@ -499,7 +497,6 @@ function openSettings()
     end)
     contentL.addView(screenshotGroup)
 
-    -- Buttons Layout
     local btnLayout = LinearLayout(service)
     btnLayout.setOrientation(LinearLayout.HORIZONTAL)
     btnLayout.setGravity(Gravity.CENTER)
@@ -534,7 +531,7 @@ end
 -- #endregion
 
 -- #region Service Lifecycle
-function onDestroy()
+onDestroy = function()
     if recognizer then pcall(function() recognizer.destroy() end); recognizer = nil end
     if settingsDialog then pcall(function() wm.removeView(settingsDialog) end); settingsDialog = nil end
     if tts then pcall(function() tts.stop(); tts.shutdown() end); tts = nil end
