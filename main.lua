@@ -39,6 +39,10 @@ import "android.graphics.drawable.GradientDrawable" -- Added to fix the graphics
 import "android.os.Handler"
 import "android.os.Looper"
 import "android.view.inputmethod.InputMethodManager"
+import "java.net.HttpURLConnection"
+import "java.io.InputStreamReader"
+import "java.io.BufferedReader"
+import "java.io.OutputStreamWriter"
 
 -- **Base64 Encode Function**
 local base64_chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
@@ -692,12 +696,142 @@ function querySummaryWithGemini(summary, history, userQuery, callback)
     makeAiRequest(prompt, "Answer about summary. Concise.", nil, nil, callback)
 end
 
+function uploadFileToGemini(filePath, mimeType, apiKey, callback)
+    import "java.lang.Thread"
+    import "java.lang.Runnable"
+    import "java.net.URL"
+    import "java.net.HttpURLConnection"
+    import "java.io.File"
+    import "java.io.FileInputStream"
+    import "java.io.OutputStreamWriter"
+    import "android.os.Handler"
+    import "android.os.Looper"
+    import "org.json.JSONObject"
+
+    local t = Thread(Runnable{
+        run = function()
+            local success, err = pcall(function()
+                local file = File(filePath)
+                local fileName = file.getName()
+                local fileSize = file.length()
+
+                -- Step 1: Initialize Resumable Upload
+                local initUrl = URL("https://generativelanguage.googleapis.com/upload/v1beta/files?key=" .. apiKey)
+                local conn = initUrl.openConnection()
+                conn.setRequestMethod("POST")
+                conn.setDoOutput(true)
+                conn.setRequestProperty("X-Goog-Upload-Protocol", "resumable")
+                conn.setRequestProperty("X-Goog-Upload-Command", "start")
+                conn.setRequestProperty("X-Goog-Upload-Header-Content-Length", tostring(fileSize))
+                conn.setRequestProperty("X-Goog-Upload-Header-Content-Type", mimeType)
+                conn.setRequestProperty("Content-Type", "application/json")
+
+                local metadata = JSONObject()
+                local fileObj = JSONObject()
+                fileObj.put("display_name", fileName)
+                metadata.put("file", fileObj)
+
+                local osw = OutputStreamWriter(conn.getOutputStream())
+                osw.write(metadata.toString())
+                osw.flush()
+                osw.close()
+
+                local responseCode = conn.getResponseCode()
+                if responseCode ~= 200 then
+                    local errorMsg = "Upload initialization failed: " .. responseCode
+                    local handler = Handler(Looper.getMainLooper())
+                    handler.post(Runnable{run=function() callback("Error: " .. errorMsg) end})
+                    return
+                end
+
+                local uploadUrl = conn.getHeaderField("X-Goog-Upload-URL")
+                conn.disconnect()
+
+                -- Step 2: Upload File Bytes
+                local putUrl = URL(uploadUrl)
+                local putConn = putUrl.openConnection()
+                putConn.setRequestMethod("PUT") -- PUT is standard for resumable upload parts
+                putConn.setDoOutput(true)
+                putConn.setFixedLengthStreamingMode(fileSize)
+                putConn.setRequestProperty("X-Goog-Upload-Protocol", "resumable")
+                putConn.setRequestProperty("X-Goog-Upload-Command", "upload, finalize")
+                putConn.setRequestProperty("X-Goog-Upload-Offset", "0")
+
+                local os = putConn.getOutputStream()
+                local fis = FileInputStream(file)
+                local buffer = luajava.newArray(luajava.bindClass("java.lang.Byte").TYPE, 8192)
+                local read = fis.read(buffer)
+                while read ~= -1 do
+                    os.write(buffer, 0, read)
+                    read = fis.read(buffer)
+                end
+                fis.close()
+                os.flush()
+                os.close()
+
+                local finalCode = putConn.getResponseCode()
+                local response = ""
+                local is = (finalCode == 200 or finalCode == 201) and putConn.getInputStream() or putConn.getErrorStream()
+                local br = BufferedReader(InputStreamReader(is))
+                local line = br.readLine()
+                while line ~= nil do response = response .. line; line = br.readLine() end
+                br.close()
+                putConn.disconnect()
+
+                local handler = Handler(Looper.getMainLooper())
+                handler.post(Runnable{
+                    run = function()
+                        if finalCode == 200 or finalCode == 201 then
+                            local s, j = pcall(function() return JSONObject(response) end)
+                            if s and j.has("file") then
+                                local fileUri = j.getJSONObject("file").getString("uri")
+                                callback(fileUri)
+                            else
+                                callback("Error: Invalid upload response " .. response)
+                            end
+                        else
+                            callback("Error: Upload failed " .. finalCode .. " - " .. response)
+                        end
+                    end
+                })
+            end)
+            if not success then
+                local handler = Handler(Looper.getMainLooper())
+                handler.post(Runnable{run=function() callback("Error Exception: " .. tostring(err)) end})
+            end
+        end
+    })
+    t.start()
+end
+
 function transcribeAudio(filePath, callback)
     local provider = "groq"
     local modId = "whisper-large-v3"
+    local found = false
+    local audioModelIdToUse = selectedAudioModelId or defaultAudioModelId
+
     for _, m in ipairs(audioModels) do
-        if m.id == selectedAudioModelId then provider = m.provider; modId = m.id; break end
+        if m.id == audioModelIdToUse then
+            provider = m.provider
+            modId = m.id
+            found = true
+            break
+        end
     end
+    -- Fallback for custom model IDs
+    if not found then
+        local lowerId = audioModelIdToUse:lower()
+        if lowerId:match("gemini") then provider = "gemini"
+        elseif lowerId:match("wit") then provider = "wit"
+        else provider = "groq" end
+        modId = audioModelIdToUse
+    end
+
+    local providerName = "Google Gemini"
+    if provider == "groq" then providerName = "Groq Whisper"
+    elseif provider == "wit" then providerName = "Facebook Wit.ai" end
+
+    service.asyncSpeak("استخدام مزود: " .. providerName .. ". موديل: " .. modId)
 
     import "java.lang.Thread"
     import "java.lang.Runnable"
@@ -718,8 +852,11 @@ function transcribeAudio(filePath, callback)
         local t = Thread(Runnable{
             run = function()
                 local success, err = pcall(function()
+                    local file = File(filePath)
+                    local fileSize = file.length()
                     local url = URL("https://api.groq.com/openai/v1/audio/transcriptions")
                     local conn = url.openConnection()
+                    conn.setFixedLengthStreamingMode(-1) -- Use -1 if content length is unknown or multipart
                     local boundary = "*****" .. tostring(System.currentTimeMillis()) .. "*****"
                     conn.setDoInput(true)
                     conn.setDoOutput(true)
@@ -738,13 +875,13 @@ function transcribeAudio(filePath, callback)
                     dos.writeBytes("Content-Type: application/octet-stream\r\n\r\n")
                     local fileInputStream = FileInputStream(file)
                     local bufferSize = 4096
-                    local buffer = byte[bufferSize]
-                    local bytesRead = fileInputStream.read(buffer, 0, bufferSize)
+                    local buffer = luajava.newArray(luajava.bindClass("java.lang.Byte").TYPE, bufferSize)
+                    local bytesRead = fileInputStream:read(buffer, 0, bufferSize)
                     while bytesRead > 0 do
                         dos.write(buffer, 0, bytesRead)
-                        bytesRead = fileInputStream.read(buffer, 0, bufferSize)
+                        bytesRead = fileInputStream:read(buffer, 0, bufferSize)
                     end
-                    fileInputStream.close()
+                    fileInputStream:close()
                     dos.writeBytes("\r\n")
                     dos.writeBytes("--" .. boundary .. "--\r\n")
                     dos.flush()
@@ -775,79 +912,57 @@ function transcribeAudio(filePath, callback)
         t.start()
     elseif provider == "gemini" then
         if geminiApiKey == "" then callback("Error: Gemini API Key is missing", true); return end
-        local t = Thread(Runnable{
-            run = function()
-                local success, err = pcall(function()
-                    local file = File(filePath)
-                    local fis = FileInputStream(file)
-                    local bos = ByteArrayOutputStream()
-                    local buf = byte[4096]
-                    local read = fis.read(buf)
-                    while read ~= -1 do
-                        bos.write(buf, 0, read)
-                        read = fis.read(buf)
-                    end
-                    fis.close()
-                    local audioBytes = bos.toByteArray()
-                    bos.close()
-                    local b64 = Base64.encodeToString(audioBytes, Base64.NO_WRAP)
-                    
-                    local handler = Handler(Looper.getMainLooper())
-                    handler.post(Runnable{
-                        run = function()
-                            local prompt = "قم بتفريغ هذا الملف الصوتي بدقة. اكتب النص المستخرج فقط."
-                            local url = "https://generativelanguage.googleapis.com/v1beta/models/" .. modId .. ":generateContent?key=" .. geminiApiKey
-                            local headers = {["Content-Type"] = "application/json"}
-                            local ext = filePath:match("%.([^%.]+)$") or "mp3"
-                            local mime = "audio/" .. ext
-                            if ext == "m4a" then mime = "audio/mp4" end
-                            
-                            local root = JSONObject()
-                            local contentObj = JSONObject()
-                            local partsArray = JSONArray()
-                            
-                            local inlinePart = JSONObject()
-                            local inlineData = JSONObject()
-                            inlineData.put("mime_type", mime)
-                            inlineData.put("data", b64)
-                            inlinePart.put("inline_data", inlineData)
-                            partsArray.put(inlinePart)
-                            
-                            local textPart = JSONObject()
-                            textPart.put("text", prompt)
-                            partsArray.put(textPart)
-                            
-                            contentObj.put("parts", partsArray)
-                            local contentsArray = JSONArray()
-                            contentsArray.put(contentObj)
-                            root.put("contents", contentsArray)
-                            
-                            Http.post(url, root.toString(), headers, function(status, response)
-                                if status == 200 then
-                                    local s, j = pcall(function() return JSONObject(response) end)
-                                    if s and j.has("candidates") then
-                                        local cands = j.getJSONArray("candidates")
-                                        if cands.length() > 0 then
-                                            local parts = cands.getJSONObject(0).getJSONObject("content").getJSONArray("parts")
-                                            if parts.length() > 0 and parts.getJSONObject(0).has("text") then
-                                                callback(parts.getJSONObject(0).getString("text"), true)
-                                                return
-                                            end
-                                        end
-                                    end
-                                end
-                                callback("Error Gemini: " .. status .. " - " .. tostring(response), true)
-                            end)
-                        end
-                    })
-                end)
-                if not success then
-                    local handler = Handler(Looper.getMainLooper())
-                    handler.post(Runnable{run=function() callback("Exception: " .. tostring(err), true) end})
-                end
+        local ext = filePath:match("%.([^%.]+)$") or "mp3"
+        local mime = "audio/" .. ext
+        if ext == "m4a" then mime = "audio/mp4" end
+
+        uploadFileToGemini(filePath, mime, geminiApiKey, function(fileUriOrError)
+            if fileUriOrError:match("^Error:") then
+                callback(fileUriOrError, true)
+                return
             end
-        })
-        t.start()
+
+            local prompt = "قم بتفريغ هذا الملف الصوتي بدقة. اكتب النص المستخرج فقط."
+            local url = "https://generativelanguage.googleapis.com/v1beta/models/" .. modId .. ":generateContent?key=" .. geminiApiKey
+            local headers = {["Content-Type"] = "application/json"}
+
+            local root = JSONObject()
+            local contentObj = JSONObject()
+            local partsArray = JSONArray()
+
+            local filePart = JSONObject()
+            local fileData = JSONObject()
+            fileData.put("mime_type", mime)
+            fileData.put("file_uri", fileUriOrError)
+            filePart.put("file_data", fileData)
+            partsArray.put(filePart)
+
+            local textPart = JSONObject()
+            textPart.put("text", prompt)
+            partsArray.put(textPart)
+
+            contentObj.put("parts", partsArray)
+            local contentsArray = JSONArray()
+            contentsArray.put(contentObj)
+            root.put("contents", contentsArray)
+
+            Http.post(url, root.toString(), headers, function(status, response)
+                if status == 200 then
+                    local s, j = pcall(function() return JSONObject(response) end)
+                    if s and j.has("candidates") then
+                        local cands = j.getJSONArray("candidates")
+                        if cands.length() > 0 then
+                            local parts = cands.getJSONObject(0).getJSONObject("content").getJSONArray("parts")
+                            if parts.length() > 0 and parts.getJSONObject(0).has("text") then
+                                callback(parts.getJSONObject(0).getString("text"), true)
+                                return
+                            end
+                        end
+                    end
+                end
+                callback("Error Gemini: " .. status .. " - " .. tostring(response), true)
+            end)
+        end)
     elseif provider == "wit" then
         if witApiKey == "" then callback("Error: Wit.ai API Key is missing", true); return end
         local t = Thread(Runnable{
@@ -878,14 +993,14 @@ function transcribeAudio(filePath, callback)
                     local file = File(filePath)
                     local fileInputStream = FileInputStream(file)
                     local bufferSize = 8192
-                    local buffer = byte[bufferSize]
-                    local bytesRead = fileInputStream.read(buffer, 0, bufferSize)
+                    local buffer = luajava.newArray(luajava.bindClass("java.lang.Byte").TYPE, bufferSize)
+                    local bytesRead = fileInputStream:read(buffer, 0, bufferSize)
                     while bytesRead > 0 do
                         dos.write(buffer, 0, bytesRead)
                         dos.flush()
-                        bytesRead = fileInputStream.read(buffer, 0, bufferSize)
+                        bytesRead = fileInputStream:read(buffer, 0, bufferSize)
                     end
-                    fileInputStream.close()
+                    fileInputStream:close()
                     dos.close()
                     
                     local responseCode = conn.getResponseCode()
@@ -1281,7 +1396,7 @@ function openPdfPickerWindow(startPath, onFileSelected)
     local winP = WindowManager.LayoutParams(); winP.width=WindowManager.LayoutParams.MATCH_PARENT; winP.height=math.floor(service.getResources().getDisplayMetrics().heightPixels*0.8); winP.type=WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY; winP.flags=WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL; winP.format=PixelFormat.TRANSLUCENT; winP.gravity=Gravity.CENTER; pcall(function() wm.addView(fpWindow, winP) end)
 end
 
-function showPdfViewerWindow(filePath, base64Pdf)
+function showPdfViewerWindow(filePath, fileUri)
     if resultWindow then pcall(function() wm.removeView(resultWindow) end); resultWindow = nil end
     local currentDictLangDetails = getLanguageDetails(selectedLanguage)
     local accumulatedQnA = "ملف PDF محمل.\n\n"
@@ -1355,12 +1470,12 @@ function showPdfViewerWindow(filePath, base64Pdf)
         local contentObj = JSONObject()
         local partsArray = JSONArray()
 
-        local inlinePart = JSONObject()
-        local inlineData = JSONObject()
-        inlineData.put("mime_type", "application/pdf")
-        inlineData.put("data", base64Pdf)
-        inlinePart.put("inline_data", inlineData)
-        partsArray.put(inlinePart)
+        local filePart = JSONObject()
+        local fileData = JSONObject()
+        fileData.put("mime_type", "application/pdf")
+        fileData.put("file_uri", fileUri)
+        filePart.put("file_data", fileData)
+        partsArray.put(filePart)
 
         local textPart = JSONObject()
         textPart.put("text", q)
@@ -1433,12 +1548,12 @@ function showPdfViewerWindow(filePath, base64Pdf)
         local contentObj = JSONObject()
         local partsArray = JSONArray()
         
-        local inlinePart = JSONObject()
-        local inlineData = JSONObject()
-        inlineData.put("mime_type", "application/pdf")
-        inlineData.put("data", base64Pdf)
-        inlinePart.put("inline_data", inlineData)
-        partsArray.put(inlinePart)
+        local filePart = JSONObject()
+        local fileData = JSONObject()
+        fileData.put("mime_type", "application/pdf")
+        fileData.put("file_uri", fileUri)
+        filePart.put("file_data", fileData)
+        partsArray.put(filePart)
         
         local textPart = JSONObject()
         textPart.put("text", promptText)
@@ -1558,9 +1673,9 @@ function showPdfViewerWindow(filePath, base64Pdf)
         local url = "https://generativelanguage.googleapis.com/v1beta/models/" .. selectedGeminiModelId .. ":generateContent?key=" .. geminiApiKey
         local headers = {["Content-Type"] = "application/json"}
         local root = JSONObject(); local contentObj = JSONObject(); local partsArray = JSONArray()
-        local inlinePart = JSONObject(); local inlineData = JSONObject()
-        inlineData.put("mime_type", "application/pdf"); inlineData.put("data", base64Pdf)
-        inlinePart.put("inline_data", inlineData); partsArray.put(inlinePart)
+        local filePart = JSONObject(); local fileData = JSONObject()
+        fileData.put("mime_type", "application/pdf"); fileData.put("file_uri", fileUri)
+        filePart.put("file_data", fileData); partsArray.put(filePart)
         local textPart = JSONObject(); textPart.put("text", q); partsArray.put(textPart)
         contentObj.put("parts", partsArray); local contentsArray = JSONArray(); contentsArray.put(contentObj); root.put("contents", contentsArray)
 
@@ -1600,51 +1715,14 @@ function loadPdfAndShowViewer(filePath)
     service.asyncSpeak("جاري تحميل وقراءة الملف...")
     showResultWindow("تحميل PDF", "⏳ جاري قراءة الملف وتجهيزه...")
     
-    import "java.lang.Thread"
-    import "java.lang.Runnable"
-    import "android.os.Handler"
-    import "android.os.Looper"
-    import "java.io.File"
-    import "java.io.FileInputStream"
-    import "java.io.ByteArrayOutputStream"
-    import "android.util.Base64"
-    
-    local t = Thread(Runnable{
-        run = function()
-            local success, err = pcall(function()
-                local file = File(filePath)
-                local fis = FileInputStream(file)
-                local bos = ByteArrayOutputStream()
-                local buf = byte[8192]
-                local read = fis.read(buf)
-                while read ~= -1 do
-                    bos.write(buf, 0, read)
-                    read = fis.read(buf)
-                end
-                fis.close()
-                local pdfBytes = bos.toByteArray()
-                bos.close()
-                local b64 = Base64.encodeToString(pdfBytes, Base64.NO_WRAP)
-                
-                local handler = Handler(Looper.getMainLooper())
-                handler.post(Runnable{
-                    run = function()
-                        showPdfViewerWindow(filePath, b64)
-                    end
-                })
-            end)
-            if not success then
-                local handler = Handler(Looper.getMainLooper())
-                handler.post(Runnable{
-                    run = function()
-                        service.asyncSpeak("خطأ في قراءة الملف.")
-                        showResultWindow("خطأ", tostring(err))
-                    end
-                })
-            end
+    uploadFileToGemini(filePath, "application/pdf", geminiApiKey, function(fileUriOrError)
+        if fileUriOrError:match("^Error:") then
+            service.asyncSpeak("خطأ في تحميل الملف.")
+            showResultWindow("خطأ", fileUriOrError)
+            return
         end
-    })
-    t.start()
+        showPdfViewerWindow(filePath, fileUriOrError)
+    end)
 end
 
 -- ### Screen Text and Screenshot Functions
@@ -1815,7 +1893,7 @@ function openSettings()
     local modelCard = createCard(contentL)
     addSectionHeader("اختيار النماذج (Models)", modelCard)
 
-    modelCard.addView(createLabel("اختر موديل تفريغ الصوت (Audio):"))
+    modelCard.addView(createLabel("اختر موديل تفريغ الصوت (Transcription):"))
     local audNames = ArrayList(); local audIds = {}
     for _, m in ipairs(audioModels) do audNames.add(m.name); table.insert(audIds, m.id) end
     local audAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, audNames); audAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
@@ -1825,7 +1903,7 @@ function openSettings()
     audSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener { onItemSelected = function(parent, view, position, id) selectedAudioModelId = audIds[position + 1] end })
     modelCard.addView(audSpinner)
 
-    modelCard.addView(createLabel("اختر موديل Groq (للكتابة):"))
+    modelCard.addView(createLabel("اختر موديل Groq (Text AI):"))
     local grNames = ArrayList(); local grIds = {}
     local foundGr = false; for _, m in ipairs(groqModels) do if m.id == selectedGroqModelId then foundGr = true break end end
     if not foundGr and selectedGroqModelId ~= "" then grNames.add(selectedGroqModelId); table.insert(grIds, selectedGroqModelId) end
@@ -1841,7 +1919,7 @@ function openSettings()
     grFetchBtn.setOnClickListener(function() fetchGroqModels(function() hideSettings(); openSettings() end) end)
     modelCard.addView(grFetchBtn)
 
-    modelCard.addView(createLabel("اختر موديل Gemini (للصور):"))
+    modelCard.addView(createLabel("اختر موديل Gemini (Vision/PDF):"))
     local gemNames = ArrayList(); local gemIds = {}
     for _, m in ipairs(geminiModels) do gemNames.add(m.name); table.insert(gemIds, m.id) end
     local gemAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, gemNames); gemAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
@@ -1883,6 +1961,10 @@ function openSettings()
 
     local transcribeFileBtn = Button(service); transcribeFileBtn.setText("📁 تحويل ملف صوتي إلى نص"); styleButton(transcribeFileBtn, "secondary")
     transcribeFileBtn.setOnClickListener(function()
+        groqApiKey = groqApiKeyIn.getText().toString()
+        geminiApiKey = gemApiKeyIn.getText().toString()
+        witApiKey = witApiKeyIn.getText().toString()
+        saveSettings()
         hideSettings()
         openFilePickerWindow("/storage/emulated/0", function(selectedPath)
             service.asyncSpeak("جاري الرفع والمعالجة...")
