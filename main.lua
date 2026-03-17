@@ -38,6 +38,7 @@ import "android.speech.tts.Voice" -- New import for Voice object
 import "android.graphics.drawable.GradientDrawable" -- Added to fix the graphics nil value error
 import "android.os.Handler"
 import "android.os.Looper"
+import "android.view.inputmethod.InputMethodManager"
 
 -- **Base64 Encode Function**
 local base64_chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
@@ -1090,7 +1091,7 @@ function showImageDescriptionWindow(initialDescription, initialOcrText, base64Im
     closeBtn.setOnClickListener(function() if resultWindow then pcall(function()wm.removeView(resultWindow)end); resultWindow=nil end; if imageQueryRecognizer then pcall(function()imageQueryRecognizer.destroy()end); imageQueryRecognizer=nil end end)
     local btnP = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,LinearLayout.LayoutParams.WRAP_CONTENT); btnP.topMargin=20; resultWindow.addView(closeBtn,btnP)
     
-    local winP = WindowManager.LayoutParams(); winP.width=WindowManager.LayoutParams.MATCH_PARENT; winP.height=math.floor(service.getResources().getDisplayMetrics().heightPixels*0.85); winP.type=WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY; winP.flags=WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL|WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE|WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN; winP.format=PixelFormat.TRANSLUCENT; winP.gravity=Gravity.CENTER; winP.horizontalMargin=0.05; winP.verticalMargin=0.05
+    local winP = WindowManager.LayoutParams(); winP.width=WindowManager.LayoutParams.MATCH_PARENT; winP.height=math.floor(service.getResources().getDisplayMetrics().heightPixels*0.85); winP.type=WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY; winP.flags=WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL|WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN; winP.format=PixelFormat.TRANSLUCENT; winP.gravity=Gravity.CENTER; winP.horizontalMargin=0.05; winP.verticalMargin=0.05
     pcall(function() wm.addView(resultWindow, winP) end)
 
     if initialDescription and initialDescription ~= "لم يتم العثور على وصف." and initialDescription ~= "" then
@@ -1198,7 +1199,7 @@ function showSummaryWindow(summary)
     closeBtn.setOnClickListener(function() if summaryWindow then pcall(function()wm.removeView(summaryWindow)end); summaryWindow=nil end; if summaryQueryRecognizer then pcall(function()summaryQueryRecognizer.destroy()end); summaryQueryRecognizer=nil end end)
     local btnP = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,LinearLayout.LayoutParams.WRAP_CONTENT); btnP.topMargin=20; summaryWindow.addView(closeBtn,btnP)
     
-    local winP = WindowManager.LayoutParams(); winP.width=WindowManager.LayoutParams.MATCH_PARENT; winP.height=math.floor(service.getResources().getDisplayMetrics().heightPixels*0.85); winP.type=WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY; winP.flags=WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL|WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE|WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN; winP.format=PixelFormat.TRANSLUCENT; winP.gravity=Gravity.CENTER; winP.horizontalMargin=0.05; winP.verticalMargin=0.05
+    local winP = WindowManager.LayoutParams(); winP.width=WindowManager.LayoutParams.MATCH_PARENT; winP.height=math.floor(service.getResources().getDisplayMetrics().heightPixels*0.85); winP.type=WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY; winP.flags=WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL|WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN; winP.format=PixelFormat.TRANSLUCENT; winP.gravity=Gravity.CENTER; winP.horizontalMargin=0.05; winP.verticalMargin=0.05
     pcall(function() wm.addView(summaryWindow, winP) end)
 
     if summary and not summary:match("^Error:") and not summary:match("^خطأ:") and summary ~= "" then
@@ -1220,7 +1221,7 @@ function showResultWindow(titleTextStr, contentTextStr)
     globalResultContentTextView.setText(contentTextStr); globalResultContentTextView.setTextIsSelectable(true); globalResultContentTextView.setTextSize(18); globalResultContentTextView.setTextColor(0xFFE0E0E0); globalResultContentTextView.setPadding(10,20,10,20); scrollV.addView(globalResultContentTextView); resultWindow.addView(scrollV, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,0,1.0))
     local copyBtn = Button(service); copyBtn.setText("📋 نسخ النص"); styleButton(copyBtn, "secondary"); copyBtn.setOnClickListener(function() local cb=service.getSystemService(Context.CLIPBOARD_SERVICE); local cl=ClipData.newPlainText(titleTextStr,globalResultContentTextView.getText().toString()); cb.setPrimaryClip(cl); service.asyncSpeak(getFeedbackString("copy_general_text", currentDictLangDetails.code)) end); resultWindow.addView(copyBtn)
     local closeBtn = Button(service); closeBtn.setText("❌ إغلاق"); styleButton(closeBtn, "danger"); closeBtn.setOnClickListener(function() if resultWindow then pcall(function()wm.removeView(resultWindow)end); resultWindow=nil; globalResultContentTextView=nil end end); local btnP = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,LinearLayout.LayoutParams.WRAP_CONTENT); resultWindow.addView(closeBtn,btnP)
-    local winP = WindowManager.LayoutParams(); winP.width=WindowManager.LayoutParams.MATCH_PARENT; winP.height=WindowManager.LayoutParams.WRAP_CONTENT; winP.type=WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY; winP.flags=WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL|WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE; winP.format=PixelFormat.TRANSLUCENT; winP.gravity=Gravity.CENTER; winP.horizontalMargin=0.1; winP.verticalMargin=0.1
+    local winP = WindowManager.LayoutParams(); winP.width=WindowManager.LayoutParams.MATCH_PARENT; winP.height=WindowManager.LayoutParams.WRAP_CONTENT; winP.type=WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY; winP.flags=WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL; winP.format=PixelFormat.TRANSLUCENT; winP.gravity=Gravity.CENTER; winP.horizontalMargin=0.1; winP.verticalMargin=0.1
     pcall(function() wm.addView(resultWindow, winP) end)
 end
 
@@ -1249,7 +1250,7 @@ function openFilePickerWindow(startPath, onFileSelected)
     end
     loadDir(startPath)
     local closeBtn = Button(service); closeBtn.setText("❌ إغلاق"); styleButton(closeBtn, "danger"); closeBtn.setOnClickListener(function() pcall(function() wm.removeView(fpWindow) end) end); local btnP = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,LinearLayout.LayoutParams.WRAP_CONTENT); btnP.topMargin=20; fpWindow.addView(closeBtn,btnP)
-    local winP = WindowManager.LayoutParams(); winP.width=WindowManager.LayoutParams.MATCH_PARENT; winP.height=math.floor(service.getResources().getDisplayMetrics().heightPixels*0.8); winP.type=WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY; winP.flags=WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL|WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE; winP.format=PixelFormat.TRANSLUCENT; winP.gravity=Gravity.CENTER; pcall(function() wm.addView(fpWindow, winP) end)
+    local winP = WindowManager.LayoutParams(); winP.width=WindowManager.LayoutParams.MATCH_PARENT; winP.height=math.floor(service.getResources().getDisplayMetrics().heightPixels*0.8); winP.type=WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY; winP.flags=WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL; winP.format=PixelFormat.TRANSLUCENT; winP.gravity=Gravity.CENTER; pcall(function() wm.addView(fpWindow, winP) end)
 end
 
 function openPdfPickerWindow(startPath, onFileSelected)
@@ -1277,7 +1278,7 @@ function openPdfPickerWindow(startPath, onFileSelected)
     end
     loadDir(startPath)
     local closeBtn = Button(service); closeBtn.setText("❌ إغلاق"); styleButton(closeBtn, "danger"); closeBtn.setOnClickListener(function() pcall(function() wm.removeView(fpWindow) end) end); local btnP = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,LinearLayout.LayoutParams.WRAP_CONTENT); btnP.topMargin=20; fpWindow.addView(closeBtn,btnP)
-    local winP = WindowManager.LayoutParams(); winP.width=WindowManager.LayoutParams.MATCH_PARENT; winP.height=math.floor(service.getResources().getDisplayMetrics().heightPixels*0.8); winP.type=WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY; winP.flags=WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL|WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE; winP.format=PixelFormat.TRANSLUCENT; winP.gravity=Gravity.CENTER; pcall(function() wm.addView(fpWindow, winP) end)
+    local winP = WindowManager.LayoutParams(); winP.width=WindowManager.LayoutParams.MATCH_PARENT; winP.height=math.floor(service.getResources().getDisplayMetrics().heightPixels*0.8); winP.type=WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY; winP.flags=WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL; winP.format=PixelFormat.TRANSLUCENT; winP.gravity=Gravity.CENTER; pcall(function() wm.addView(fpWindow, winP) end)
 end
 
 function showPdfViewerWindow(filePath, base64Pdf)
@@ -1291,26 +1292,138 @@ function showPdfViewerWindow(filePath, base64Pdf)
     
     local scrollV = ScrollView(service); local contentL = LinearLayout(service); contentL.setOrientation(LinearLayout.VERTICAL); contentL.setPadding(10,10,10,10)
     
+    local pagesCache = {}
+    local currentCacheIdx = 1
+
     local pageCtrlL = LinearLayout(service); pageCtrlL.setOrientation(LinearLayout.HORIZONTAL); pageCtrlL.setGravity(Gravity.CENTER_VERTICAL); pageCtrlL.setPadding(0,0,0,20)
-    local l1 = TextView(service); l1.setText("من صفحة:"); l1.setTextColor(0xFFB0B0B0); l1.setPadding(0,0,10,0); pageCtrlL.addView(l1)
-    local e1 = EditText(service); e1.setInputType(2); e1.setText("1"); styleEditText(e1); local lp1 = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0); lp1.rightMargin=10; pageCtrlL.addView(e1, lp1)
+    local l1 = TextView(service); l1.setText("من:"); l1.setTextColor(0xFFB0B0B0); l1.setPadding(0,0,10,0); pageCtrlL.addView(l1)
+    local e1 = EditText(service); e1.setInputType(2); e1.setText("1"); e1.setHint("1"); styleEditText(e1); local lp1 = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0); lp1.rightMargin=10; pageCtrlL.addView(e1, lp1)
     local l2 = TextView(service); l2.setText("إلى:"); l2.setTextColor(0xFFB0B0B0); l2.setPadding(0,0,10,0); pageCtrlL.addView(l2)
-    local e2 = EditText(service); e2.setInputType(2); e2.setText("5"); styleEditText(e2); local lp2 = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0); pageCtrlL.addView(e2, lp2)
+    local e2 = EditText(service); e2.setInputType(2); e2.setText("5"); e2.setHint("5"); styleEditText(e2); local lp2 = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0); pageCtrlL.addView(e2, lp2)
+
+    local function showKeyboard(view)
+        if not view then return end
+        view.requestFocus()
+        local imm = service.getSystemService(Context.INPUT_METHOD_SERVICE)
+        if imm then imm.showSoftInput(view, InputMethodManager.SHOW_IMPLICIT) end
+    end
+    e1.setOnTouchListener(View.OnTouchListener{ onTouch = function(v, event) if event.getAction() == MotionEvent.ACTION_UP then showKeyboard(v) end return false end })
+    e2.setOnTouchListener(View.OnTouchListener{ onTouch = function(v, event) if event.getAction() == MotionEvent.ACTION_UP then showKeyboard(v) end return false end })
     contentL.addView(pageCtrlL)
     
+    local loadBtn = Button(service); loadBtn.setText("📂 تحميل الصفحات المحددة"); styleButton(loadBtn, "primary")
+    local btnP1 = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT); btnP1.setMargins(0,0,0,20)
+    loadBtn.setLayoutParams(btnP1)
+    contentL.addView(loadBtn)
+
+    local navL = LinearLayout(service); navL.setOrientation(LinearLayout.HORIZONTAL); navL.setGravity(Gravity.CENTER); navL.setPadding(0,0,0,20)
+    local prevBtn = Button(service); prevBtn.setText("⬅️ السابق"); styleButton(prevBtn, "secondary")
+    local pageInd = TextView(service); pageInd.setText("صفحة: -"); pageInd.setTextColor(0xFFFFFFFF); pageInd.setTextSize(18); pageInd.setPadding(30,0,30,0)
+    local nextBtn = Button(service); nextBtn.setText("التالي ➡️"); styleButton(nextBtn, "secondary")
+    navL.addView(prevBtn); navL.addView(pageInd); navL.addView(nextBtn)
+    contentL.addView(navL)
+
+    local pageContentTV = TextView(service); pageContentTV.setText("يرجى تحديد نطاق الصفحات والضغط على تحميل."); pageContentTV.setTextSize(18); pageContentTV.setTextColor(0xFFE0E0E0); pageContentTV.setPadding(10,20,10,20); pageContentTV.setTextIsSelectable(true)
+    contentL.addView(pageContentTV)
+
     local qnaHistoryLayout = LinearLayout(service)
     qnaHistoryLayout.setOrientation(LinearLayout.VERTICAL)
     contentL.addView(qnaHistoryLayout)
-    
-    local readBtn = Button(service); readBtn.setText("📖 قراءة الصفحات المحددة"); styleButton(readBtn, "primary")
-    local btnP1 = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT); btnP1.setMargins(0,10,0,10)
-    readBtn.setLayoutParams(btnP1)
-    contentL.addView(readBtn)
     
     local voiceQBtn = Button(service); voiceQBtn.setText("🎤 التحدث للسؤال عن الملف"); styleButton(voiceQBtn, "primary")
     local btnP2 = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT); btnP2.setMargins(0,10,0,20)
     voiceQBtn.setLayoutParams(btnP2)
     contentL.addView(voiceQBtn)
+
+    local function updateDisplayPage()
+        if pagesCache and #pagesCache > 0 then
+            local text = pagesCache[currentCacheIdx]
+            pageInd.setText("صفحة: " .. currentCacheIdx .. "/" .. #pagesCache)
+            pageContentTV.setText(text)
+            speakAIResponseViaCustomTTS(text, "ar")
+        end
+    end
+
+    local function fetchRangeContent(startP, endP)
+        pageContentTV.setText("⏳ جاري استخراج النصوص من الصفحة " .. startP .. " إلى " .. endP .. "...")
+        local q = "استخرج النص الموجود في هذا الملف من الصفحة " .. startP .. " إلى الصفحة " .. endP .. ". افصل بين كل صفحة وأخرى بوضع العلامة التالية فقط: ===PAGE_BREAK==="
+
+        local url = "https://generativelanguage.googleapis.com/v1beta/models/" .. selectedGeminiModelId .. ":generateContent?key=" .. geminiApiKey
+        local headers = {["Content-Type"] = "application/json"}
+
+        local root = JSONObject()
+        local contentObj = JSONObject()
+        local partsArray = JSONArray()
+
+        local inlinePart = JSONObject()
+        local inlineData = JSONObject()
+        inlineData.put("mime_type", "application/pdf")
+        inlineData.put("data", base64Pdf)
+        inlinePart.put("inline_data", inlineData)
+        partsArray.put(inlinePart)
+
+        local textPart = JSONObject()
+        textPart.put("text", q)
+        partsArray.put(textPart)
+
+        contentObj.put("parts", partsArray)
+        local contentsArray = JSONArray()
+        contentsArray.put(contentObj)
+        root.put("contents", contentsArray)
+
+        Http.post(url, root.toString(), headers, function(status, response)
+            local resultTxt = ""
+            if status == 200 then
+                local s, j = pcall(function() return JSONObject(response) end)
+                if s and j.has("candidates") then
+                    local cands = j.getJSONArray("candidates")
+                    if cands.length() > 0 then
+                        local parts = cands.getJSONObject(0).getJSONObject("content").getJSONArray("parts")
+                        if parts.length() > 0 and parts.getJSONObject(0).has("text") then
+                            resultTxt = parts.getJSONObject(0).getString("text")
+                        end
+                    end
+                end
+            else
+                resultTxt = "Error: " .. status .. " - " .. tostring(response)
+            end
+
+            local handler = Handler(Looper.getMainLooper())
+            handler.post(Runnable{
+                run = function()
+                    if resultTxt:match("^Error:") then
+                        pageContentTV.setText(resultTxt)
+                    else
+                        pagesCache = {}
+                        local delimiter = "===PAGE_BREAK==="
+                        local s = 1
+                        while true do
+                            local e = string.find(resultTxt, delimiter, s, true)
+                            if not e then
+                                local last = string.sub(resultTxt, s)
+                                if last and last ~= "" and not last:match("^%s*$") then
+                                    table.insert(pagesCache, (last:gsub("^%s*", ""):gsub("%s*$", "")))
+                                end
+                                break
+                            end
+                            local part = string.sub(resultTxt, s, e - 1)
+                            if part and part ~= "" and not part:match("^%s*$") then
+                                table.insert(pagesCache, (part:gsub("^%s*", ""):gsub("%s*$", "")))
+                            end
+                            s = e + #delimiter
+                        end
+
+                        if #pagesCache > 0 then
+                            currentCacheIdx = 1
+                            updateDisplayPage()
+                        else
+                            pageContentTV.setText("تعذر تقسيم النص إلى صفحات. النص المستخرج:\n" .. resultTxt)
+                        end
+                    end
+                end
+            })
+        end)
+    end
 
     local function askGeminiPdf(promptText, aiBubble)
         local url = "https://generativelanguage.googleapis.com/v1beta/models/" .. selectedGeminiModelId .. ":generateContent?key=" .. geminiApiKey
@@ -1366,21 +1479,6 @@ function showPdfViewerWindow(filePath, base64Pdf)
         end)
     end
     
-    readBtn.setOnClickListener(function()
-        local sP = e1.getText().toString()
-        local eP = e2.getText().toString()
-        local q = "استخرج النص الموجود في هذا الملف بدقة من الصفحة " .. sP .. " إلى الصفحة " .. eP .. ". اكتب النص المستخرج فقط."
-        
-        local userBubble = createChatBubble("قراءة من " .. sP .. " إلى " .. eP, true)
-        qnaHistoryLayout.addView(userBubble)
-        local aiBubble = createChatBubble("⏳ جاري القراءة...", false)
-        qnaHistoryLayout.addView(aiBubble)
-        pcall(function() scrollV.fullScroll(ScrollView.FOCUS_DOWN) end)
-        
-        accumulatedQnA = accumulatedQnA .. "User: " .. q .. "\n"
-        askGeminiPdf(accumulatedQnA, aiBubble)
-    end)
-    
     voiceQBtn.setOnClickListener(function()
         if not SpeechRecognizer.isRecognitionAvailable(service) then service.asyncSpeak(getFeedbackString("error_speech_unavailable", currentDictLangDetails.code)); return end
         voiceQBtn.setText("⏳ جارٍ الاستماع..."); voiceQBtn.setEnabled(false);
@@ -1419,10 +1517,79 @@ function showPdfViewerWindow(filePath, base64Pdf)
     closeBtn.setOnClickListener(function() if resultWindow then pcall(function()wm.removeView(resultWindow)end); resultWindow=nil end end)
     local clP = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,LinearLayout.LayoutParams.WRAP_CONTENT); clP.topMargin=10; resultWindow.addView(closeBtn,clP)
     
-    local winP = WindowManager.LayoutParams(); winP.width=WindowManager.LayoutParams.MATCH_PARENT; winP.height=math.floor(service.getResources().getDisplayMetrics().heightPixels*0.85); winP.type=WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY; winP.flags=WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL|WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE|WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN; winP.format=PixelFormat.TRANSLUCENT; winP.gravity=Gravity.CENTER; winP.horizontalMargin=0.05; winP.verticalMargin=0.05
+    loadBtn.setOnClickListener(function()
+        local sP = e1.getText().toString()
+        local eP = e2.getText().toString()
+        if sP == "" or eP == "" then
+            service.asyncSpeak("يرجى إدخال نطاق الصفحات.")
+            return
+        end
+        local nS, nE = tonumber(sP), tonumber(eP)
+        if not nS or not nE then
+            service.asyncSpeak("خطأ: يرجى إدخال أرقام صالحة.")
+            return
+        end
+        if nS > nE then
+            service.asyncSpeak("خطأ: صفحة البداية يجب أن تكون أقل من أو تساوي صفحة النهاية.")
+            return
+        end
+        fetchRangeContent(sP, eP)
+    end)
+
+    prevBtn.setOnClickListener(function()
+        if pagesCache and #pagesCache > 0 and currentCacheIdx > 1 then
+            currentCacheIdx = currentCacheIdx - 1
+            updateDisplayPage()
+        end
+    end)
+
+    nextBtn.setOnClickListener(function()
+        if pagesCache and #pagesCache > 0 and currentCacheIdx < #pagesCache then
+            currentCacheIdx = currentCacheIdx + 1
+            updateDisplayPage()
+        end
+    end)
+
+    local winP = WindowManager.LayoutParams(); winP.width=WindowManager.LayoutParams.MATCH_PARENT; winP.height=math.floor(service.getResources().getDisplayMetrics().heightPixels*0.85); winP.type=WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY; winP.flags=WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL|WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN; winP.format=PixelFormat.TRANSLUCENT; winP.gravity=Gravity.CENTER; winP.horizontalMargin=0.05; winP.verticalMargin=0.05
     pcall(function() wm.addView(resultWindow, winP) end)
     
-    service.asyncSpeak("تم تحميل الملف. يمكنك قراءة الصفحات أو طرح الأسئلة.")
+    local function detectPageCount()
+        local q = "كم عدد الصفحات في هذا الملف؟ أجب بالرقم فقط."
+        local url = "https://generativelanguage.googleapis.com/v1beta/models/" .. selectedGeminiModelId .. ":generateContent?key=" .. geminiApiKey
+        local headers = {["Content-Type"] = "application/json"}
+        local root = JSONObject(); local contentObj = JSONObject(); local partsArray = JSONArray()
+        local inlinePart = JSONObject(); local inlineData = JSONObject()
+        inlineData.put("mime_type", "application/pdf"); inlineData.put("data", base64Pdf)
+        inlinePart.put("inline_data", inlineData); partsArray.put(inlinePart)
+        local textPart = JSONObject(); textPart.put("text", q); partsArray.put(textPart)
+        contentObj.put("parts", partsArray); local contentsArray = JSONArray(); contentsArray.put(contentObj); root.put("contents", contentsArray)
+
+        Http.post(url, root.toString(), headers, function(status, response)
+            if status == 200 then
+                local s, j = pcall(function() return JSONObject(response) end)
+                if s and j.has("candidates") then
+                    local cands = j.getJSONArray("candidates")
+                    if cands.length() > 0 then
+                        local parts = cands.getJSONObject(0).getJSONObject("content").getJSONArray("parts")
+                        if parts.length() > 0 and parts.getJSONObject(0).has("text") then
+                            local countText = parts.getJSONObject(0).getString("text"):match("%d+")
+                            if countText then
+                                local msg = "هذا الملف يحتوي على " .. countText .. " صفحة. يمكنك الآن تحديد النطاق والتحميل."
+                                local handler = Handler(Looper.getMainLooper())
+                                handler.post(Runnable{run=function()
+                                    pageContentTV.setText(msg)
+                                    service.asyncSpeak(msg)
+                                end})
+                                return
+                            end
+                        end
+                    end
+                end
+            end
+            service.asyncSpeak("تم تحميل الملف. يرجى إدخال نطاق الصفحات للبدء.")
+        end)
+    end
+    detectPageCount()
 end
 
 function loadPdfAndShowViewer(filePath)
@@ -1625,6 +1792,7 @@ function openSettings()
     groqApiKeyIn.setText(groqApiKey or "")
     styleEditText(groqApiKeyIn)
     groqApiKeyIn.addTextChangedListener{onTextChanged=function(s) groqApiKey=s and s.toString() or "" end}
+    groqApiKeyIn.setOnTouchListener(View.OnTouchListener{ onTouch = function(v, event) if event.getAction() == MotionEvent.ACTION_UP then v.requestFocus(); local imm = service.getSystemService(Context.INPUT_METHOD_SERVICE); if imm then imm.showSoftInput(v, 1) end end return false end })
     apiCard.addView(groqApiKeyIn)
 
     apiCard.addView(createLabel("مفتاح Gemini API:"))
@@ -1632,6 +1800,7 @@ function openSettings()
     gemApiKeyIn.setText(geminiApiKey or "")
     styleEditText(gemApiKeyIn)
     gemApiKeyIn.addTextChangedListener{onTextChanged=function(s) geminiApiKey=s and s.toString() or "" end}
+    gemApiKeyIn.setOnTouchListener(View.OnTouchListener{ onTouch = function(v, event) if event.getAction() == MotionEvent.ACTION_UP then v.requestFocus(); local imm = service.getSystemService(Context.INPUT_METHOD_SERVICE); if imm then imm.showSoftInput(v, 1) end end return false end })
     apiCard.addView(gemApiKeyIn)
 
     apiCard.addView(createLabel("مفتاح Wit.ai API:"))
@@ -1639,6 +1808,7 @@ function openSettings()
     witApiKeyIn.setText(witApiKey or "")
     styleEditText(witApiKeyIn)
     witApiKeyIn.addTextChangedListener{onTextChanged=function(s) witApiKey=s and s.toString() or "" end}
+    witApiKeyIn.setOnTouchListener(View.OnTouchListener{ onTouch = function(v, event) if event.getAction() == MotionEvent.ACTION_UP then v.requestFocus(); local imm = service.getSystemService(Context.INPUT_METHOD_SERVICE); if imm then imm.showSoftInput(v, 1) end end return false end })
     apiCard.addView(witApiKeyIn)
 
     -- SECTION: Model Selection
@@ -1753,7 +1923,7 @@ function openSettings()
     contentL.addView(btnL)
 
     scrollV.addView(contentL); settingsDialog.addView(scrollV)
-    local p=WindowManager.LayoutParams(); p.width=WindowManager.LayoutParams.MATCH_PARENT; p.height=WindowManager.LayoutParams.WRAP_CONTENT; p.type=WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY; p.flags=WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN|WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM; p.format=PixelFormat.TRANSLUCENT; p.gravity=Gravity.CENTER
+    local p=WindowManager.LayoutParams(); p.width=WindowManager.LayoutParams.MATCH_PARENT; p.height=WindowManager.LayoutParams.WRAP_CONTENT; p.type=WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY; p.flags=WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN; p.format=PixelFormat.TRANSLUCENT; p.gravity=Gravity.CENTER
     pcall(function() wm.addView(settingsDialog,p) end)
 end
 
