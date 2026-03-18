@@ -43,6 +43,16 @@ import "java.net.HttpURLConnection"
 import "java.io.InputStreamReader"
 import "java.io.BufferedReader"
 import "java.io.OutputStreamWriter"
+import "java.lang.Runnable"
+import "java.lang.Thread"
+import "android.os.Bundle"
+import "android.animation.ObjectAnimator"
+import "android.animation.PropertyValuesHolder"
+import "android.animation.ValueAnimator"
+import "android.view.animation.AccelerateDecelerateInterpolator"
+import "android.widget.FrameLayout"
+import "android.media.AudioManager"
+import "android.speech.tts.UtteranceProgressListener"
 
 -- **Base64 Encode Function**
 local base64_chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
@@ -111,12 +121,15 @@ function toJavaJSON(t)
 end
 
 -- **Gemini Models (Latest 2026)**
+-- **Gemini Models**
 local geminiModels = {
-    { name = "Gemini 3.1 Flash-Lite (الأسرع والأحدث)", id = "gemini-3.1-flash-lite-preview" },
-    { name = "Gemini 3 Flash (أداء عالي)", id = "gemini-3-flash-preview" },
-    { name = "Gemini 2.5 Flash (مستقر)", id = "gemini-2.5-flash" }
+    { name = "Gemini 2.5 Flash Audio-Native", id = "gemini-live-2.5-flash-native-audio" },
+    { name = "Gemini 2.0 Flash (الأسرع)", id = "gemini-2.0-flash" },
+    { name = "Gemini 2.0 Flash-Lite (خفيف)", id = "gemini-2.0-flash-lite-preview-02-05" },
+    { name = "Gemini 1.5 Flash (مستقر)", id = "gemini-1.5-flash" },
+    { name = "Gemini 1.5 Pro (ذكي جداً)", id = "gemini-1.5-pro" }
 }
-local defaultGeminiModelId = "gemini-3.1-flash-lite-preview"
+local defaultGeminiModelId = "gemini-live-2.5-flash-native-audio"
 
 -- **Groq Models (Optimized for Free Tier)**
 local groqModels = {
@@ -181,6 +194,7 @@ selectedTtsEngine = prefs.getString("selectedTtsEngine", "")
 selectedTtsVoiceName = prefs.getString("selectedTtsVoiceName", "")
 
 -- **Global Variables**
+mainHandler = Handler(Looper.getMainLooper())
 stopDictation = false
 speechRecord = nil
 recognizer = nil
@@ -193,6 +207,87 @@ local imageQueryRecognizer = nil
 local floatingSettingsBtn = nil
 local summaryWindow = nil
 local summaryQueryRecognizer = nil
+-- Gemini Live Global Variables
+local liveOverlay = nil
+local liveAnimators = {}
+local liveCircles = {}
+local isLiveSessionActive = false
+local liveStatusTxt = nil
+
+-- Gemini Live Logic Functions
+function startLiveSessionLogic()
+    if not geminiApiKey or geminiApiKey == "" then
+        if liveStatusTxt then liveStatusTxt.setText("خطأ: مفتاح API مفقود") end
+        service.asyncSpeak("مفتاح Gemini مفقود. يرجى إضافته من الإعدادات.")
+        return
+    end
+
+    if liveStatusTxt then liveStatusTxt.setText("جاري الاتصال بـ Gemini Live...") end
+
+    -- Simulated Live Mode using STT/TTS loop for maximum stability
+    -- This avoids AudioRecord/SpeechRecognizer conflicts on Android
+    isLiveSessionActive = true
+
+    if liveStatusTxt then liveStatusTxt.setText("متصل... تحدث الآن") end
+
+    -- Trigger the first listen
+    startLiveVoiceLoop()
+end
+
+function startLiveVoiceLoop()
+    if not isLiveSessionActive then return end
+
+    local intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+    intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+    intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ar-EG")
+    intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+
+    local liveRec = SpeechRecognizer.createSpeechRecognizer(service)
+    liveRec.setRecognitionListener(RecognitionListener{
+        onReadyForSpeech = function() if liveStatusTxt then liveStatusTxt.setText("جاري الاستماع...") end end,
+        onRmsChanged = function(rms)
+            if isLiveSessionActive and liveCircles and #liveCircles > 0 then
+                local scale = 0.8 + (rms / 10.0) -- Base scale + volume
+                if scale < 0.5 then scale = 0.5 end
+                if scale > 2.0 then scale = 2.0 end
+
+                mainHandler.post(Runnable{run=function()
+                    if isLiveSessionActive and liveCircles then
+                        for i, circle in ipairs(liveCircles) do
+                            pcall(function() circle.setScaleX(scale + (i * 0.1)) end)
+                            pcall(function() circle.setScaleY(scale + (i * 0.1)) end)
+                        end
+                    end
+                end})
+            end
+        end,
+        onResults = function(results)
+            local matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+            if matches and matches.size() > 0 then
+                local text = matches.get(0)
+                if liveStatusTxt then liveStatusTxt.setText("أنت: " .. text) end
+
+                -- Process with Gemini (Fastest Model)
+                -- Using gemini-1.5-flash as a safe fallback if 2.0-flash 404s
+                local modelToUse = selectedGeminiModelId or "gemini-1.5-flash"
+                makeAiRequest(text, "You are a helpful live assistant. Be extremely concise. Use Egyptian Arabic dialect. No markdown.", nil, modelToUse, function(reply)
+                    if liveStatusTxt then liveStatusTxt.setText("Gemini: " .. reply) end
+
+                    -- Speak reply using the robust UtteranceProgressListener path
+                    speakAIResponseViaCustomTTS(reply, "ar", "live_reply")
+                end)
+            end
+            liveRec.destroy()
+        end,
+        onError = function(e)
+            liveRec.destroy()
+            if isLiveSessionActive then startLiveVoiceLoop() end
+        end
+    })
+
+    mainHandler.post(Runnable{run=function() liveRec.startListening(intent) end})
+end
+
 -- TTS Global Variables
 local tts = nil
 local isTtsInitialized = false
@@ -496,6 +591,21 @@ function initTextToSpeech(enginePackageName, voiceNameToSet, onInitCallback)
                             end
                         end
                     end
+
+                    -- Set UtteranceProgressListener for Live Mode support
+                    tts.setOnUtteranceProgressListener(UtteranceProgressListener{
+                        onStart = function(utteranceId) end,
+                        onDone = function(utteranceId)
+                            if isLiveSessionActive and utteranceId == "live_reply" then
+                                mainHandler.post(Runnable{run=function() startLiveVoiceLoop() end})
+                            end
+                        end,
+                        onError = function(utteranceId)
+                            if isLiveSessionActive and utteranceId == "live_reply" then
+                                mainHandler.post(Runnable{run=function() startLiveVoiceLoop() end})
+                            end
+                        end
+                    })
                 end
             else
                 isTtsInitialized = false
@@ -519,9 +629,13 @@ function initTextToSpeech(enginePackageName, voiceNameToSet, onInitCallback)
     end
 end
 
-function speakAIResponseViaCustomTTS(text, langCodeForSpeech)
+function speakAIResponseViaCustomTTS(text, langCodeForSpeech, utteranceId)
     if not customTtsEnabled or not tts or not isTtsInitialized then
         service.asyncSpeak(text)
+        -- Fallback for system TTS: wait and restart loop if in Live Mode
+        if isLiveSessionActive and utteranceId == "live_reply" then
+            mainHandler.postDelayed(Runnable{run=function() startLiveVoiceLoop() end}, 4000)
+        end
         return
     end
 
@@ -531,6 +645,9 @@ function speakAIResponseViaCustomTTS(text, langCodeForSpeech)
     local s_setLang, r_setLang_err = pcall(function() langSetResult = tts.setLanguage(targetLocale) end)
     if not s_setLang then
         service.asyncSpeak(text)
+        if isLiveSessionActive and utteranceId == "live_reply" then
+            mainHandler.postDelayed(Runnable{run=function() startLiveVoiceLoop() end}, 4000)
+        end
         return
     end
 
@@ -541,9 +658,18 @@ function speakAIResponseViaCustomTTS(text, langCodeForSpeech)
             pcall(function() tts.setLanguage(baseLocale) end)
         end
     end
-    local s_speak, e_speak = pcall(function() tts.speak(text, TextToSpeech.QUEUE_FLUSH, nil, nil) end)
+
+    local params = nil
+    if utteranceId then
+        -- Handle older Android versions if necessary, but standard is passing id
+    end
+
+    local s_speak, e_speak = pcall(function() tts.speak(text, TextToSpeech.QUEUE_FLUSH, nil, utteranceId) end)
     if not s_speak then
         service.asyncSpeak("خطأ في النطق مع TTS المخصص. " .. text)
+        if isLiveSessionActive and utteranceId == "live_reply" then
+            mainHandler.postDelayed(Runnable{run=function() startLiveVoiceLoop() end}, 4000)
+        end
     end
 end
 
@@ -1117,6 +1243,109 @@ function fetchGroqModels(callback)
 end
 
 -- ### UI Window Functions ###
+
+-- **Gemini Live UI Overlay**
+function showGeminiLiveOverlay()
+    if liveOverlay then return end
+
+    liveOverlay = FrameLayout(service)
+    liveOverlay.setBackgroundColor(0xFF000000) -- Full black background like Google
+
+    local mainContainer = LinearLayout(service)
+    mainContainer.setOrientation(LinearLayout.VERTICAL)
+    mainContainer.setGravity(Gravity.CENTER)
+    liveOverlay.addView(mainContainer)
+
+    -- Pulsing Circles (The Visualizer)
+    local pulseFrame = FrameLayout(service)
+    local pulseSize = 500
+    local pulseParams = LinearLayout.LayoutParams(pulseSize, pulseSize)
+    pulseParams.gravity = Gravity.CENTER
+    pulseFrame.setLayoutParams(pulseParams)
+    mainContainer.addView(pulseFrame)
+
+    local colors = {0xAA4285F4, 0xAA34A853, 0xAAFBBC05, 0xAAEA4335} -- Google Colors
+    liveAnimators = {}
+    liveCircles = {}
+
+    for i=1, 4 do
+        local circle = View(service)
+        local bg = GradientDrawable()
+        bg.setShape(GradientDrawable.OVAL)
+        bg.setColor(colors[i])
+        circle.setBackgroundDrawable(bg)
+        circle.setAlpha(0.0)
+        pulseFrame.addView(circle)
+        table.insert(liveCircles, circle)
+
+        local scaleX = PropertyValuesHolder.ofFloat("scaleX", luajava.newArray("float", {0.4, 1.2}))
+        local scaleY = PropertyValuesHolder.ofFloat("scaleY", luajava.newArray("float", {0.4, 1.2}))
+        local alpha = PropertyValuesHolder.ofFloat("alpha", luajava.newArray("float", {0.0, 0.6}))
+
+        local anim = ObjectAnimator.ofPropertyValuesHolder(circle, luajava.newArray(luajava.bindClass("android.animation.PropertyValuesHolder"), {scaleX, scaleY, alpha}))
+        anim.setDuration(1500 + (i * 300))
+        anim.setRepeatCount(ValueAnimator.INFINITE)
+        anim.setRepeatMode(ValueAnimator.REVERSE)
+        anim.setInterpolator(AccelerateDecelerateInterpolator())
+        anim.setStartDelay(i * 200)
+        table.insert(liveAnimators, anim)
+        anim.start()
+    end
+
+    local statusTxt = TextView(service)
+    statusTxt.setText("Gemini Live... جاري الاتصال")
+    statusTxt.setTextColor(0xFFBBBBBB)
+    statusTxt.setTextSize(18)
+    statusTxt.setGravity(Gravity.CENTER)
+    statusTxt.setPadding(0, 100, 0, 50)
+    mainContainer.addView(statusTxt)
+    liveStatusTxt = statusTxt
+
+    local controls = LinearLayout(service)
+    controls.setOrientation(LinearLayout.HORIZONTAL)
+    controls.setGravity(Gravity.CENTER)
+    controls.setPadding(0, 50, 0, 0)
+
+    local endBtn = Button(service)
+    endBtn.setText("❌ إنهاء الجلسة")
+    styleButton(endBtn, "danger")
+    endBtn.setOnClickListener(function() hideGeminiLiveOverlay() end)
+    controls.addView(endBtn)
+
+    mainContainer.addView(controls)
+
+    local winP = WindowManager.LayoutParams()
+    winP.width = WindowManager.LayoutParams.MATCH_PARENT
+    winP.height = WindowManager.LayoutParams.MATCH_PARENT
+    winP.type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+    winP.flags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+    winP.format = PixelFormat.TRANSLUCENT
+
+    local success, err = pcall(function() wm.addView(liveOverlay, winP) end)
+    if success then
+        isLiveSessionActive = true
+        startLiveSessionLogic()
+    else
+        liveOverlay = nil
+    end
+end
+
+function hideGeminiLiveOverlay()
+    if liveOverlay then
+        isLiveSessionActive = false
+
+        for _, anim in ipairs(liveAnimators) do
+            pcall(function() anim.cancel() end)
+        end
+        liveAnimators = {}
+        liveCircles = {}
+
+        pcall(function() wm.removeView(liveOverlay) end)
+        liveOverlay = nil
+        liveStatusTxt = nil
+        service.asyncSpeak("تم إغلاق وضع البث المباشر.")
+    end
+end
 
 function showImageDescriptionWindow(initialDescription, initialOcrText, base64Image)
     if resultWindow then pcall(function() wm.removeView(resultWindow) end); resultWindow = nil end
@@ -1989,6 +2218,14 @@ function openSettings()
     local btnParamsPdf = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT); btnParamsPdf.topMargin = 15;
     toolsCard.addView(readPdfBtn, btnParamsPdf)
 
+    local liveModeBtn = Button(service); liveModeBtn.setText("🌐 بدء وضع البث المباشر (Gemini Live)"); styleButton(liveModeBtn, "primary")
+    liveModeBtn.setOnClickListener(function()
+        hideSettings()
+        showGeminiLiveOverlay()
+    end)
+    local btnParamsLive = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT); btnParamsLive.topMargin = 15;
+    toolsCard.addView(liveModeBtn, btnParamsLive)
+
     -- SECTION: TTS
     local uiCard = createCard(contentL)
     addSectionHeader("الواجهة والنطق", uiCard)
@@ -2086,6 +2323,10 @@ function startVoiceRecognition()
                         showResultWindow("خطأ في التلخيص", getFeedbackString("summarize_fail_no_text", currentDictLangDetails.code))
                         if shouldContinue then startListening() end
                     end
+                    return
+                elseif lowerRecognizedText == "live mode" or recognizedText == "بث مباشر" or recognizedText == "الوضع المباشر" then
+                    commandProcessed=true
+                    showGeminiLiveOverlay()
                     return
                 elseif (lowerRecognizedText == "describe image" or recognizedText == "وصف الصور" or recognizedText == "وصف الصوره" or recognizedText == "الصور" or lowerRecognizedText == "décrire l'image" or lowerRecognizedText == "description de l'image") and imageDescriptionEnabled then
                     commandProcessed=true
