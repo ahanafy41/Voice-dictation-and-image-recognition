@@ -30,6 +30,7 @@ import "android.provider.Settings"
 import "android.widget.ArrayAdapter"
 import "android.widget.Spinner"
 import "java.util.ArrayList"
+import "java.util.HashMap"
 import "android.R" -- For android.R.layout resources
 import "android.widget.AdapterView" -- For Spinner listener
 import "android.speech.tts.TextToSpeech"
@@ -175,10 +176,15 @@ screenshotMode = prefs.getString("screenshotMode", "full") -- "full" or "focus"
 showFloatingSettingsButtonEnabled = prefs.getBoolean("showFloatingSettingsButton", false)
 newTranslationFeatureEnabled = prefs.getBoolean("newTranslationFeatureEnabled", false)
 translateToLanguage = prefs.getString("translateToLanguage", defaultTranslateTo)
--- TTS Settings
-customTtsEnabled = prefs.getBoolean("customTtsEnabled", false)
-selectedTtsEngine = prefs.getString("selectedTtsEngine", "")
-selectedTtsVoiceName = prefs.getString("selectedTtsVoiceName", "")
+
+-- PDF TTS Settings
+pdfTtsEngine = prefs.getString("pdfTtsEngine", "")
+pdfTtsVoiceName = prefs.getString("pdfTtsVoiceName", "")
+pdfTtsSpeed = prefs.getFloat("pdfTtsSpeed", 1.0)
+pdfTtsAutoNext = prefs.getBoolean("pdfTtsAutoNext", true)
+
+-- **Global UI Handler**
+mainHandler = Handler(Looper.getMainLooper())
 
 -- **Global Variables**
 stopDictation = false
@@ -193,10 +199,6 @@ local imageQueryRecognizer = nil
 local floatingSettingsBtn = nil
 local summaryWindow = nil
 local summaryQueryRecognizer = nil
--- TTS Global Variables
-local tts = nil
-local isTtsInitialized = false
-local tempTtsForListing = nil
 
 -- **Set Audio Focus** (for asyncSpeak)
 if service and service.setAsyncAudioFocus then
@@ -424,16 +426,6 @@ function cleanupResources()
     removeFloatingButton()
     speechRecord = nil
 
-    if tts then
-        local s,e = pcall(function() tts.stop(); tts.shutdown() end)
-        tts = nil
-        isTtsInitialized = false
-    end
-    if tempTtsForListing then
-        local s,e = pcall(function() tempTtsForListing.shutdown() end)
-        tempTtsForListing = nil
-    end
-
     collectgarbage("collect")
 end
 
@@ -462,89 +454,194 @@ function getLocaleForLangCode(langCodeStr)
     return Locale.getDefault()
 end
 
-function initTextToSpeech(enginePackageName, voiceNameToSet, onInitCallback)
-    if tts then
-        local s,e = pcall(function() tts.stop(); tts.shutdown() end)
-        tts = nil
-        isTtsInitialized = false
+function speakAIResponseViaCustomTTS(text, langCodeForSpeech)
+    service.asyncSpeak(text)
+end
+
+function openPdfTtsSettings(onSaved)
+    local settingsWin = LinearLayout(service)
+    settingsWin.setOrientation(LinearLayout.VERTICAL)
+    settingsWin.setBackgroundColor(0xFF121212)
+    settingsWin.setPadding(35,35,35,35)
+
+    local scrollV = ScrollView(service)
+    local contentL = LinearLayout(service)
+    contentL.setOrientation(LinearLayout.VERTICAL)
+    contentL.setPadding(10,10,10,10)
+    scrollV.addView(contentL)
+    settingsWin.addView(scrollV)
+
+    local titleTxt = TextView(service)
+    titleTxt.setText("إعدادات قارئ PDF الصوتي 🎧")
+    titleTxt.setTextSize(22)
+    titleTxt.setTypeface(nil, Typeface.BOLD)
+    titleTxt.setTextColor(0xFFFFFFFF)
+    titleTxt.setGravity(Gravity.CENTER_HORIZONTAL)
+    titleTxt.setPadding(0,0,0,30)
+    contentL.addView(titleTxt)
+
+    local function addLabel(text)
+        local lbl = TextView(service)
+        lbl.setText(text)
+        lbl.setTextSize(16)
+        lbl.setTextColor(0xFFB0B0B0)
+        lbl.setPadding(0, 20, 0, 10)
+        contentL.addView(lbl)
     end
 
-    local listener = TextToSpeech.OnInitListener {
-        onInit = function(status)
-            if status == TextToSpeech.SUCCESS then
-                isTtsInitialized = true
-                if tts and isTtsInitialized then
-                    local initialLocale = getLocaleForLangCode("ar")
-                    local langResult = tts.setLanguage(initialLocale)
-                    if langResult == TextToSpeech.LANG_MISSING_DATA or langResult == TextToSpeech.LANG_NOT_SUPPORTED then
-                        local fallbackLocale = Locale.ENGLISH
-                        tts.setLanguage(fallbackLocale)
-                    end
+    addLabel("محرك النطق:")
+    local engineNames = ArrayList()
+    local enginePackages = {}
+    local tempTts = TextToSpeech(service, nil)
+    local engines = tempTts.getEngines()
+    for i = 0, engines.size() - 1 do
+        local info = engines.get(i)
+        engineNames.add(info.label)
+        table.insert(enginePackages, info.name)
+    end
+    tempTts.shutdown()
 
-                    if voiceNameToSet and voiceNameToSet ~= "" then
-                        local voiceSetSuccess = false
-                        local s_getVoices, r_voicesSet = pcall(function() return tts.getVoices() end)
-                        if s_getVoices and r_voicesSet then
-                            local voiceIterator = r_voicesSet.iterator()
-                            while voiceIterator.hasNext() do
-                                local voiceObj = voiceIterator.next()
-                                if voiceObj and voiceObj.getName() == voiceNameToSet then
-                                    local s_setVoice, r_setVoice = pcall(function() tts.setVoice(voiceObj) end)
-                                    if s_setVoice then voiceSetSuccess = true end
-                                    break
+    local engineSpinner = Spinner(service)
+    local engineAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, engineNames)
+    engineAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+    engineSpinner.setAdapter(engineAdapter)
+
+    local currEngineIdx = 0
+    for i, pkg in ipairs(enginePackages) do
+        if pkg == pdfTtsEngine then currEngineIdx = i - 1; break end
+    end
+    engineSpinner.setSelection(currEngineIdx)
+    contentL.addView(engineSpinner)
+
+    addLabel("صوت المحرك:")
+    local voiceSpinner = Spinner(service)
+    contentL.addView(voiceSpinner)
+
+    local currentVoices = {}
+    local function updateVoices(enginePkg)
+        local voiceNames = ArrayList()
+        currentVoices = {}
+
+        mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+            run = function()
+                local ttsForVoices
+                local listener = TextToSpeech.OnInitListener{
+                    onInit = function(status)
+                        if status == TextToSpeech.SUCCESS and ttsForVoices then
+                            local voices = nil
+                            pcall(function() voices = ttsForVoices.getVoices() end)
+
+                            if voices then
+                                local it = voices.iterator()
+                                while it.hasNext() do
+                                    local v = it.next()
+                                    if v then
+                                        local vName = v.getName()
+                                        local locale = v.getLocale()
+                                        local label = vName
+                                        if locale then
+                                            label = vName .. " (" .. locale.getDisplayName() .. ")"
+                                        end
+                                        voiceNames.add(label)
+                                        table.insert(currentVoices, vName)
+                                    end
                                 end
                             end
                         end
+
+                        -- Add fallback if no voices found
+                        if voiceNames.size() == 0 then
+                            voiceNames.add("(صوت المحرك الافتراضي)")
+                            table.insert(currentVoices, "")
+                        end
+
+                        mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                            run = function()
+                                local voiceAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, voiceNames)
+                                voiceAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+                                voiceSpinner.setAdapter(voiceAdapter)
+                                local currVoiceIdx = -1
+                                if pdfTtsVoiceName and pdfTtsVoiceName ~= "" then
+                                    for i, name in ipairs(currentVoices) do
+                                        if name == pdfTtsVoiceName then currVoiceIdx = i - 1; break end
+                                    end
+                                end
+                                if currVoiceIdx >= 0 then voiceSpinner.setSelection(currVoiceIdx) end
+                                if ttsForVoices then pcall(function() ttsForVoices.shutdown() end) end
+                            end
+                        }))
                     end
-                end
-            else
-                isTtsInitialized = false
+                }
+                ttsForVoices = TextToSpeech(service, listener, tostring(enginePkg))
             end
-            if onInitCallback then onInitCallback(isTtsInitialized) end
+        }))
+    end
+
+    engineSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener {
+        onItemSelected = function(parent, view, position, id)
+            updateVoices(enginePackages[position + 1])
         end
-    }
+    })
 
-    local context = service
-    local pcall_status, pcall_result
-    if enginePackageName and enginePackageName ~= "" then
-        pcall_status, pcall_result = pcall(function() tts = TextToSpeech(context, listener, enginePackageName) end)
-    else
-        pcall_status, pcall_result = pcall(function() tts = TextToSpeech(context, listener) end)
-    end
+    addLabel("سرعة الصوت (0.5 - 3.0):")
+    local speedEt = EditText(service)
+    speedEt.setInputType(8194) -- TYPE_CLASS_NUMBER | TYPE_NUMBER_FLAG_DECIMAL
+    speedEt.setText(tostring(pdfTtsSpeed))
+    styleEditText(speedEt)
+    contentL.addView(speedEt)
 
-    if not pcall_status then
-        isTtsInitialized = false
-        if tts then pcall(function() tts.shutdown() end); tts = nil end
-        if onInitCallback then onInitCallback(false) end
-    end
-end
+    local switchAutoNext = Switch(service)
+    switchAutoNext.setChecked(pdfTtsAutoNext)
+    createSettingRow("الانتقال التلقائي للصفحة التالية", switchAutoNext, contentL)
 
-function speakAIResponseViaCustomTTS(text, langCodeForSpeech)
-    if not customTtsEnabled or not tts or not isTtsInitialized then
-        service.asyncSpeak(text)
-        return
-    end
+    local btnL = LinearLayout(service)
+    btnL.setOrientation(LinearLayout.HORIZONTAL)
+    btnL.setGravity(Gravity.CENTER)
+    btnL.setPadding(0, 40, 0, 10)
 
-    local targetLocale = getLocaleForLangCode(langCodeForSpeech)
-    local langSetResult
-
-    local s_setLang, r_setLang_err = pcall(function() langSetResult = tts.setLanguage(targetLocale) end)
-    if not s_setLang then
-        service.asyncSpeak(text)
-        return
-    end
-
-    if langSetResult == TextToSpeech.LANG_MISSING_DATA or langSetResult == TextToSpeech.LANG_NOT_SUPPORTED then
-        local baseLang = targetLocale.getLanguage()
-        if baseLang and baseLang ~= "" then
-            local baseLocale = Locale(baseLang)
-            pcall(function() tts.setLanguage(baseLocale) end)
+    local saveBtn = Button(service)
+    saveBtn.setText("💾 حفظ")
+    styleButton(saveBtn, "primary")
+    saveBtn.setOnClickListener(function()
+        pdfTtsEngine = enginePackages[engineSpinner.getSelectedItemPosition() + 1]
+        local vPos = voiceSpinner.getSelectedItemPosition()
+        if vPos >= 0 then
+            pdfTtsVoiceName = currentVoices[vPos + 1]
         end
-    end
-    local s_speak, e_speak = pcall(function() tts.speak(text, TextToSpeech.QUEUE_FLUSH, nil, nil) end)
-    if not s_speak then
-        service.asyncSpeak("خطأ في النطق مع TTS المخصص. " .. text)
-    end
+        pdfTtsSpeed = tonumber(speedEt.getText().toString()) or 1.0
+        pdfTtsAutoNext = switchAutoNext.isChecked()
+
+        local editor = prefs.edit()
+        editor.putString("pdfTtsEngine", pdfTtsEngine)
+        editor.putString("pdfTtsVoiceName", pdfTtsVoiceName)
+        editor.putFloat("pdfTtsSpeed", pdfTtsSpeed)
+        editor.putBoolean("pdfTtsAutoNext", pdfTtsAutoNext)
+        editor.apply()
+
+        service.asyncSpeak("تم حفظ إعدادات القارئ.")
+        if onSaved then onSaved() end
+        pcall(function() wm.removeView(settingsWin) end)
+    end)
+    local lpSave = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0)
+    lpSave.rightMargin = 10
+    btnL.addView(saveBtn, lpSave)
+
+    local closeBtn = Button(service)
+    closeBtn.setText("❌ إغلاق")
+    styleButton(closeBtn, "danger")
+    closeBtn.setOnClickListener(function() pcall(function() wm.removeView(settingsWin) end) end)
+    btnL.addView(closeBtn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0))
+
+    contentL.addView(btnL)
+
+    local winP = WindowManager.LayoutParams()
+    winP.width = WindowManager.LayoutParams.MATCH_PARENT
+    winP.height = WindowManager.LayoutParams.WRAP_CONTENT
+    winP.type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+    winP.flags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+    winP.format = PixelFormat.TRANSLUCENT
+    winP.gravity = Gravity.CENTER
+    pcall(function() wm.addView(settingsWin, winP) end)
 end
 
 -- ### UNIFIED AI REQUEST FUNCTION (Supports Gemini & Groq) ###
@@ -1438,6 +1535,18 @@ function showPdfViewerWindow(filePath, fileUri)
     navL.addView(prevBtn); navL.addView(pageInd); navL.addView(nextBtn)
     contentL.addView(navL)
 
+    local playbackL = LinearLayout(service); playbackL.setOrientation(LinearLayout.HORIZONTAL); playbackL.setGravity(Gravity.CENTER); playbackL.setPadding(0,0,0,20)
+    local playBtn = Button(service); playBtn.setText("▶️ تشغيل"); styleButton(playBtn, "primary")
+    local stopTtsBtn = Button(service); stopTtsBtn.setText("⏹️ إيقاف"); styleButton(stopTtsBtn, "danger")
+    local ttsSetBtn = Button(service); ttsSetBtn.setText("⚙️"); styleButton(ttsSetBtn, "secondary")
+
+    local playParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0); playParams.rightMargin=10
+    local stopParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0); stopParams.rightMargin=10
+    local setParams = LinearLayout.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+
+    playbackL.addView(playBtn, playParams); playbackL.addView(stopTtsBtn, stopParams); playbackL.addView(ttsSetBtn, setParams)
+    contentL.addView(playbackL)
+
     local pageContentTV = TextView(service); pageContentTV.setText("يرجى تحديد نطاق الصفحات والضغط على تحميل."); pageContentTV.setTextSize(18); pageContentTV.setTextColor(0xFFE0E0E0); pageContentTV.setPadding(10,20,10,20); pageContentTV.setTextIsSelectable(true)
     contentL.addView(pageContentTV)
 
@@ -1450,12 +1559,125 @@ function showPdfViewerWindow(filePath, fileUri)
     voiceQBtn.setLayoutParams(btnP2)
     contentL.addView(voiceQBtn)
 
-    local function updateDisplayPage()
+    local pdfTts = nil
+    local isPdfTtsInit = false
+    local isPlaying = false
+
+    -- Forward declare functions to resolve scoping issues
+    local stopReading, initPdfTts, readCurrentPage, updateDisplayPage
+
+    stopReading = function()
+        isPlaying = false
+        if pdfTts then pcall(function() pdfTts.stop() end) end
+        playBtn.setText("▶️ تشغيل")
+    end
+
+    initPdfTts = function(callback)
+        mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+            run = function()
+                if pdfTts then pcall(function() pdfTts.stop(); pdfTts.shutdown() end) end
+                isPdfTtsInit = false
+                local listener = TextToSpeech.OnInitListener{
+                    onInit = function(status)
+                        if status == TextToSpeech.SUCCESS then
+                            isPdfTtsInit = true
+                            if pdfTtsVoiceName and pdfTtsVoiceName ~= "" then
+                                local voices = nil
+                                pcall(function() voices = pdfTts.getVoices() end)
+                                if voices then
+                                    local it = voices.iterator()
+                                    while it.hasNext() do
+                                        local v = it.next()
+                                        if v and v.getName() == pdfTtsVoiceName then
+                                            pcall(function() pdfTts.setVoice(v) end)
+                                            break
+                                        end
+                                    end
+                                end
+                            end
+                            pcall(function() pdfTts.setSpeechRate(pdfTtsSpeed or 1.0) end)
+
+                            import "android.speech.tts.UtteranceProgressListener"
+                            local progressListener = UtteranceProgressListener{
+                                onStart = function(id) end,
+                                onDone = function(id)
+                                    if id == "pdf_page" and pdfTtsAutoNext and isPlaying then
+                                        mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                                            run = function()
+                                                if currentCacheIdx < #pagesCache then
+                                                    currentCacheIdx = currentCacheIdx + 1
+                                                    updateDisplayPage()
+                                                    readCurrentPage()
+                                                else
+                                                    stopReading()
+                                                end
+                                            end
+                                        }))
+                                    elseif id == "pdf_page" then
+                                        mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                                            run = function() stopReading() end
+                                        }))
+                                    end
+                                end,
+                                onError = function(id) end
+                            }
+                            pdfTts.setOnUtteranceProgressListener(progressListener)
+                        end
+                        if callback then callback(isPdfTtsInit) end
+                    end
+                }
+                if pdfTtsEngine and pdfTtsEngine ~= "" then
+                    pdfTts = TextToSpeech(service, listener, tostring(pdfTtsEngine))
+                else
+                    pdfTts = TextToSpeech(service, listener)
+                end
+            end
+        }))
+    end
+
+    readCurrentPage = function()
+        if not pagesCache or #pagesCache == 0 then return end
+        local text = pagesCache[currentCacheIdx]
+        if not text or text == "" then return end
+
+        isPlaying = true
+        playBtn.setText("⏸️ إيقاف مؤقت")
+
+        local function startSpeak()
+            if pdfTts and isPdfTtsInit then
+                local s_s, err = pcall(function()
+                    -- Standard modern Android speak signature (API 21+)
+                    -- public int speak (CharSequence text, int queueMode, Bundle params, String utteranceId)
+                    -- Using nil for Bundle params as it's optional
+                    pdfTts.speak(tostring(text), TextToSpeech.QUEUE_FLUSH, nil, "pdf_page")
+                end)
+                if not s_s then
+                    -- Fallback for older signatures if needed
+                    local params = HashMap()
+                    params.put("utteranceId", "pdf_page")
+                    pcall(function()
+                        pdfTts.speak(tostring(text), TextToSpeech.QUEUE_FLUSH, params)
+                    end)
+                end
+            else
+                service.asyncSpeak(tostring(text))
+            end
+        end
+
+        if not isPdfTtsInit or not pdfTts then
+            initPdfTts(function(success)
+                if success then startSpeak() else stopReading() end
+            end)
+        else
+            startSpeak()
+        end
+    end
+
+    updateDisplayPage = function()
         if pagesCache and #pagesCache > 0 then
             local text = pagesCache[currentCacheIdx]
             pageInd.setText("صفحة: " .. currentCacheIdx .. "/" .. #pagesCache)
             pageContentTV.setText(text)
-            speakAIResponseViaCustomTTS(text, "ar")
         end
     end
 
@@ -1594,6 +1816,25 @@ function showPdfViewerWindow(filePath, fileUri)
         end)
     end
     
+    playBtn.setOnClickListener(function()
+        if isPlaying then
+            stopReading()
+        else
+            readCurrentPage()
+        end
+    end)
+
+    stopTtsBtn.setOnClickListener(function()
+        stopReading()
+    end)
+
+    ttsSetBtn.setOnClickListener(function()
+        stopReading()
+        openPdfTtsSettings(function()
+            isPdfTtsInit = false -- Re-init with new engine/voice/speed
+        end)
+    end)
+
     voiceQBtn.setOnClickListener(function()
         if not SpeechRecognizer.isRecognitionAvailable(service) then service.asyncSpeak(getFeedbackString("error_speech_unavailable", currentDictLangDetails.code)); return end
         voiceQBtn.setText("⏳ جارٍ الاستماع..."); voiceQBtn.setEnabled(false);
@@ -1653,15 +1894,21 @@ function showPdfViewerWindow(filePath, fileUri)
 
     prevBtn.setOnClickListener(function()
         if pagesCache and #pagesCache > 0 and currentCacheIdx > 1 then
+            local wasPlaying = isPlaying
+            stopReading()
             currentCacheIdx = currentCacheIdx - 1
             updateDisplayPage()
+            if wasPlaying then readCurrentPage() end
         end
     end)
 
     nextBtn.setOnClickListener(function()
         if pagesCache and #pagesCache > 0 and currentCacheIdx < #pagesCache then
+            local wasPlaying = isPlaying
+            stopReading()
             currentCacheIdx = currentCacheIdx + 1
             updateDisplayPage()
+            if wasPlaying then readCurrentPage() end
         end
     end)
 
@@ -1751,7 +1998,6 @@ function saveSettings()
     summarizeEnabled = summarizeEnabled or false
     imageDescriptionEnabled = imageDescriptionEnabled or false
     newTranslationFeatureEnabled = newTranslationFeatureEnabled or false
-    customTtsEnabled = customTtsEnabled or false
 
     local editor = prefs.edit()
     editor.putString("language", selectedLanguage or defaultSelectedLanguage)
@@ -1772,9 +2018,6 @@ function saveSettings()
     editor.putBoolean("showFloatingSettingsButton", showFloatingSettingsButtonEnabled)
     editor.putBoolean("newTranslationFeatureEnabled", newTranslationFeatureEnabled)
     editor.putString("translateToLanguage", translateToLanguage or defaultTranslateTo)
-    editor.putBoolean("customTtsEnabled", customTtsEnabled)
-    editor.putString("selectedTtsEngine", selectedTtsEngine or "")
-    editor.putString("selectedTtsVoiceName", selectedTtsVoiceName or "")
     editor.apply()
 
     local currentDictLangDetails = getLanguageDetails(selectedLanguage)
@@ -1783,24 +2026,11 @@ function saveSettings()
     if showFloatingSettingsButtonEnabled and not floatingSettingsBtn then createAndShowFloatingButton()
     elseif not showFloatingSettingsButtonEnabled and floatingSettingsBtn then removeFloatingButton() end
 
-    if customTtsEnabled then
-        initTextToSpeech(selectedTtsEngine, selectedTtsVoiceName)
-    else
-        if tts then
-            pcall(function() tts.stop(); tts.shutdown() end)
-            tts = nil
-            isTtsInitialized = false
-        end
-    end
     hideSettings()
 end
 
 function hideSettings()
     if settingsDialog then local r = pcall(function() wm.removeView(settingsDialog) end); if r then settingsDialog = nil end end
-    if tempTtsForListing then
-        pcall(function() tempTtsForListing.shutdown() end)
-        tempTtsForListing = nil
-    end
 end
 
 function openSettings()
@@ -1989,15 +2219,12 @@ function openSettings()
     local btnParamsPdf = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT); btnParamsPdf.topMargin = 15;
     toolsCard.addView(readPdfBtn, btnParamsPdf)
 
-    -- SECTION: TTS
+    -- SECTION: UI
     local uiCard = createCard(contentL)
-    addSectionHeader("الواجهة والنطق", uiCard)
+    addSectionHeader("الواجهة", uiCard)
 
     local switchFloat = Switch(service); switchFloat.setChecked(showFloatingSettingsButtonEnabled); switchFloat.setOnCheckedChangeListener(function(_, c) showFloatingSettingsButtonEnabled=c end)
     createSettingRow("الزر العائم", switchFloat, uiCard)
-
-    local switchTts = Switch(service); switchTts.setChecked(customTtsEnabled); switchTts.setOnCheckedChangeListener(function(_, c) customTtsEnabled=c end)
-    createSettingRow("نطق AI مخصص", switchTts, uiCard)
 
     local btnL = LinearLayout(service); btnL.setOrientation(LinearLayout.VERTICAL); btnL.setGravity(Gravity.CENTER); btnL.setPadding(0,40,0,10)
     local saveBtn = Button(service); saveBtn.setText("💾 حفظ وإغلاق"); styleButton(saveBtn, "primary");
@@ -2199,10 +2426,6 @@ function onDestroy()
     cleanupResources()
 end
 
--- **Start the Service & Initialize TTS if enabled**
-if customTtsEnabled then
-    initTextToSpeech(selectedTtsEngine, selectedTtsVoiceName, function(success)
-    end)
-end
+-- **Start the Service**
 createAndShowFloatingButton()
 startVoiceRecognition()
