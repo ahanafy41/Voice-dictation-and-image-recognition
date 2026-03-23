@@ -157,6 +157,32 @@ setmetatable(_G.Locale, { __call = function(self, ...)
 end })
 _G.Voice = {}
 
+
+_G.luajava = {
+    createProxy = function(name, t) return t end,
+    bindClass = function(name) return { TYPE = {} } end,
+    newArray = function(type, size) return {} end,
+}
+
+_G.bit = {
+    rshift = function(a, b) return a >> b end,
+    lshift = function(a, b) return a << b end,
+    band = function(a, b) return a & b end,
+}
+
+_G.Handler = function(looper) return { post = function(self, runnable) runnable.run() end, postDelayed = function(self, runnable, delay) runnable.run() end } end
+_G.Looper = { getMainLooper = function() return {} end }
+_G.Runnable = function(t) return t end
+_G.Switch = function(ctx) return { setChecked = function() end, setOnCheckedChangeListener = function() end, isChecked = function() return true end } end
+_G.GradientDrawable = function() return { setCornerRadius = function() end, setColor = function() end, setStroke = function() end } end
+
+_G.Http.get = function(url, body, charset, headers, callback)
+    if type(charset) == 'table' then
+        -- Handle case where charset is omitted
+        headers = charset
+        callback = headers
+    end
+end
 -- Load the main script after mocks are set up
 local loaded, error_msg = pcall(function()
     dofile("main.lua")
@@ -203,6 +229,22 @@ function TestHelperFunctions:test_isArabicText()
     assertTrue(isArabicText("Hello مرحبا"))
     assertFalse(isArabicText(""))
     assertFalse(isArabicText(nil))
+end
+
+function TestHelperFunctions:test_smartSplitText()
+    local text = "One two three four five"
+    -- Split by 5 chars. "One t" -> next space at index 8 (" ").
+    -- Word-safe split should take "One two " (indices 1-8).
+    local pages = smartSplitText(text, 5)
+    assertEquals(#pages, 2)
+    assertEquals(pages[1], "One two ")
+    assertEquals(pages[2], "three four five")
+
+    local text2 = "1234567890 1234567890"
+    local pages2 = smartSplitText(text2, 5)
+    assertEquals(#pages2, 2)
+    assertEquals(pages2[1], "1234567890 ")
+    assertEquals(pages2[2], "1234567890")
 end
 
 function TestHelperFunctions:test_getFeedbackString()

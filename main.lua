@@ -836,8 +836,9 @@ function uploadFileToGemini(filePath, mimeType, apiKey, callback)
                 local responseCode = conn.getResponseCode()
                 if responseCode ~= 200 then
                     local errorMsg = "Upload initialization failed: " .. responseCode
-                    local handler = Handler(Looper.getMainLooper())
-                    handler.post(Runnable{run=function() callback("Error: " .. errorMsg) end})
+                    mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                        run = function() callback("Error: " .. errorMsg) end
+                    }))
                     return
                 end
 
@@ -875,8 +876,7 @@ function uploadFileToGemini(filePath, mimeType, apiKey, callback)
                 br.close()
                 putConn.disconnect()
 
-                local handler = Handler(Looper.getMainLooper())
-                handler.post(Runnable{
+                mainHandler.post(luajava.createProxy("java.lang.Runnable", {
                     run = function()
                         if finalCode == 200 or finalCode == 201 then
                             local s, j = pcall(function() return JSONObject(response) end)
@@ -890,11 +890,12 @@ function uploadFileToGemini(filePath, mimeType, apiKey, callback)
                             callback("Error: Upload failed " .. finalCode .. " - " .. response)
                         end
                     end
-                })
+                    }))
             end)
             if not success then
-                local handler = Handler(Looper.getMainLooper())
-                handler.post(Runnable{run=function() callback("Error Exception: " .. tostring(err)) end})
+                    mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                        run = function() callback("Error Exception: " .. tostring(err), true) end
+                    }))
             end
         end
     })
@@ -990,19 +991,19 @@ function transcribeAudio(filePath, callback)
                     local line = br.readLine()
                     while line ~= nil do response = response .. line; line = br.readLine() end
                     br.close()
-                    local handler = Handler(Looper.getMainLooper())
-                    handler.post(Runnable{
+                    mainHandler.post(luajava.createProxy("java.lang.Runnable", {
                         run = function()
                             if responseCode == 200 then
                                 local s, j = pcall(function() return JSONObject(response) end)
                                 if s and j.has("text") then callback(j.getString("text"), true) else callback("Error: " .. response, true) end
                             else callback("Error: " .. responseCode .. " - " .. response, true) end
                         end
-                    })
+                    }))
                 end)
                 if not success then
-                    local handler = Handler(Looper.getMainLooper())
-                    handler.post(Runnable{run=function() callback("Error Exception: " .. tostring(err), true) end})
+                    mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                        run = function() callback("Error Exception: " .. tostring(err), true) end
+                    }))
                 end
             end
         })
@@ -1105,7 +1106,6 @@ function transcribeAudio(filePath, callback)
                     local br = BufferedReader(InputStreamReader(is))
                     local accumulatedFinals = ""
                     local lastText = ""
-                    local handler = Handler(Looper.getMainLooper())
                     
                     local line = br.readLine()
                     local jsonBuffer = ""
@@ -1127,11 +1127,11 @@ function transcribeAudio(filePath, callback)
                                         displayStr = accumulatedFinals .. (accumulatedFinals == "" and "" or " ") .. currentText
                                     end
                                     
-                                    handler.post(Runnable{
+                                    mainHandler.post(luajava.createProxy("java.lang.Runnable", {
                                         run = function()
                                             callback(displayStr, false)
                                         end
-                                    })
+                                    }))
                                 end
                                 jsonBuffer = ""
                             end
@@ -1140,7 +1140,7 @@ function transcribeAudio(filePath, callback)
                     end
                     br.close()
                     
-                    handler.post(Runnable{
+                    mainHandler.post(luajava.createProxy("java.lang.Runnable", {
                         run = function()
                             if responseCode == 200 then
                                 if accumulatedFinals == "" and lastText ~= "" then accumulatedFinals = lastText end
@@ -1152,11 +1152,12 @@ function transcribeAudio(filePath, callback)
                                 callback(errMsg, true) 
                             end
                         end
-                    })
+                    }))
                 end)
                 if not success then
-                    local handler = Handler(Looper.getMainLooper())
-                    handler.post(Runnable{run=function() callback("Error Exception: " .. tostring(err), true) end})
+                    mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                        run = function() callback("Error Exception: " .. tostring(err), true) end
+                    }))
                 end
             end
         })
@@ -1465,9 +1466,9 @@ function openFilePickerWindow(startPath, onFileSelected)
     local winP = WindowManager.LayoutParams(); winP.width=WindowManager.LayoutParams.MATCH_PARENT; winP.height=math.floor(service.getResources().getDisplayMetrics().heightPixels*0.8); winP.type=WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY; winP.flags=WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL; winP.format=PixelFormat.TRANSLUCENT; winP.gravity=Gravity.CENTER; pcall(function() wm.addView(fpWindow, winP) end)
 end
 
-function openPdfPickerWindow(startPath, onFileSelected)
+function openDocumentPickerWindow(startPath, onFileSelected)
     local fpWindow = LinearLayout(service); fpWindow.setOrientation(LinearLayout.VERTICAL); fpWindow.setBackgroundColor(0xFF1E1E1E); fpWindow.setPadding(35,35,35,35)
-    local titleV = TextView(service); titleV.setText("اختر ملف PDF"); titleV.setTextSize(20); titleV.setTextColor(0xFFFFFFFF); titleV.setTypeface(nil, Typeface.BOLD); titleV.setGravity(Gravity.CENTER); titleV.setPadding(0,0,0,20); fpWindow.addView(titleV)
+    local titleV = TextView(service); titleV.setText("اختر ملف (PDF/Word)"); titleV.setTextSize(20); titleV.setTextColor(0xFFFFFFFF); titleV.setTypeface(nil, Typeface.BOLD); titleV.setGravity(Gravity.CENTER); titleV.setPadding(0,0,0,20); fpWindow.addView(titleV)
     local scrollV = ScrollView(service); local listL = LinearLayout(service); listL.setOrientation(LinearLayout.VERTICAL); scrollV.addView(listL); fpWindow.addView(scrollV, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0))
     local function loadDir(path)
         listL.removeAllViews()
@@ -1480,7 +1481,7 @@ function openPdfPickerWindow(startPath, onFileSelected)
                 local file = list[i]
                 if not file.isHidden() then
                     local fname = file.getName():lower()
-                    if file.isDirectory() or fname:match("%.pdf$") then
+                    if file.isDirectory() or fname:match("%.pdf$") or fname:match("%.docx$") then
                         local btn = Button(service); btn.setText(file.isDirectory() and ("📁 " .. file.getName()) or ("📄 " .. file.getName())); btn.setTextColor(0xFFE0E0E0); btn.setBackgroundColor(0x00000000); btn.setGravity(Gravity.START | Gravity.CENTER_VERTICAL)
                         btn.setOnClickListener(function() if file.isDirectory() then loadDir(file.getAbsolutePath()) else pcall(function() wm.removeView(fpWindow) end); onFileSelected(file.getAbsolutePath()) end end); listL.addView(btn)
                     end
@@ -1493,14 +1494,14 @@ function openPdfPickerWindow(startPath, onFileSelected)
     local winP = WindowManager.LayoutParams(); winP.width=WindowManager.LayoutParams.MATCH_PARENT; winP.height=math.floor(service.getResources().getDisplayMetrics().heightPixels*0.8); winP.type=WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY; winP.flags=WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL; winP.format=PixelFormat.TRANSLUCENT; winP.gravity=Gravity.CENTER; pcall(function() wm.addView(fpWindow, winP) end)
 end
 
-function showPdfViewerWindow(filePath, fileUri)
+function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText)
     if resultWindow then pcall(function() wm.removeView(resultWindow) end); resultWindow = nil end
     local currentDictLangDetails = getLanguageDetails(selectedLanguage)
-    local accumulatedQnA = "ملف PDF محمل.\n\n"
+    local accumulatedQnA = isWordLocal and "ملف Word محمل محلياً.\n\n" or "ملف PDF محمل.\n\n"
     
     resultWindow = LinearLayout(service); resultWindow.setOrientation(LinearLayout.VERTICAL); resultWindow.setBackgroundColor(0xFF121212); resultWindow.setPadding(30,30,30,30)
     
-    local titleV = TextView(service); titleV.setText("عارض ومحادثة PDF"); titleV.setTextSize(22); titleV.setTextColor(0xFFFFFFFF); titleV.setTypeface(nil, Typeface.BOLD); titleV.setGravity(Gravity.CENTER); titleV.setPadding(0,0,0,20); resultWindow.addView(titleV)
+    local titleV = TextView(service); titleV.setText(isWordLocal and "عارض ومحادثة Word" or "عارض ومحادثة PDF"); titleV.setTextSize(22); titleV.setTextColor(0xFFFFFFFF); titleV.setTypeface(nil, Typeface.BOLD); titleV.setGravity(Gravity.CENTER); titleV.setPadding(0,0,0,20); resultWindow.addView(titleV)
     
     local scrollV = ScrollView(service); local contentL = LinearLayout(service); contentL.setOrientation(LinearLayout.VERTICAL); contentL.setPadding(10,10,10,10)
     
@@ -1508,25 +1509,37 @@ function showPdfViewerWindow(filePath, fileUri)
     local currentCacheIdx = 1
 
     local pageCtrlL = LinearLayout(service); pageCtrlL.setOrientation(LinearLayout.HORIZONTAL); pageCtrlL.setGravity(Gravity.CENTER_VERTICAL); pageCtrlL.setPadding(0,0,0,20)
-    local l1 = TextView(service); l1.setText("من:"); l1.setTextColor(0xFFB0B0B0); l1.setPadding(0,0,10,0); pageCtrlL.addView(l1)
-    local e1 = EditText(service); e1.setInputType(2); e1.setText("1"); e1.setHint("1"); styleEditText(e1); local lp1 = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0); lp1.rightMargin=10; pageCtrlL.addView(e1, lp1)
-    local l2 = TextView(service); l2.setText("إلى:"); l2.setTextColor(0xFFB0B0B0); l2.setPadding(0,0,10,0); pageCtrlL.addView(l2)
-    local e2 = EditText(service); e2.setInputType(2); e2.setText("5"); e2.setHint("5"); styleEditText(e2); local lp2 = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0); pageCtrlL.addView(e2, lp2)
+    if not isWordLocal then
+        local l1 = TextView(service); l1.setText("من:"); l1.setTextColor(0xFFB0B0B0); l1.setPadding(0,0,10,0); pageCtrlL.addView(l1)
+        local e1 = EditText(service); e1.setInputType(2); e1.setText("1"); e1.setHint("1"); styleEditText(e1); local lp1 = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0); lp1.rightMargin=10; pageCtrlL.addView(e1, lp1)
+        local l2 = TextView(service); l2.setText("إلى:"); l2.setTextColor(0xFFB0B0B0); l2.setPadding(0,0,10,0); pageCtrlL.addView(l2)
+        local e2 = EditText(service); e2.setInputType(2); e2.setText("5"); e2.setHint("5"); styleEditText(e2); local lp2 = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0); pageCtrlL.addView(e2, lp2)
 
-    local function showKeyboard(view)
-        if not view then return end
-        view.requestFocus()
-        local imm = service.getSystemService(Context.INPUT_METHOD_SERVICE)
-        if imm then imm.showSoftInput(view, InputMethodManager.SHOW_IMPLICIT) end
+        local function showKeyboard(view)
+            if not view then return end
+            view.requestFocus()
+            local imm = service.getSystemService(Context.INPUT_METHOD_SERVICE)
+            if imm then imm.showSoftInput(view, InputMethodManager.SHOW_IMPLICIT) end
+        end
+        e1.setOnTouchListener(View.OnTouchListener{ onTouch = function(v, event) if event.getAction() == MotionEvent.ACTION_UP then showKeyboard(v) end return false end })
+        e2.setOnTouchListener(View.OnTouchListener{ onTouch = function(v, event) if event.getAction() == MotionEvent.ACTION_UP then showKeyboard(v) end return false end })
+        contentL.addView(pageCtrlL)
+
+        local loadBtn = Button(service); loadBtn.setText("📂 تحميل الصفحات المحددة"); styleButton(loadBtn, "primary")
+        local btnP1 = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT); btnP1.setMargins(0,0,0,20)
+        loadBtn.setLayoutParams(btnP1)
+        contentL.addView(loadBtn)
+
+        loadBtn.setOnClickListener(function()
+            local sP = e1.getText().toString()
+            local eP = e2.getText().toString()
+            if sP == "" or eP == "" then service.asyncSpeak("يرجى إدخال نطاق الصفحات.") return end
+            local nS, nE = tonumber(sP), tonumber(eP)
+            if not nS or not nE then service.asyncSpeak("خطأ: يرجى إدخال أرقام صالحة.") return end
+            if nS > nE then service.asyncSpeak("خطأ: صفحة البداية يجب أن تكون أقل من أو تساوي صفحة النهاية.") return end
+            fetchRangeContentRemote(sP, eP)
+        end)
     end
-    e1.setOnTouchListener(View.OnTouchListener{ onTouch = function(v, event) if event.getAction() == MotionEvent.ACTION_UP then showKeyboard(v) end return false end })
-    e2.setOnTouchListener(View.OnTouchListener{ onTouch = function(v, event) if event.getAction() == MotionEvent.ACTION_UP then showKeyboard(v) end return false end })
-    contentL.addView(pageCtrlL)
-    
-    local loadBtn = Button(service); loadBtn.setText("📂 تحميل الصفحات المحددة"); styleButton(loadBtn, "primary")
-    local btnP1 = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT); btnP1.setMargins(0,0,0,20)
-    loadBtn.setLayoutParams(btnP1)
-    contentL.addView(loadBtn)
 
     local navL = LinearLayout(service); navL.setOrientation(LinearLayout.HORIZONTAL); navL.setGravity(Gravity.CENTER); navL.setPadding(0,0,0,20)
     local prevBtn = Button(service); prevBtn.setText("⬅️ السابق"); styleButton(prevBtn, "secondary")
@@ -1547,7 +1560,9 @@ function showPdfViewerWindow(filePath, fileUri)
     playbackL.addView(playBtn, playParams); playbackL.addView(stopTtsBtn, stopParams); playbackL.addView(ttsSetBtn, setParams)
     contentL.addView(playbackL)
 
-    local pageContentTV = TextView(service); pageContentTV.setText("يرجى تحديد نطاق الصفحات والضغط على تحميل."); pageContentTV.setTextSize(18); pageContentTV.setTextColor(0xFFE0E0E0); pageContentTV.setPadding(10,20,10,20); pageContentTV.setTextIsSelectable(true)
+    local pageContentTV = TextView(service)
+    pageContentTV.setText(isWordLocal and "جاري معالجة النص..." or "يرجى تحديد نطاق الصفحات والضغط على تحميل.")
+    pageContentTV.setTextSize(18); pageContentTV.setTextColor(0xFFE0E0E0); pageContentTV.setPadding(10,20,10,20); pageContentTV.setTextIsSelectable(true)
     contentL.addView(pageContentTV)
 
     local qnaHistoryLayout = LinearLayout(service)
@@ -1559,78 +1574,66 @@ function showPdfViewerWindow(filePath, fileUri)
     voiceQBtn.setLayoutParams(btnP2)
     contentL.addView(voiceQBtn)
 
-    local pdfTts = nil
-    local isPdfTtsInit = false
+    local docTts = nil
+    local isDocTtsInit = false
     local isPlaying = false
 
-    -- Forward declare functions to resolve scoping issues
-    local stopReading, initPdfTts, readCurrentPage, updateDisplayPage
+    local stopReading, initDocTts, readCurrentPage, updateDisplayPage, fetchRangeContentRemote
 
     stopReading = function()
         isPlaying = false
-        if pdfTts then pcall(function() pdfTts.stop() end) end
+        if docTts then pcall(function() docTts.stop() end) end
         playBtn.setText("▶️ تشغيل")
     end
 
-    initPdfTts = function(callback)
+    initDocTts = function(callback)
         mainHandler.post(luajava.createProxy("java.lang.Runnable", {
             run = function()
-                if pdfTts then pcall(function() pdfTts.stop(); pdfTts.shutdown() end) end
-                isPdfTtsInit = false
+                if docTts then pcall(function() docTts.stop(); docTts.shutdown() end) end
+                isDocTtsInit = false
                 local listener = TextToSpeech.OnInitListener{
                     onInit = function(status)
                         if status == TextToSpeech.SUCCESS then
-                            isPdfTtsInit = true
+                            isDocTtsInit = true
                             if pdfTtsVoiceName and pdfTtsVoiceName ~= "" then
                                 local voices = nil
-                                pcall(function() voices = pdfTts.getVoices() end)
+                                pcall(function() voices = docTts.getVoices() end)
                                 if voices then
                                     local it = voices.iterator()
                                     while it.hasNext() do
                                         local v = it.next()
-                                        if v and v.getName() == pdfTtsVoiceName then
-                                            pcall(function() pdfTts.setVoice(v) end)
-                                            break
-                                        end
+                                        if v and v.getName() == pdfTtsVoiceName then pcall(function() docTts.setVoice(v) end) break end
                                     end
                                 end
                             end
-                            pcall(function() pdfTts.setSpeechRate(pdfTtsSpeed or 1.0) end)
-
+                            pcall(function() docTts.setSpeechRate(pdfTtsSpeed or 1.0) end)
                             import "android.speech.tts.UtteranceProgressListener"
                             local progressListener = UtteranceProgressListener{
                                 onStart = function(id) end,
                                 onDone = function(id)
-                                    if id == "pdf_page" and pdfTtsAutoNext and isPlaying then
+                                    if id == "doc_page" and pdfTtsAutoNext and isPlaying then
                                         mainHandler.post(luajava.createProxy("java.lang.Runnable", {
                                             run = function()
                                                 if currentCacheIdx < #pagesCache then
                                                     currentCacheIdx = currentCacheIdx + 1
                                                     updateDisplayPage()
                                                     readCurrentPage()
-                                                else
-                                                    stopReading()
-                                                end
+                                                else stopReading() end
                                             end
                                         }))
-                                    elseif id == "pdf_page" then
-                                        mainHandler.post(luajava.createProxy("java.lang.Runnable", {
-                                            run = function() stopReading() end
-                                        }))
+                                    elseif id == "doc_page" then
+                                        mainHandler.post(luajava.createProxy("java.lang.Runnable", { run = function() stopReading() end }))
                                     end
                                 end,
                                 onError = function(id) end
                             }
-                            pdfTts.setOnUtteranceProgressListener(progressListener)
+                            docTts.setOnUtteranceProgressListener(progressListener)
                         end
-                        if callback then callback(isPdfTtsInit) end
+                        if callback then callback(isDocTtsInit) end
                     end
                 }
-                if pdfTtsEngine and pdfTtsEngine ~= "" then
-                    pdfTts = TextToSpeech(service, listener, tostring(pdfTtsEngine))
-                else
-                    pdfTts = TextToSpeech(service, listener)
-                end
+                if pdfTtsEngine and pdfTtsEngine ~= "" then docTts = TextToSpeech(service, listener, tostring(pdfTtsEngine))
+                else docTts = TextToSpeech(service, listener) end
             end
         }))
     end
@@ -1639,38 +1642,19 @@ function showPdfViewerWindow(filePath, fileUri)
         if not pagesCache or #pagesCache == 0 then return end
         local text = pagesCache[currentCacheIdx]
         if not text or text == "" then return end
-
         isPlaying = true
         playBtn.setText("⏸️ إيقاف مؤقت")
-
         local function startSpeak()
-            if pdfTts and isPdfTtsInit then
-                local s_s, err = pcall(function()
-                    -- Standard modern Android speak signature (API 21+)
-                    -- public int speak (CharSequence text, int queueMode, Bundle params, String utteranceId)
-                    -- Using nil for Bundle params as it's optional
-                    pdfTts.speak(tostring(text), TextToSpeech.QUEUE_FLUSH, nil, "pdf_page")
-                end)
+            if docTts and isDocTtsInit then
+                local s_s, err = pcall(function() docTts.speak(tostring(text), TextToSpeech.QUEUE_FLUSH, nil, "doc_page") end)
                 if not s_s then
-                    -- Fallback for older signatures if needed
-                    local params = HashMap()
-                    params.put("utteranceId", "pdf_page")
-                    pcall(function()
-                        pdfTts.speak(tostring(text), TextToSpeech.QUEUE_FLUSH, params)
-                    end)
+                    local params = HashMap(); params.put("utteranceId", "doc_page")
+                    pcall(function() docTts.speak(tostring(text), TextToSpeech.QUEUE_FLUSH, params) end)
                 end
-            else
-                service.asyncSpeak(tostring(text))
-            end
+            else service.asyncSpeak(tostring(text)) end
         end
-
-        if not isPdfTtsInit or not pdfTts then
-            initPdfTts(function(success)
-                if success then startSpeak() else stopReading() end
-            end)
-        else
-            startSpeak()
-        end
+        if not isDocTtsInit or not docTts then initDocTts(function(success) if success then startSpeak() else stopReading() end end)
+        else startSpeak() end
     end
 
     updateDisplayPage = function()
@@ -1681,242 +1665,9 @@ function showPdfViewerWindow(filePath, fileUri)
         end
     end
 
-    local function fetchRangeContent(startP, endP)
+    fetchRangeContentRemote = function(startP, endP)
         pageContentTV.setText("⏳ جاري استخراج النصوص من الصفحة " .. startP .. " إلى " .. endP .. "...")
         local q = "استخرج النص الموجود في هذا الملف من الصفحة " .. startP .. " إلى الصفحة " .. endP .. ". افصل بين كل صفحة وأخرى بوضع العلامة التالية فقط: ===PAGE_BREAK==="
-
-        local url = "https://generativelanguage.googleapis.com/v1beta/models/" .. selectedGeminiModelId .. ":generateContent?key=" .. geminiApiKey
-        local headers = {["Content-Type"] = "application/json"}
-
-        local root = JSONObject()
-        local contentObj = JSONObject()
-        local partsArray = JSONArray()
-
-        local filePart = JSONObject()
-        local fileData = JSONObject()
-        fileData.put("mime_type", "application/pdf")
-        fileData.put("file_uri", fileUri)
-        filePart.put("file_data", fileData)
-        partsArray.put(filePart)
-
-        local textPart = JSONObject()
-        textPart.put("text", q)
-        partsArray.put(textPart)
-
-        contentObj.put("parts", partsArray)
-        local contentsArray = JSONArray()
-        contentsArray.put(contentObj)
-        root.put("contents", contentsArray)
-
-        Http.post(url, root.toString(), headers, function(status, response)
-            local resultTxt = ""
-            if status == 200 then
-                local s, j = pcall(function() return JSONObject(response) end)
-                if s and j.has("candidates") then
-                    local cands = j.getJSONArray("candidates")
-                    if cands.length() > 0 then
-                        local parts = cands.getJSONObject(0).getJSONObject("content").getJSONArray("parts")
-                        if parts.length() > 0 and parts.getJSONObject(0).has("text") then
-                            resultTxt = parts.getJSONObject(0).getString("text")
-                        end
-                    end
-                end
-            else
-                resultTxt = "Error: " .. status .. " - " .. tostring(response)
-            end
-
-            local handler = Handler(Looper.getMainLooper())
-            handler.post(Runnable{
-                run = function()
-                    if resultTxt:match("^Error:") then
-                        pageContentTV.setText(resultTxt)
-                    else
-                        pagesCache = {}
-                        local delimiter = "===PAGE_BREAK==="
-                        local s = 1
-                        while true do
-                            local e = string.find(resultTxt, delimiter, s, true)
-                            if not e then
-                                local last = string.sub(resultTxt, s)
-                                if last and last ~= "" and not last:match("^%s*$") then
-                                    table.insert(pagesCache, (last:gsub("^%s*", ""):gsub("%s*$", "")))
-                                end
-                                break
-                            end
-                            local part = string.sub(resultTxt, s, e - 1)
-                            if part and part ~= "" and not part:match("^%s*$") then
-                                table.insert(pagesCache, (part:gsub("^%s*", ""):gsub("%s*$", "")))
-                            end
-                            s = e + #delimiter
-                        end
-
-                        if #pagesCache > 0 then
-                            currentCacheIdx = 1
-                            updateDisplayPage()
-                        else
-                            pageContentTV.setText("تعذر تقسيم النص إلى صفحات. النص المستخرج:\n" .. resultTxt)
-                        end
-                    end
-                end
-            })
-        end)
-    end
-
-    local function askGeminiPdf(promptText, aiBubble)
-        local url = "https://generativelanguage.googleapis.com/v1beta/models/" .. selectedGeminiModelId .. ":generateContent?key=" .. geminiApiKey
-        local headers = {["Content-Type"] = "application/json"}
-        
-        local root = JSONObject()
-        local contentObj = JSONObject()
-        local partsArray = JSONArray()
-        
-        local filePart = JSONObject()
-        local fileData = JSONObject()
-        fileData.put("mime_type", "application/pdf")
-        fileData.put("file_uri", fileUri)
-        filePart.put("file_data", fileData)
-        partsArray.put(filePart)
-        
-        local textPart = JSONObject()
-        textPart.put("text", promptText)
-        partsArray.put(textPart)
-        
-        contentObj.put("parts", partsArray)
-        local contentsArray = JSONArray()
-        contentsArray.put(contentObj)
-        root.put("contents", contentsArray)
-        
-        Http.post(url, root.toString(), headers, function(status, response)
-            local resultTxt = "Error: " .. status
-            if status == 200 then
-                local s, j = pcall(function() return JSONObject(response) end)
-                if s and j.has("candidates") then
-                    local cands = j.getJSONArray("candidates")
-                    if cands.length() > 0 then
-                        local parts = cands.getJSONObject(0).getJSONObject("content").getJSONArray("parts")
-                        if parts.length() > 0 and parts.getJSONObject(0).has("text") then
-                            resultTxt = parts.getJSONObject(0).getString("text")
-                        end
-                    end
-                end
-            else
-                resultTxt = resultTxt .. " - " .. tostring(response)
-            end
-            local handler = Handler(Looper.getMainLooper())
-            handler.post(Runnable{
-                run = function()
-                    if aiBubble then 
-                        aiBubble.getChildAt(0).setText(resultTxt) 
-                        speakAIResponseViaCustomTTS(resultTxt, "ar")
-                        accumulatedQnA = accumulatedQnA .. "AI: " .. resultTxt .. "\n\n"
-                        pcall(function() scrollV.fullScroll(ScrollView.FOCUS_DOWN) end)
-                    end
-                end
-            })
-        end)
-    end
-    
-    playBtn.setOnClickListener(function()
-        if isPlaying then
-            stopReading()
-        else
-            readCurrentPage()
-        end
-    end)
-
-    stopTtsBtn.setOnClickListener(function()
-        stopReading()
-    end)
-
-    ttsSetBtn.setOnClickListener(function()
-        stopReading()
-        openPdfTtsSettings(function()
-            isPdfTtsInit = false -- Re-init with new engine/voice/speed
-        end)
-    end)
-
-    voiceQBtn.setOnClickListener(function()
-        if not SpeechRecognizer.isRecognitionAvailable(service) then service.asyncSpeak(getFeedbackString("error_speech_unavailable", currentDictLangDetails.code)); return end
-        voiceQBtn.setText("⏳ جارٍ الاستماع..."); voiceQBtn.setEnabled(false);
-        
-        local localRec = SpeechRecognizer.createSpeechRecognizer(service)
-        local qIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH); qIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM); qIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, selectedLanguage or "ar"); qIntent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false); qIntent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-        localRec.setRecognitionListener(RecognitionListener{
-            onReadyForSpeech=function() voiceQBtn.setText("...تحدث الآن") end, onBeginningOfSpeech=function()end, onRmsChanged=function()end, onBufferReceived=function()end, onEndOfSpeech=function() voiceQBtn.setText("🤔 جاري المعالجة...") end,
-            onError=function(e) service.asyncSpeak("خطأ استماع"); pcall(function()localRec.destroy()end); voiceQBtn.setText("🎤 التحدث للسؤال عن الملف"); voiceQBtn.setEnabled(true); end,
-            onResults=function(r)
-                local m=r.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                if m and m.size()>0 then
-                    local uQ=m.get(0)
-                    if uQ and uQ~="" then
-                        local userBubble = createChatBubble(uQ, true)
-                        qnaHistoryLayout.addView(userBubble)
-                        local aiBubble = createChatBubble("جاري البحث...", false)
-                        qnaHistoryLayout.addView(aiBubble)
-                        pcall(function() scrollV.fullScroll(ScrollView.FOCUS_DOWN) end)
-
-                        local q = accumulatedQnA .. "Question: " .. uQ
-                        askGeminiPdf(q, aiBubble)
-                        accumulatedQnA = accumulatedQnA .. "User: " .. uQ .. "\n"
-                    end
-                end
-                pcall(function()localRec.destroy()end)
-                voiceQBtn.setText("🎤 التحدث للسؤال عن الملف"); voiceQBtn.setEnabled(true)
-            end,
-            onPartialResults=function()end, onEvent=function()end
-        }); pcall(function() localRec.startListening(qIntent) end)
-    end)
-    
-    scrollV.addView(contentL); local scrP = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,0,1.0); resultWindow.addView(scrollV,scrP)
-    
-    local closeBtn = Button(service); closeBtn.setText("❌ إغلاق"); styleButton(closeBtn, "danger")
-    closeBtn.setOnClickListener(function() if resultWindow then pcall(function()wm.removeView(resultWindow)end); resultWindow=nil end end)
-    local clP = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,LinearLayout.LayoutParams.WRAP_CONTENT); clP.topMargin=10; resultWindow.addView(closeBtn,clP)
-    
-    loadBtn.setOnClickListener(function()
-        local sP = e1.getText().toString()
-        local eP = e2.getText().toString()
-        if sP == "" or eP == "" then
-            service.asyncSpeak("يرجى إدخال نطاق الصفحات.")
-            return
-        end
-        local nS, nE = tonumber(sP), tonumber(eP)
-        if not nS or not nE then
-            service.asyncSpeak("خطأ: يرجى إدخال أرقام صالحة.")
-            return
-        end
-        if nS > nE then
-            service.asyncSpeak("خطأ: صفحة البداية يجب أن تكون أقل من أو تساوي صفحة النهاية.")
-            return
-        end
-        fetchRangeContent(sP, eP)
-    end)
-
-    prevBtn.setOnClickListener(function()
-        if pagesCache and #pagesCache > 0 and currentCacheIdx > 1 then
-            local wasPlaying = isPlaying
-            stopReading()
-            currentCacheIdx = currentCacheIdx - 1
-            updateDisplayPage()
-            if wasPlaying then readCurrentPage() end
-        end
-    end)
-
-    nextBtn.setOnClickListener(function()
-        if pagesCache and #pagesCache > 0 and currentCacheIdx < #pagesCache then
-            local wasPlaying = isPlaying
-            stopReading()
-            currentCacheIdx = currentCacheIdx + 1
-            updateDisplayPage()
-            if wasPlaying then readCurrentPage() end
-        end
-    end)
-
-    local winP = WindowManager.LayoutParams(); winP.width=WindowManager.LayoutParams.MATCH_PARENT; winP.height=math.floor(service.getResources().getDisplayMetrics().heightPixels*0.85); winP.type=WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY; winP.flags=WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL|WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN; winP.format=PixelFormat.TRANSLUCENT; winP.gravity=Gravity.CENTER; winP.horizontalMargin=0.05; winP.verticalMargin=0.05
-    pcall(function() wm.addView(resultWindow, winP) end)
-    
-    local function detectPageCount()
-        local q = "كم عدد الصفحات في هذا الملف؟ أجب بالرقم فقط."
         local url = "https://generativelanguage.googleapis.com/v1beta/models/" .. selectedGeminiModelId .. ":generateContent?key=" .. geminiApiKey
         local headers = {["Content-Type"] = "application/json"}
         local root = JSONObject(); local contentObj = JSONObject(); local partsArray = JSONArray()
@@ -1927,31 +1678,258 @@ function showPdfViewerWindow(filePath, fileUri)
         contentObj.put("parts", partsArray); local contentsArray = JSONArray(); contentsArray.put(contentObj); root.put("contents", contentsArray)
 
         Http.post(url, root.toString(), headers, function(status, response)
+            local resultTxt = ""
             if status == 200 then
                 local s, j = pcall(function() return JSONObject(response) end)
                 if s and j.has("candidates") then
                     local cands = j.getJSONArray("candidates")
                     if cands.length() > 0 then
                         local parts = cands.getJSONObject(0).getJSONObject("content").getJSONArray("parts")
-                        if parts.length() > 0 and parts.getJSONObject(0).has("text") then
-                            local countText = parts.getJSONObject(0).getString("text"):match("%d+")
-                            if countText then
-                                local msg = "هذا الملف يحتوي على " .. countText .. " صفحة. يمكنك الآن تحديد النطاق والتحميل."
-                                local handler = Handler(Looper.getMainLooper())
-                                handler.post(Runnable{run=function()
-                                    pageContentTV.setText(msg)
-                                    service.asyncSpeak(msg)
-                                end})
-                                return
+                        if parts.length() > 0 and parts.getJSONObject(0).has("text") then resultTxt = parts.getJSONObject(0).getString("text") end
+                    end
+                end
+            else resultTxt = "Error: " .. status .. " - " .. tostring(response) end
+            mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                run = function()
+                    if resultTxt:match("^Error:") then pageContentTV.setText(resultTxt)
+                    else
+                        pagesCache = {}
+                        local delimiter = "===PAGE_BREAK==="
+                        local s = 1
+                        while true do
+                            local e = string.find(resultTxt, delimiter, s, true)
+                            if not e then
+                                local last = string.sub(resultTxt, s)
+                                if last and last ~= "" and not last:match("^%s*$") then table.insert(pagesCache, (last:gsub("^%s*", ""):gsub("%s*$", ""))) end
+                                break
+                            end
+                            local part = string.sub(resultTxt, s, e - 1)
+                            if part and part ~= "" and not part:match("^%s*$") then table.insert(pagesCache, (part:gsub("^%s*", ""):gsub("%s*$", ""))) end
+                            s = e + #delimiter
+                        end
+                        if #pagesCache > 0 then currentCacheIdx = 1; updateDisplayPage()
+                        else pageContentTV.setText("تعذر تقسيم النص إلى صفحات. النص المستخرج:\n" .. resultTxt) end
+                    end
+                end
+            }))
+        end)
+    end
+
+    local function askAiAboutDoc(promptText, aiBubble)
+        if geminiApiKey == "" then service.asyncSpeak("مفتاح Gemini مفقود.") return end
+        local url = "https://generativelanguage.googleapis.com/v1beta/models/" .. selectedGeminiModelId .. ":generateContent?key=" .. geminiApiKey
+        local headers = {["Content-Type"] = "application/json"}
+        local root = JSONObject(); local contentObj = JSONObject(); local partsArray = JSONArray()
+        
+        if isWordLocal then
+            -- For local Word, we send the extracted text instead of file_uri
+            local sysPart = JSONObject(); sysPart.put("text", "System: You are an assistant answering questions about the following document content.\n\nContent:\n" .. (initialText or ""))
+            partsArray.put(sysPart)
+        else
+            local filePart = JSONObject(); local fileData = JSONObject()
+            fileData.put("mime_type", "application/pdf"); fileData.put("file_uri", fileUri)
+            filePart.put("file_data", fileData); partsArray.put(filePart)
+        end
+        
+        local textPart = JSONObject(); textPart.put("text", promptText); partsArray.put(textPart)
+        contentObj.put("parts", partsArray); local contentsArray = JSONArray(); contentsArray.put(contentObj); root.put("contents", contentsArray)
+        
+        Http.post(url, root.toString(), headers, function(status, response)
+            local resultTxt = "Error: " .. status
+            if status == 200 then
+                local s, j = pcall(function() return JSONObject(response) end)
+                if s and j.has("candidates") then
+                    local cands = j.getJSONArray("candidates")
+                    if cands.length() > 0 then
+                        local parts = cands.getJSONObject(0).getJSONObject("content").getJSONArray("parts")
+                        if parts.length() > 0 and parts.getJSONObject(0).has("text") then resultTxt = parts.getJSONObject(0).getString("text") end
+                    end
+                end
+            else resultTxt = resultTxt .. " - " .. tostring(response) end
+            mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                run = function()
+                    if aiBubble then 
+                        aiBubble.getChildAt(0).setText(resultTxt) 
+                        speakAIResponseViaCustomTTS(resultTxt, "ar")
+                        accumulatedQnA = accumulatedQnA .. "AI: " .. resultTxt .. "\n\n"
+                        pcall(function() scrollV.fullScroll(ScrollView.FOCUS_DOWN) end)
+                    end
+                end
+            }))
+        end)
+    end
+    
+    playBtn.setOnClickListener(function() if isPlaying then stopReading() else readCurrentPage() end end)
+    stopTtsBtn.setOnClickListener(function() stopReading() end)
+    ttsSetBtn.setOnClickListener(function() stopReading(); openPdfTtsSettings(function() isDocTtsInit = false end) end)
+
+    voiceQBtn.setOnClickListener(function()
+        if not SpeechRecognizer.isRecognitionAvailable(service) then service.asyncSpeak(getFeedbackString("error_speech_unavailable", currentDictLangDetails.code)); return end
+        voiceQBtn.setText("⏳ جارٍ الاستماع..."); voiceQBtn.setEnabled(false);
+        local localRec = SpeechRecognizer.createSpeechRecognizer(service)
+        local qIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH); qIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM); qIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, selectedLanguage or "ar"); qIntent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false); qIntent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+        localRec.setRecognitionListener(RecognitionListener{
+            onReadyForSpeech=function() voiceQBtn.setText("...تحدث الآن") end, onEndOfSpeech=function() voiceQBtn.setText("🤔 جاري المعالجة...") end,
+            onError=function(e) service.asyncSpeak("خطأ استماع"); pcall(function()localRec.destroy()end); voiceQBtn.setText("🎤 التحدث للسؤال عن الملف"); voiceQBtn.setEnabled(true); end,
+            onResults=function(r)
+                local m=r.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                if m and m.size()>0 then
+                    local uQ=m.get(0)
+                    if uQ and uQ~="" then
+                        local userBubble = createChatBubble(uQ, true); qnaHistoryLayout.addView(userBubble)
+                        local aiBubble = createChatBubble("جاري البحث...", false); qnaHistoryLayout.addView(aiBubble)
+                        pcall(function() scrollV.fullScroll(ScrollView.FOCUS_DOWN) end)
+                        local q = accumulatedQnA .. "Question: " .. uQ
+                        askAiAboutDoc(q, aiBubble)
+                        accumulatedQnA = accumulatedQnA .. "User: " .. uQ .. "\n"
+                    end
+                end
+                pcall(function()localRec.destroy()end); voiceQBtn.setText("🎤 التحدث للسؤال عن الملف"); voiceQBtn.setEnabled(true)
+            end
+        }); pcall(function() localRec.startListening(qIntent) end)
+    end)
+    
+    scrollV.addView(contentL); local scrP = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,0,1.0); resultWindow.addView(scrollV,scrP)
+    local closeBtn = Button(service); closeBtn.setText("❌ إغلاق"); styleButton(closeBtn, "danger")
+    closeBtn.setOnClickListener(function() if resultWindow then pcall(function()wm.removeView(resultWindow)end); resultWindow=nil end end)
+    local clP = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,LinearLayout.LayoutParams.WRAP_CONTENT); clP.topMargin=10; resultWindow.addView(closeBtn,clP)
+    
+    prevBtn.setOnClickListener(function()
+        if pagesCache and #pagesCache > 0 and currentCacheIdx > 1 then
+            local wasPlaying = isPlaying; stopReading(); currentCacheIdx = currentCacheIdx - 1; updateDisplayPage()
+            if wasPlaying then readCurrentPage() end
+        end
+    end)
+
+    nextBtn.setOnClickListener(function()
+        if pagesCache and #pagesCache > 0 and currentCacheIdx < #pagesCache then
+            local wasPlaying = isPlaying; stopReading(); currentCacheIdx = currentCacheIdx + 1; updateDisplayPage()
+            if wasPlaying then readCurrentPage() end
+        end
+    end)
+
+    local winP = WindowManager.LayoutParams(); winP.width=WindowManager.LayoutParams.MATCH_PARENT; winP.height=math.floor(service.getResources().getDisplayMetrics().heightPixels*0.85); winP.type=WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY; winP.flags=WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL|WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN; winP.format=PixelFormat.TRANSLUCENT; winP.gravity=Gravity.CENTER; winP.horizontalMargin=0.05; winP.verticalMargin=0.05
+    pcall(function() wm.addView(resultWindow, winP) end)
+    
+    if isWordLocal and initialText then
+        pagesCache = smartSplitText(initialText, 2000)
+        currentCacheIdx = 1
+        updateDisplayPage()
+    elseif not isWordLocal then
+        local function detectPageCount()
+            local q = "كم عدد الصفحات في هذا الملف؟ أجب بالرقم فقط."
+            local url = "https://generativelanguage.googleapis.com/v1beta/models/" .. selectedGeminiModelId .. ":generateContent?key=" .. geminiApiKey
+            local headers = {["Content-Type"] = "application/json"}
+            local root = JSONObject(); local contentObj = JSONObject(); local partsArray = JSONArray()
+            local filePart = JSONObject(); local fileData = JSONObject()
+            fileData.put("mime_type", "application/pdf"); fileData.put("file_uri", fileUri)
+            filePart.put("file_data", fileData); partsArray.put(filePart)
+            local textPart = JSONObject(); textPart.put("text", q); partsArray.put(textPart)
+            contentObj.put("parts", partsArray); local contentsArray = JSONArray(); contentsArray.put(contentObj); root.put("contents", contentsArray)
+
+            Http.post(url, root.toString(), headers, function(status, response)
+                if status == 200 then
+                    local s, j = pcall(function() return JSONObject(response) end)
+                    if s and j.has("candidates") then
+                        local cands = j.getJSONArray("candidates")
+                        if cands.length() > 0 then
+                            local parts = cands.getJSONObject(0).getJSONObject("content").getJSONArray("parts")
+                            if parts.length() > 0 and parts.getJSONObject(0).has("text") then
+                                local countText = parts.getJSONObject(0).getString("text"):match("%d+")
+                                if countText then
+                                    local msg = "هذا الملف يحتوي على " .. countText .. " صفحة. يمكنك الآن تحديد النطاق والتحميل."
+                                    mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                                        run = function() pageContentTV.setText(msg); service.asyncSpeak(msg) end
+                                    }))
+                                    return
+                                end
                             end
                         end
                     end
                 end
-            end
-            service.asyncSpeak("تم تحميل الملف. يرجى إدخال نطاق الصفحات للبدء.")
-        end)
+                service.asyncSpeak("تم تحميل الملف. يرجى إدخال نطاق الصفحات للبدء.")
+            end)
+        end
+        detectPageCount()
     end
-    detectPageCount()
+end
+
+function extractDocxTextLocal(filePath)
+    import "java.util.zip.ZipFile"
+    import "java.io.InputStreamReader"
+    import "java.io.BufferedReader"
+    import "java.lang.StringBuilder"
+
+    local success, result = pcall(function()
+        local zipFile = ZipFile(filePath)
+        local entry = zipFile.getEntry("word/document.xml")
+        if not entry then
+            zipFile.close()
+            return nil, "ملف Word غير صالح (document.xml مفقود)"
+        end
+
+        local is = zipFile.getInputStream(entry)
+        local reader = BufferedReader(InputStreamReader(is, "UTF-8"))
+        local sb = StringBuilder()
+        local line = reader.readLine()
+        while line ~= nil do
+            sb.append(line)
+            line = reader.readLine()
+        end
+        reader.close()
+        zipFile.close()
+
+        local xmlContent = sb.toString()
+        local textParts = {}
+
+        -- Iterate through all tags and text
+        for part in xmlContent:gmatch("<[^>]+>[^<]*") do
+            local tag = part:match("<([^>]+)>")
+            local content = part:match(">([^<]*)")
+            if tag and tag:match("^w:t") then
+                if content then table.insert(textParts, content) end
+            elseif tag == "/w:p" or tag == "w:br/" or tag == "w:cr/" then
+                table.insert(textParts, "\n")
+            elseif tag == "w:tab/" then
+                table.insert(textParts, "\t")
+            end
+        end
+
+        -- Handle some common entities
+        local finalResult = table.concat(textParts, "")
+        finalResult = finalResult:gsub("&lt;", "<"):gsub("&gt;", ">"):gsub("&amp;", "&"):gsub("&quot;", "\""):gsub("&apos;", "'")
+
+        return finalResult
+    end)
+
+    if success then return result else return nil, tostring(result) end
+end
+
+function smartSplitText(text, limit)
+    limit = limit or 2000
+    local pages = {}
+    local startPos = 1
+    local textLen = #text
+
+    while startPos <= textLen do
+        local endPos = startPos + limit
+        if endPos >= textLen then
+            table.insert(pages, text:sub(startPos))
+            break
+        end
+
+        -- Look for the next space or newline to avoid cutting words
+        local nextSpace = text:find("[ \n\r\t]", endPos)
+        if nextSpace then
+            table.insert(pages, text:sub(startPos, nextSpace))
+            startPos = nextSpace + 1
+        else
+            -- If no space found till the end, just take the rest
+            table.insert(pages, text:sub(startPos))
+            break
+        end
+    end
+    return pages
 end
 
 function loadPdfAndShowViewer(filePath)
@@ -1968,8 +1946,28 @@ function loadPdfAndShowViewer(filePath)
             showResultWindow("خطأ", fileUriOrError)
             return
         end
-        showPdfViewerWindow(filePath, fileUriOrError)
+        showDocumentViewerWindow(filePath, fileUriOrError, false)
     end)
+end
+
+function loadDocumentAndShowViewer(filePath)
+    local ext = filePath:match("%.([^%.]+)$")
+    if ext then ext = ext:lower() end
+
+    if ext == "pdf" then
+        loadPdfAndShowViewer(filePath)
+    elseif ext == "docx" then
+        service.asyncSpeak("جاري قراءة ملف الوورد محلياً...")
+        local text, err = extractDocxTextLocal(filePath)
+        if text then
+            showDocumentViewerWindow(filePath, nil, true, text)
+        else
+            service.asyncSpeak("فشل قراءة الملف: " .. (err or "خطأ غير معروف"))
+            showResultWindow("خطأ", err or "فشل استخراج النص من ملف Word.")
+        end
+    else
+        service.asyncSpeak("عذراً، صيغة الملف غير مدعومة حالياً.")
+    end
 end
 
 -- ### Screen Text and Screenshot Functions
@@ -2209,11 +2207,11 @@ function openSettings()
     end)
     toolsCard.addView(transcribeFileBtn)
     
-    local readPdfBtn = Button(service); readPdfBtn.setText("📄 قراءة ومحادثة PDF (Gemini)"); styleButton(readPdfBtn, "secondary")
+    local readPdfBtn = Button(service); readPdfBtn.setText("📄 قراءة ومحادثة المستندات (PDF/Word)"); styleButton(readPdfBtn, "secondary")
     readPdfBtn.setOnClickListener(function()
         hideSettings()
-        openPdfPickerWindow("/storage/emulated/0", function(selectedPath)
-            loadPdfAndShowViewer(selectedPath)
+        openDocumentPickerWindow("/storage/emulated/0", function(selectedPath)
+            loadDocumentAndShowViewer(selectedPath)
         end)
     end)
     local btnParamsPdf = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT); btnParamsPdf.topMargin = 15;
