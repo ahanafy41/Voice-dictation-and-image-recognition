@@ -1686,16 +1686,17 @@ end
 
 function openDocumentPickerWindow(startPath, onFileSelected)
     local function docFilter(fname)
-        return fname:match("%.pdf$") or fname:match("%.docx$") or fname:match("%.txt$")
+        return fname:match("%.pdf$") or fname:match("%.docx$") or fname:match("%.txt$") or fname:match("%.epub$")
     end
-    showUniversalFilePicker("اختر مستند (PDF/Word/Text) 📄", startPath, docFilter, onFileSelected)
+    showUniversalFilePicker("اختر مستند (PDF/Word/Text/EPUB) 📄", startPath, docFilter, onFileSelected)
 end
 
-function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText)
+function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, epubSpine)
     if resultWindow then pcall(function() wm.removeView(resultWindow) end); resultWindow = nil end
     local currentDictLangDetails = getLanguageDetails(selectedLanguage)
     local isTxt = filePath:lower():match("%.txt$") ~= nil
-    local accumulatedQnA = (isTxt and "ملف نصي محمل محلياً.\n\n") or (isWordLocal and "ملف Word محمل محلياً.\n\n") or "ملف PDF محمل.\n\n"
+    local isEpub = filePath:lower():match("%.epub$") ~= nil
+    local accumulatedQnA = (isTxt and "ملف نصي محمل محلياً.\n\n") or (isWordLocal and "ملف Word محمل محلياً.\n\n") or (isEpub and "ملف EPUB محمل محلياً.\n\n") or "ملف PDF محمل.\n\n"
     
     resultWindow = LinearLayout(service); resultWindow.setOrientation(LinearLayout.VERTICAL); resultWindow.setBackgroundColor(0xFF121212); resultWindow.setPadding(30,30,30,30)
     
@@ -1703,6 +1704,7 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText)
     local titleText = "عارض ومحادثة المستند"
     if isTxt then titleText = "عارض ومحادثة النص (txt)"
     elseif isWordLocal then titleText = "عارض ومحادثة Word"
+    elseif isEpub then titleText = "عارض ومحادثة الكتاب الإلكتروني"
     else titleText = "عارض ومحادثة PDF" end
     titleV.setText(titleText); titleV.setTextSize(22); titleV.setTextColor(0xFFFFFFFF); titleV.setTypeface(nil, Typeface.BOLD); titleV.setGravity(Gravity.CENTER); titleV.setPadding(0,0,0,20); resultWindow.addView(titleV)
     
@@ -1714,7 +1716,7 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText)
     local stopReading, initDocTts, readCurrentPage, updateDisplayPage, fetchRangeContentRemote
 
     local pageCtrlL = LinearLayout(service); pageCtrlL.setOrientation(LinearLayout.HORIZONTAL); pageCtrlL.setGravity(Gravity.CENTER_VERTICAL); pageCtrlL.setPadding(0,0,0,20)
-    if not isWordLocal and not isTxt then
+    if not isWordLocal and not isTxt and not isEpub then
         local l1 = TextView(service); l1.setText("من:"); l1.setTextColor(0xFFB0B0B0); l1.setPadding(0,0,10,0); pageCtrlL.addView(l1)
         local e1 = EditText(service); e1.setInputType(2); e1.setText("1"); e1.setHint("1"); styleEditText(e1); local lp1 = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0); lp1.rightMargin=10; pageCtrlL.addView(e1, lp1)
         local l2 = TextView(service); l2.setText("إلى:"); l2.setTextColor(0xFFB0B0B0); l2.setPadding(0,0,10,0); pageCtrlL.addView(l2)
@@ -1769,6 +1771,49 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText)
     pageContentTV.setText(isWordLocal and "جاري معالجة النص..." or "يرجى تحديد نطاق الصفحات والضغط على تحميل.")
     pageContentTV.setTextSize(18); pageContentTV.setTextColor(0xFFE0E0E0); pageContentTV.setPadding(10,20,10,20); pageContentTV.setTextIsSelectable(true)
     contentL.addView(pageContentTV)
+
+    local currentChapterIdx = 1
+    if isEpub and epubSpine then
+        local chapL = LinearLayout(service); chapL.setOrientation(LinearLayout.HORIZONTAL); chapL.setGravity(Gravity.CENTER_VERTICAL); chapL.setPadding(0,0,0,20)
+        local chapLbl = TextView(service); chapLbl.setText("الفصل:"); chapLbl.setTextColor(0xFFB0B0B0); chapLbl.setPadding(0,0,20,0); chapL.addView(chapLbl)
+
+        local chapNames = ArrayList()
+        for _, item in ipairs(epubSpine) do chapNames.add(item.title) end
+        local chapSpinner = Spinner(service)
+        local chapAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, chapNames)
+        chapAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        chapSpinner.setAdapter(chapAdapter)
+        chapL.addView(chapSpinner, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0))
+        contentL.addView(chapL)
+
+        chapSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener {
+            onItemSelected = function(parent, view, position, id)
+                if currentChapterIdx == position + 1 and pagesCache and #pagesCache > 0 then return end
+                currentChapterIdx = position + 1
+                local chapPath = epubSpine[currentChapterIdx].path
+                pageContentTV.setText("⏳ جاري تحميل الفصل...")
+                local wasPlaying = isPlaying
+                stopReading()
+
+                local chapText, err = extractEpubChapterText(filePath, chapPath)
+                if chapText then
+                    initialText = chapText
+                    pagesCache = smartSplitText(initialText, 2000)
+                    currentCacheIdx = 1
+                    updateDisplayPage()
+                    if wasPlaying then readCurrentPage() end
+                else
+                    service.asyncSpeak("فشل تحميل الفصل.")
+                    pageContentTV.setText("خطأ: " .. tostring(err))
+                end
+            end
+        })
+        _G.updateEpubChapterSelection = function(idx)
+            mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                run = function() chapSpinner.setSelection(idx - 1) end
+            }))
+        end
+    end
 
     if isTxt then
         local encL = LinearLayout(service); encL.setOrientation(LinearLayout.HORIZONTAL); encL.setGravity(Gravity.CENTER_VERTICAL); encL.setPadding(0,20,0,20)
@@ -1852,6 +1897,10 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText)
                                                     currentCacheIdx = currentCacheIdx + 1
                                                     updateDisplayPage()
                                                     readCurrentPage()
+                                                elseif isEpub and epubSpine and currentChapterIdx < #epubSpine then
+                                                    service.asyncSpeak("انتهى الفصل. جاري الانتقال للفصل التالي.")
+                                                    currentChapterIdx = currentChapterIdx + 1
+                                                    if _G.updateEpubChapterSelection then _G.updateEpubChapterSelection(currentChapterIdx) end
                                                 else stopReading() end
                                             end
                                         }))
@@ -1955,8 +2004,8 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText)
         local headers = {["Content-Type"] = "application/json"}
         local root = JSONObject(); local contentObj = JSONObject(); local partsArray = JSONArray()
         
-        if isWordLocal or isTxt then
-            -- For local Word or Txt, we send the extracted text instead of file_uri
+        if isWordLocal or isTxt or isEpub then
+            -- For local Word, Txt or Epub, we send the current extracted text (chapter for EPUB)
             local sysPart = JSONObject(); sysPart.put("text", "System: You are an assistant answering questions about the following document content.\n\nContent:\n" .. (initialText or ""))
             partsArray.put(sysPart)
         else
@@ -2045,11 +2094,11 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText)
     local winP = WindowManager.LayoutParams(); winP.width=WindowManager.LayoutParams.MATCH_PARENT; winP.height=math.floor(service.getResources().getDisplayMetrics().heightPixels*0.85); winP.type=WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY; winP.flags=WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL|WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN; winP.format=PixelFormat.TRANSLUCENT; winP.gravity=Gravity.CENTER; winP.horizontalMargin=0.05; winP.verticalMargin=0.05
     pcall(function() wm.addView(resultWindow, winP) end)
     
-    if (isWordLocal or isTxt) and initialText then
+    if (isWordLocal or isTxt or isEpub) and initialText then
         pagesCache = smartSplitText(initialText, 2000)
         currentCacheIdx = 1
         updateDisplayPage()
-    elseif not isWordLocal then
+    elseif not isWordLocal and not isEpub then
         local function detectPageCount()
             local q = "كم عدد الصفحات في هذا الملف؟ أجب بالرقم فقط."
             local url = "https://generativelanguage.googleapis.com/v1beta/models/" .. selectedGeminiModelId .. ":generateContent?key=" .. geminiApiKey
@@ -2109,6 +2158,116 @@ function extractTxtTextLocal(filePath, encoding)
         end
         reader.close()
         return sb.toString()
+    end)
+
+    if success then return result else return nil, tostring(result) end
+end
+
+function extractEpubMetadata(filePath)
+    import "java.util.zip.ZipFile"
+    import "java.io.InputStreamReader"
+    import "java.io.BufferedReader"
+    import "java.lang.StringBuilder"
+
+    local success, result = pcall(function()
+        local zipFile = ZipFile(filePath)
+        local function cleanup() pcall(function() zipFile.close() end) end
+
+        local containerEntry = zipFile.getEntry("META-INF/container.xml")
+        if not containerEntry then
+            cleanup()
+            return nil, "ملف EPUB غير صالح (container.xml مفقود)"
+        end
+
+        local is = zipFile.getInputStream(containerEntry)
+        local reader = BufferedReader(InputStreamReader(is, "UTF-8"))
+        local containerXml = ""
+        local line = reader.readLine()
+        while line ~= nil do containerXml = containerXml .. line; line = reader.readLine() end
+        reader.close()
+
+        local opfPath = containerXml:match("full%-path=\"([^\"]+)\"")
+        if not opfPath then
+            cleanup()
+            return nil, "تعذر العثور على مسار ملف الفهرس (OPF)"
+        end
+
+        local baseDir = ""
+        if opfPath:find("/") then
+            baseDir = opfPath:match("(.+)/[^/]+$") .. "/"
+        end
+
+        local opfEntry = zipFile.getEntry(opfPath)
+        is = zipFile.getInputStream(opfEntry)
+        reader = BufferedReader(InputStreamReader(is, "UTF-8"))
+        local opfXml = ""
+        line = reader.readLine()
+        while line ~= nil do opfXml = opfXml .. line; line = reader.readLine() end
+        reader.close()
+
+        local manifest = {}
+        for item in opfXml:gmatch("<item%s+([^>]+)>") do
+            local id = item:match("id=\"([^\"]+)\"")
+            local href = item:match("href=\"([^\"]+)\"")
+            if id and href then
+                manifest[id] = baseDir .. href
+            end
+        end
+
+        local spine = {}
+        for itemref in opfXml:gmatch("<itemref%s+([^>]+)>") do
+            local idref = itemref:match("idref=\"([^\"]+)\"")
+            if idref and manifest[idref] then
+                table.insert(spine, { id = idref, path = manifest[idref] })
+            end
+        end
+
+        for i, item in ipairs(spine) do
+            local filename = item.path:match("([^/]+)$") or item.path
+            item.title = "الفصل " .. i .. " (" .. filename .. ")"
+        end
+
+        cleanup()
+        return spine
+    end)
+
+    if success then return result else return nil, tostring(result) end
+end
+
+function extractEpubChapterText(filePath, chapterInternalPath)
+    import "java.util.zip.ZipFile"
+    import "java.io.InputStreamReader"
+    import "java.io.BufferedReader"
+    import "java.lang.StringBuilder"
+
+    local success, result = pcall(function()
+        local zipFile = ZipFile(filePath)
+        local function cleanup() pcall(function() zipFile.close() end) end
+        local entry = zipFile.getEntry(chapterInternalPath)
+        if not entry then
+            cleanup()
+            return nil, "الفصل غير موجود: " .. chapterInternalPath
+        end
+
+        local is = zipFile.getInputStream(entry)
+        local reader = BufferedReader(InputStreamReader(is, "UTF-8"))
+        local sb = StringBuilder()
+        local line = reader.readLine()
+        while line ~= nil do
+            sb.append(line)
+            line = reader.readLine()
+        end
+        reader.close()
+        cleanup()
+
+        local htmlContent = sb.toString()
+        local text = htmlContent:gsub("<style.-</style>", ""):gsub("<script.-</script>", "")
+        text = text:gsub("<[^>]+>", " ")
+        text = text:gsub("&lt;", "<"):gsub("&gt;", ">"):gsub("&amp;", "&"):gsub("&quot;", "\""):gsub("&apos;", "'")
+        text = text:gsub("&nbsp;", " "):gsub("&rlm;", ""):gsub("&lrm;", "")
+        text = text:gsub("%s+", " "):gsub("^%s*", ""):gsub("%s*$", "")
+
+        return text
     end)
 
     if success then return result else return nil, tostring(result) end
@@ -2234,6 +2393,22 @@ function loadDocumentAndShowViewer(filePath)
         else
             service.asyncSpeak("فشل قراءة الملف: " .. (err or "خطأ غير معروف"))
             showResultWindow("خطأ", err or "فشل استخراج النص من الملف النصي.")
+        end
+    elseif ext == "epub" then
+        service.asyncSpeak("جاري تحليل الكتاب الإلكتروني...")
+        local spine, err = extractEpubMetadata(filePath)
+        if spine and #spine > 0 then
+            service.asyncSpeak("جاري تحميل الفصل الأول...")
+            local firstChapText, err2 = extractEpubChapterText(filePath, spine[1].path)
+            if firstChapText then
+                showDocumentViewerWindow(filePath, nil, false, firstChapText, spine)
+            else
+                service.asyncSpeak("فشل استخراج نص الفصل الأول.")
+                showResultWindow("خطأ", err2 or "فشل استخراج نص من الكتاب.")
+            end
+        else
+            service.asyncSpeak("فشل تحليل هيكل الكتاب.")
+            showResultWindow("خطأ", err or "فشل قراءة بيانات الكتاب الإلكتروني.")
         end
     else
         service.asyncSpeak("عذراً، صيغة الملف غير مدعومة حالياً.")
@@ -2480,7 +2655,7 @@ function openSettings()
     end)
     toolsCard.addView(transcribeFileBtn)
     
-    local readPdfBtn = Button(service); readPdfBtn.setText("📄 قراءة ومحادثة المستندات (PDF/Word/Text)"); styleButton(readPdfBtn, "secondary")
+    local readPdfBtn = Button(service); readPdfBtn.setText("📄 قراءة ومحادثة المستندات (PDF/Word/Text/EPUB)"); styleButton(readPdfBtn, "secondary")
     readPdfBtn.setOnClickListener(function()
         hideSettings()
         local paths = getStoragePaths()
