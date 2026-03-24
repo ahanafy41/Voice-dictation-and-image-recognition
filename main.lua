@@ -1,4 +1,5 @@
 require "import"
+if activity then activity.finish() end
 import "android.widget.*"
 import "android.speech.RecognizerIntent"
 import "android.speech.SpeechRecognizer"
@@ -29,6 +30,8 @@ import "android.view.MotionEvent"
 import "android.provider.Settings"
 import "android.widget.ArrayAdapter"
 import "android.widget.Spinner"
+import "android.widget.ListView"
+import "android.widget.BaseAdapter"
 import "java.util.ArrayList"
 import "java.util.HashMap"
 import "android.R" -- For android.R.layout resources
@@ -39,6 +42,7 @@ import "android.speech.tts.Voice" -- New import for Voice object
 import "android.graphics.drawable.GradientDrawable" -- Added to fix the graphics nil value error
 import "android.os.Handler"
 import "android.os.Looper"
+import "android.app.AlertDialog"
 import "android.view.inputmethod.InputMethodManager"
 import "java.net.HttpURLConnection"
 import "java.io.InputStreamReader"
@@ -308,6 +312,100 @@ function createChatBubble(text, isUser)
     return msgContainer
 end
 
+-- ### Storage and Path Helpers
+
+-- 1. دالة للتحقق من إمكانية الوصول لمسار معين (مهمة جداً للـ SD Card)
+function canAccessPath(path)
+    local success, result = pcall(function()
+        local dir = File(path)
+        if dir.exists() and dir.isDirectory() and dir.canRead() then
+            local files = dir.listFiles()
+            return files ~= nil
+        end
+        return false
+    end)
+    return success and result
+end
+
+-- 2. دالة الحصول على جميع مسارات الذاكرة المتاحة في النظام
+function getStoragePaths()
+    local paths = {}
+    local addedPaths = {}
+
+    -- أولاً: الذاكرة الداخلية الأساسية
+    local internalPath = "/storage/emulated/0/"
+    if canAccessPath(internalPath) then
+        table.insert(paths, {
+            name = "📱 الذاكرة الداخلية",
+            path = internalPath,
+            icon = "📱"
+        })
+        addedPaths[internalPath] = true
+    end
+
+    -- ثانياً: البحث عن الذاكرة الخارجية (SD Card) بطرق مختلفة
+    -- الطريقة الأولى: عبر getExternalFilesDirs
+    pcall(function()
+        -- Attempt to use service first, then activity if available
+        local context = service or activity
+        local externalDirs = context.getExternalFilesDirs(nil)
+        if externalDirs then
+            for i = 0, #externalDirs - 1 do
+                local dir = externalDirs[i]
+                if dir then
+                    local fullPath = tostring(dir.getAbsolutePath())
+                    local rootPath = fullPath:match("(/storage/[^/]+)")
+                    if rootPath and rootPath ~= "/storage/emulated" then
+                        local pathWithSlash = rootPath .. "/"
+                        if not addedPaths[pathWithSlash] and canAccessPath(rootPath) then
+                            local name = rootPath:match("/storage/(.+)")
+                            table.insert(paths, {
+                                name = "💾 ذاكرة خارجية (" .. (name or "SD Card") .. ")",
+                                path = pathWithSlash,
+                                icon = "💾"
+                            })
+                            addedPaths[pathWithSlash] = true
+                        end
+                    end
+                end
+            end
+        end
+    end)
+
+    -- الطريقة الثانية: فحص مجلد /storage/ مباشرة (لأن بعض الأجهزة لا تظهر في الطريقة الأولى)
+    pcall(function()
+        local storageDir = File("/storage/")
+        if storageDir.exists() and storageDir.isDirectory() then
+            local files = storageDir.listFiles()
+            if files then
+                for i = 0, #files - 1 do
+                    local file = files[i]
+                    local name = file.getName()
+                    local fullPath = file.getAbsolutePath() .. "/"
+
+                    if name ~= "emulated" and
+                       name ~= "self" and
+                       not name:match("^%.") and
+                       file.isDirectory() and
+                       not addedPaths[fullPath] then
+
+                        if canAccessPath(fullPath) then
+                            table.insert(paths, {
+                                name = "💾 ذاكرة خارجية (" .. name .. ")",
+                                path = fullPath,
+                                icon = "💾"
+                            })
+                            addedPaths[fullPath] = true
+                        end
+                    end
+                end
+            end
+        end
+    end)
+
+    return paths
+end
+
 -- ### Helper Functions
 
 -- **Get Language Details by Code**
@@ -399,7 +497,7 @@ function createAndShowFloatingButton()
     floatingSettingsBtn.setOnClickListener(function() openSettings() end)
     local params = WindowManager.LayoutParams()
     params.width = WindowManager.LayoutParams.WRAP_CONTENT; params.height = WindowManager.LayoutParams.WRAP_CONTENT
-    params.type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+    params.type = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
     params.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
     params.format = PixelFormat.TRANSLUCENT; params.gravity = Gravity.TOP | Gravity.START
     params.x = 20; params.y = 100
@@ -637,7 +735,7 @@ function openPdfTtsSettings(onSaved)
     local winP = WindowManager.LayoutParams()
     winP.width = WindowManager.LayoutParams.MATCH_PARENT
     winP.height = WindowManager.LayoutParams.WRAP_CONTENT
-    winP.type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+    winP.type = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
     winP.flags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
     winP.format = PixelFormat.TRANSLUCENT
     winP.gravity = Gravity.CENTER
@@ -1304,7 +1402,7 @@ function showImageDescriptionWindow(initialDescription, initialOcrText, base64Im
     closeBtn.setOnClickListener(function() if resultWindow then pcall(function()wm.removeView(resultWindow)end); resultWindow=nil end; if imageQueryRecognizer then pcall(function()imageQueryRecognizer.destroy()end); imageQueryRecognizer=nil end end)
     local btnP = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,LinearLayout.LayoutParams.WRAP_CONTENT); btnP.topMargin=20; resultWindow.addView(closeBtn,btnP)
     
-    local winP = WindowManager.LayoutParams(); winP.width=WindowManager.LayoutParams.MATCH_PARENT; winP.height=math.floor(service.getResources().getDisplayMetrics().heightPixels*0.85); winP.type=WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY; winP.flags=WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL|WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN; winP.format=PixelFormat.TRANSLUCENT; winP.gravity=Gravity.CENTER; winP.horizontalMargin=0.05; winP.verticalMargin=0.05
+    local winP = WindowManager.LayoutParams(); winP.width=WindowManager.LayoutParams.MATCH_PARENT; winP.height=math.floor(service.getResources().getDisplayMetrics().heightPixels*0.85); winP.type=WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY; winP.flags=WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL|WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN; winP.format=PixelFormat.TRANSLUCENT; winP.gravity=Gravity.CENTER; winP.horizontalMargin=0.05; winP.verticalMargin=0.05
     pcall(function() wm.addView(resultWindow, winP) end)
 
     if initialDescription and initialDescription ~= "لم يتم العثور على وصف." and initialDescription ~= "" then
@@ -1412,7 +1510,7 @@ function showSummaryWindow(summary)
     closeBtn.setOnClickListener(function() if summaryWindow then pcall(function()wm.removeView(summaryWindow)end); summaryWindow=nil end; if summaryQueryRecognizer then pcall(function()summaryQueryRecognizer.destroy()end); summaryQueryRecognizer=nil end end)
     local btnP = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,LinearLayout.LayoutParams.WRAP_CONTENT); btnP.topMargin=20; summaryWindow.addView(closeBtn,btnP)
     
-    local winP = WindowManager.LayoutParams(); winP.width=WindowManager.LayoutParams.MATCH_PARENT; winP.height=math.floor(service.getResources().getDisplayMetrics().heightPixels*0.85); winP.type=WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY; winP.flags=WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL|WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN; winP.format=PixelFormat.TRANSLUCENT; winP.gravity=Gravity.CENTER; winP.horizontalMargin=0.05; winP.verticalMargin=0.05
+    local winP = WindowManager.LayoutParams(); winP.width=WindowManager.LayoutParams.MATCH_PARENT; winP.height=math.floor(service.getResources().getDisplayMetrics().heightPixels*0.85); winP.type=WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY; winP.flags=WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL|WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN; winP.format=PixelFormat.TRANSLUCENT; winP.gravity=Gravity.CENTER; winP.horizontalMargin=0.05; winP.verticalMargin=0.05
     pcall(function() wm.addView(summaryWindow, winP) end)
 
     if summary and not summary:match("^Error:") and not summary:match("^خطأ:") and summary ~= "" then
@@ -1434,82 +1532,189 @@ function showResultWindow(titleTextStr, contentTextStr)
     globalResultContentTextView.setText(contentTextStr); globalResultContentTextView.setTextIsSelectable(true); globalResultContentTextView.setTextSize(18); globalResultContentTextView.setTextColor(0xFFE0E0E0); globalResultContentTextView.setPadding(10,20,10,20); scrollV.addView(globalResultContentTextView); resultWindow.addView(scrollV, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,0,1.0))
     local copyBtn = Button(service); copyBtn.setText("📋 نسخ النص"); styleButton(copyBtn, "secondary"); copyBtn.setOnClickListener(function() local cb=service.getSystemService(Context.CLIPBOARD_SERVICE); local cl=ClipData.newPlainText(titleTextStr,globalResultContentTextView.getText().toString()); cb.setPrimaryClip(cl); service.asyncSpeak(getFeedbackString("copy_general_text", currentDictLangDetails.code)) end); resultWindow.addView(copyBtn)
     local closeBtn = Button(service); closeBtn.setText("❌ إغلاق"); styleButton(closeBtn, "danger"); closeBtn.setOnClickListener(function() if resultWindow then pcall(function()wm.removeView(resultWindow)end); resultWindow=nil; globalResultContentTextView=nil end end); local btnP = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,LinearLayout.LayoutParams.WRAP_CONTENT); resultWindow.addView(closeBtn,btnP)
-    local winP = WindowManager.LayoutParams(); winP.width=WindowManager.LayoutParams.MATCH_PARENT; winP.height=WindowManager.LayoutParams.WRAP_CONTENT; winP.type=WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY; winP.flags=WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL; winP.format=PixelFormat.TRANSLUCENT; winP.gravity=Gravity.CENTER; winP.horizontalMargin=0.1; winP.verticalMargin=0.1
+    local winP = WindowManager.LayoutParams(); winP.width=WindowManager.LayoutParams.MATCH_PARENT; winP.height=WindowManager.LayoutParams.WRAP_CONTENT; winP.type=WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY; winP.flags=WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL; winP.format=PixelFormat.TRANSLUCENT; winP.gravity=Gravity.CENTER; winP.horizontalMargin=0.1; winP.verticalMargin=0.1
     pcall(function() wm.addView(resultWindow, winP) end)
 end
 
-function openFilePickerWindow(startPath, onFileSelected)
-    local fpWindow = LinearLayout(service); fpWindow.setOrientation(LinearLayout.VERTICAL); fpWindow.setBackgroundColor(0xFF1E1E1E); fpWindow.setPadding(35,35,35,35)
-    local titleV = TextView(service); titleV.setText("اختر ملف صوتي"); titleV.setTextSize(20); titleV.setTextColor(0xFFFFFFFF); titleV.setTypeface(nil, Typeface.BOLD); titleV.setGravity(Gravity.CENTER); titleV.setPadding(0,0,0,20); fpWindow.addView(titleV)
-    local scrollV = ScrollView(service); local listL = LinearLayout(service); listL.setOrientation(LinearLayout.VERTICAL); scrollV.addView(listL); fpWindow.addView(scrollV, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0))
-    local function loadDir(path)
-        listL.removeAllViews()
-        local f = File(path); local list = nil; pcall(function() list = f.listFiles() end)
-        if path ~= "/storage/emulated/0" and f.getParent() then
-            local backBtn = Button(service); backBtn.setText("📁 .. (الرجوع)"); backBtn.setTextColor(0xFF64B5F6); backBtn.setBackgroundColor(0x00000000); backBtn.setGravity(Gravity.START | Gravity.CENTER_VERTICAL); backBtn.setOnClickListener(function() loadDir(f.getParent()) end); listL.addView(backBtn)
+function showUniversalFilePicker(title, startPath, filterFunc, onFileSelected)
+    local fpWindow, searchEt, statusV, listL, backBtn
+    local allItems = {}
+    local filteredItems = {}
+    local currentPath = startPath
+    local shownCount = 0
+    local BATCH_SIZE = 150
+
+    local function addMoreItems()
+        local start = shownCount + 1
+        local finish = math.min(shownCount + BATCH_SIZE, #filteredItems)
+        local oldMore = listL.findViewWithTag("show_more_btn")
+        if oldMore then listL.removeView(oldMore) end
+        for i = start, finish do
+            local item = filteredItems[i]
+            local btn = Button(service)
+            local icon = "📄 "
+            if item.isDir then icon = "📁 "
+            elseif item.lowName:match("%.mp3$") or item.lowName:match("%.wav$") or item.lowName:match("%.m4a$") or item.lowName:match("%.ogg$") or item.lowName:match("%.aac$") then icon = "🎵 " end
+            btn.setText(icon .. item.name)
+            btn.setTextColor(0xFFE0E0E0); btn.setBackgroundColor(0x00000000); btn.setGravity(Gravity.START | Gravity.CENTER_VERTICAL)
+            btn.setPadding(20, 30, 20, 30); btn.setTransformationMethod(nil)
+            btn.setOnClickListener(function()
+                if item.isDir then _G.currentUniversalLoadDir(item.path)
+                else pcall(function() wm.removeView(fpWindow) end); onFileSelected(item.path) end
+            end)
+            listL.addView(btn)
         end
-        if list then
-            for i=0, #list-1 do
-                local file = list[i]
-                if not file.isHidden() then
-                    local fname = file.getName():lower()
-                    if file.isDirectory() or fname:match("%.mp3$") or fname:match("%.wav$") or fname:match("%.m4a$") or fname:match("%.ogg$") or fname:match("%.aac$") then
-                        local btn = Button(service); btn.setText(file.isDirectory() and ("📁 " .. file.getName()) or ("🎵 " .. file.getName())); btn.setTextColor(0xFFE0E0E0); btn.setBackgroundColor(0x00000000); btn.setGravity(Gravity.START | Gravity.CENTER_VERTICAL)
-                        btn.setOnClickListener(function() if file.isDirectory() then loadDir(file.getAbsolutePath()) else pcall(function() wm.removeView(fpWindow) end); onFileSelected(file.getAbsolutePath()) end end); listL.addView(btn)
-                    end
-                end
-            end
+        shownCount = finish
+        if shownCount < #filteredItems then
+            local moreBtn = Button(service); moreBtn.setTag("show_more_btn"); moreBtn.setText("➕ عرض المزيد (" .. (#filteredItems - shownCount) .. " ملف متبقي)")
+            styleButton(moreBtn, "secondary"); moreBtn.setOnClickListener(function() addMoreItems() end)
+            local lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.setMargins(20, 20, 20, 40); listL.addView(moreBtn, lp)
         end
     end
-    loadDir(startPath)
-    local closeBtn = Button(service); closeBtn.setText("❌ إغلاق"); styleButton(closeBtn, "danger"); closeBtn.setOnClickListener(function() pcall(function() wm.removeView(fpWindow) end) end); local btnP = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,LinearLayout.LayoutParams.WRAP_CONTENT); btnP.topMargin=20; fpWindow.addView(closeBtn,btnP)
-    local winP = WindowManager.LayoutParams(); winP.width=WindowManager.LayoutParams.MATCH_PARENT; winP.height=math.floor(service.getResources().getDisplayMetrics().heightPixels*0.8); winP.type=WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY; winP.flags=WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL; winP.format=PixelFormat.TRANSLUCENT; winP.gravity=Gravity.CENTER; pcall(function() wm.addView(fpWindow, winP) end)
+
+    local function updateDisplay(filter)
+        listL.removeAllViews(); filteredItems = {}; shownCount = 0
+        if not filter or filter == "" then filteredItems = allItems
+        else
+            filter = filter:lower()
+            for _, item in ipairs(allItems) do if item.lowName:find(filter, 1, true) then table.insert(filteredItems, item) end end
+        end
+        if #filteredItems == 0 then statusV.setVisibility(View.VISIBLE); statusV.setText(filter and filter ~= "" and "⚠️ لم يتم العثور على نتائج." or "⚠️ مجلد فارغ.")
+        else statusV.setVisibility(View.GONE); addMoreItems() end
+    end
+
+    local function loadDir(path)
+        if not path then return end
+        currentPath = path; searchEt.setText(""); listL.removeAllViews()
+        statusV.setVisibility(View.VISIBLE); statusV.setText("⏳ جاري التحميل...")
+        local f = File(path); local isAtStorageRoot = false; local storages = getStoragePaths()
+        for _, s in ipairs(storages) do if path == s.path or path == s.path:sub(1, -2) then isAtStorageRoot = true; break end end
+        backBtn.setEnabled(not isAtStorageRoot and f.getParent() ~= nil)
+        import "java.lang.Thread"; import "java.lang.Runnable"
+        Thread(Runnable{
+            run = function()
+                local files = nil; pcall(function() files = f.listFiles() end); local results = {}
+                if files then
+                    for i = 0, #files - 1 do
+                        local file = files[i]
+                        if not file.isHidden() then
+                            local fname = file.getName():lower()
+                            if file.isDirectory() or filterFunc(fname) then
+                                table.insert(results, { name = file.getName(), lowName = fname, path = file.getAbsolutePath(), isDir = file.isDirectory() })
+                            end
+                        end
+                    end
+                end
+                table.sort(results, function(a, b)
+                    if a.isDir and not b.isDir then return true end
+                    if not a.isDir and b.isDir then return false end
+                    return a.lowName < b.lowName
+                end)
+                allItems = results
+                mainHandler.post(luajava.createProxy("java.lang.Runnable", { run = function() updateDisplay() end }))
+            end
+        }).start()
+    end
+    _G.currentUniversalLoadDir = loadDir
+
+    fpWindow = LinearLayout(service); fpWindow.setOrientation(LinearLayout.VERTICAL); fpWindow.setBackgroundColor(0xFF121212); fpWindow.setPadding(30, 30, 30, 30)
+    local titleV = TextView(service); titleV.setText(title); titleV.setTextSize(20); titleV.setTextColor(0xFFFFFFFF); titleV.setTypeface(nil, Typeface.BOLD); titleV.setGravity(Gravity.CENTER); titleV.setPadding(0, 0, 0, 15); fpWindow.addView(titleV)
+
+    searchEt = EditText(service); searchEt.setHint("🔍 ابحث هنا عن ملف..."); styleEditText(searchEt)
+    searchEt.setOnTouchListener(View.OnTouchListener{ onTouch = function(v, event) if event.getAction() == MotionEvent.ACTION_UP then v.requestFocus(); local imm = service.getSystemService(Context.INPUT_METHOD_SERVICE); if imm then imm.showSoftInput(v, 1) end end return false end })
+    fpWindow.addView(searchEt)
+
+    statusV = TextView(service); statusV.setTextColor(0xFF64B5F6); statusV.setGravity(Gravity.CENTER); statusV.setPadding(0, 10, 0, 10); statusV.setVisibility(View.GONE); fpWindow.addView(statusV)
+
+    local topBtnsL = LinearLayout(service); topBtnsL.setOrientation(LinearLayout.HORIZONTAL); topBtnsL.setPadding(0, 15, 0, 15); fpWindow.addView(topBtnsL)
+    local storageBtn = Button(service); storageBtn.setText("🔀 تخزين"); styleButton(storageBtn, "secondary"); local lp1 = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0); lp1.rightMargin = 10; topBtnsL.addView(storageBtn, lp1)
+    backBtn = Button(service); backBtn.setText("📁 .. رجوع"); styleButton(backBtn, "secondary"); topBtnsL.addView(backBtn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0))
+
+    local scrollV = ScrollView(service); listL = LinearLayout(service); listL.setOrientation(LinearLayout.VERTICAL); scrollV.addView(listL)
+    fpWindow.addView(scrollV, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0))
+
+    searchEt.addTextChangedListener{
+        onTextChanged = function(s) updateDisplay(tostring(s)) end
+    }
+
+    storageBtn.setOnClickListener(function()
+        local paths = getStoragePaths()
+        local builder = AlertDialog.Builder(service)
+        builder.setTitle("اختر وحدة التخزين")
+        local names = {}
+        for i, p in ipairs(paths) do names[i] = p.name end
+        builder.setItems(names, function(_, which) _G.currentUniversalLoadDir(paths[which + 1].path) end)
+        local dialog = builder.create()
+        dialog.getWindow().setType(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY)
+        dialog.show()
+    end)
+
+    backBtn.setOnClickListener(function()
+        local f = File(currentPath)
+        if f.getParent() then _G.currentUniversalLoadDir(f.getParent()) end
+    end)
+
+    local closeBtn = Button(service)
+    closeBtn.setText("❌ إغلاق")
+    styleButton(closeBtn, "danger")
+    closeBtn.setOnClickListener(function() pcall(function() wm.removeView(fpWindow) end) end)
+    local btnP = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+    btnP.topMargin = 20
+    fpWindow.addView(closeBtn, btnP)
+
+    local winP = WindowManager.LayoutParams()
+    winP.width = WindowManager.LayoutParams.MATCH_PARENT
+    winP.height = math.floor(service.getResources().getDisplayMetrics().heightPixels * 0.8)
+    winP.type = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
+    winP.flags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+    winP.format = PixelFormat.TRANSLUCENT
+    winP.gravity = Gravity.CENTER
+    pcall(function() wm.addView(fpWindow, winP) end)
+
+    mainHandler.postDelayed(luajava.createProxy("java.lang.Runnable", {
+        run = function() _G.currentUniversalLoadDir(startPath) end
+    }), 200)
+end
+
+function openFilePickerWindow(startPath, onFileSelected)
+    local function audioFilter(fname)
+        return fname:match("%.mp3$") or fname:match("%.wav$") or fname:match("%.m4a$") or fname:match("%.ogg$") or fname:match("%.aac$")
+    end
+    showUniversalFilePicker("اختر ملف صوتي 🎵", startPath, audioFilter, onFileSelected)
 end
 
 function openDocumentPickerWindow(startPath, onFileSelected)
-    local fpWindow = LinearLayout(service); fpWindow.setOrientation(LinearLayout.VERTICAL); fpWindow.setBackgroundColor(0xFF1E1E1E); fpWindow.setPadding(35,35,35,35)
-    local titleV = TextView(service); titleV.setText("اختر ملف (PDF/Word)"); titleV.setTextSize(20); titleV.setTextColor(0xFFFFFFFF); titleV.setTypeface(nil, Typeface.BOLD); titleV.setGravity(Gravity.CENTER); titleV.setPadding(0,0,0,20); fpWindow.addView(titleV)
-    local scrollV = ScrollView(service); local listL = LinearLayout(service); listL.setOrientation(LinearLayout.VERTICAL); scrollV.addView(listL); fpWindow.addView(scrollV, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0))
-    local function loadDir(path)
-        listL.removeAllViews()
-        local f = File(path); local list = nil; pcall(function() list = f.listFiles() end)
-        if path ~= "/storage/emulated/0" and f.getParent() then
-            local backBtn = Button(service); backBtn.setText("📁 .. (الرجوع)"); backBtn.setTextColor(0xFF64B5F6); backBtn.setBackgroundColor(0x00000000); backBtn.setGravity(Gravity.START | Gravity.CENTER_VERTICAL); backBtn.setOnClickListener(function() loadDir(f.getParent()) end); listL.addView(backBtn)
-        end
-        if list then
-            for i=0, #list-1 do
-                local file = list[i]
-                if not file.isHidden() then
-                    local fname = file.getName():lower()
-                    if file.isDirectory() or fname:match("%.pdf$") or fname:match("%.docx$") then
-                        local btn = Button(service); btn.setText(file.isDirectory() and ("📁 " .. file.getName()) or ("📄 " .. file.getName())); btn.setTextColor(0xFFE0E0E0); btn.setBackgroundColor(0x00000000); btn.setGravity(Gravity.START | Gravity.CENTER_VERTICAL)
-                        btn.setOnClickListener(function() if file.isDirectory() then loadDir(file.getAbsolutePath()) else pcall(function() wm.removeView(fpWindow) end); onFileSelected(file.getAbsolutePath()) end end); listL.addView(btn)
-                    end
-                end
-            end
-        end
+    local function docFilter(fname)
+        return fname:match("%.pdf$") or fname:match("%.docx$") or fname:match("%.txt$")
     end
-    loadDir(startPath)
-    local closeBtn = Button(service); closeBtn.setText("❌ إغلاق"); styleButton(closeBtn, "danger"); closeBtn.setOnClickListener(function() pcall(function() wm.removeView(fpWindow) end) end); local btnP = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,LinearLayout.LayoutParams.WRAP_CONTENT); btnP.topMargin=20; fpWindow.addView(closeBtn,btnP)
-    local winP = WindowManager.LayoutParams(); winP.width=WindowManager.LayoutParams.MATCH_PARENT; winP.height=math.floor(service.getResources().getDisplayMetrics().heightPixels*0.8); winP.type=WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY; winP.flags=WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL; winP.format=PixelFormat.TRANSLUCENT; winP.gravity=Gravity.CENTER; pcall(function() wm.addView(fpWindow, winP) end)
+    showUniversalFilePicker("اختر مستند (PDF/Word/Text) 📄", startPath, docFilter, onFileSelected)
 end
 
 function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText)
     if resultWindow then pcall(function() wm.removeView(resultWindow) end); resultWindow = nil end
     local currentDictLangDetails = getLanguageDetails(selectedLanguage)
-    local accumulatedQnA = isWordLocal and "ملف Word محمل محلياً.\n\n" or "ملف PDF محمل.\n\n"
+    local isTxt = filePath:lower():match("%.txt$") ~= nil
+    local accumulatedQnA = (isTxt and "ملف نصي محمل محلياً.\n\n") or (isWordLocal and "ملف Word محمل محلياً.\n\n") or "ملف PDF محمل.\n\n"
     
     resultWindow = LinearLayout(service); resultWindow.setOrientation(LinearLayout.VERTICAL); resultWindow.setBackgroundColor(0xFF121212); resultWindow.setPadding(30,30,30,30)
     
-    local titleV = TextView(service); titleV.setText(isWordLocal and "عارض ومحادثة Word" or "عارض ومحادثة PDF"); titleV.setTextSize(22); titleV.setTextColor(0xFFFFFFFF); titleV.setTypeface(nil, Typeface.BOLD); titleV.setGravity(Gravity.CENTER); titleV.setPadding(0,0,0,20); resultWindow.addView(titleV)
+    local titleV = TextView(service);
+    local titleText = "عارض ومحادثة المستند"
+    if isTxt then titleText = "عارض ومحادثة النص (txt)"
+    elseif isWordLocal then titleText = "عارض ومحادثة Word"
+    else titleText = "عارض ومحادثة PDF" end
+    titleV.setText(titleText); titleV.setTextSize(22); titleV.setTextColor(0xFFFFFFFF); titleV.setTypeface(nil, Typeface.BOLD); titleV.setGravity(Gravity.CENTER); titleV.setPadding(0,0,0,20); resultWindow.addView(titleV)
     
     local scrollV = ScrollView(service); local contentL = LinearLayout(service); contentL.setOrientation(LinearLayout.VERTICAL); contentL.setPadding(10,10,10,10)
     
     local pagesCache = {}
     local currentCacheIdx = 1
 
+    local stopReading, initDocTts, readCurrentPage, updateDisplayPage, fetchRangeContentRemote
+
     local pageCtrlL = LinearLayout(service); pageCtrlL.setOrientation(LinearLayout.HORIZONTAL); pageCtrlL.setGravity(Gravity.CENTER_VERTICAL); pageCtrlL.setPadding(0,0,0,20)
-    if not isWordLocal then
+    if not isWordLocal and not isTxt then
         local l1 = TextView(service); l1.setText("من:"); l1.setTextColor(0xFFB0B0B0); l1.setPadding(0,0,10,0); pageCtrlL.addView(l1)
         local e1 = EditText(service); e1.setInputType(2); e1.setText("1"); e1.setHint("1"); styleEditText(e1); local lp1 = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0); lp1.rightMargin=10; pageCtrlL.addView(e1, lp1)
         local l2 = TextView(service); l2.setText("إلى:"); l2.setTextColor(0xFFB0B0B0); l2.setPadding(0,0,10,0); pageCtrlL.addView(l2)
@@ -1565,6 +1770,37 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText)
     pageContentTV.setTextSize(18); pageContentTV.setTextColor(0xFFE0E0E0); pageContentTV.setPadding(10,20,10,20); pageContentTV.setTextIsSelectable(true)
     contentL.addView(pageContentTV)
 
+    if isTxt then
+        local encL = LinearLayout(service); encL.setOrientation(LinearLayout.HORIZONTAL); encL.setGravity(Gravity.CENTER_VERTICAL); encL.setPadding(0,20,0,20)
+        local encLbl = TextView(service); encLbl.setText("ترميز الملف:"); encLbl.setTextColor(0xFFB0B0B0); encLbl.setPadding(0,0,20,0); encL.addView(encLbl)
+
+        local encNames = ArrayList(); encNames.add("UTF-8"); encNames.add("Windows-1256 (Arabic)"); encNames.add("ISO-8859-6 (Arabic)"); encNames.add("UTF-16")
+        local encCodes = {"UTF-8", "Windows-1256", "ISO-8859-6", "UTF-16"}
+        local encSpinner = Spinner(service)
+        local encAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, encNames)
+        encAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        encSpinner.setAdapter(encAdapter)
+        encL.addView(encSpinner, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0))
+
+        local reloadBtn = Button(service); reloadBtn.setText("🔄 إعادة تحميل"); styleButton(reloadBtn, "secondary")
+        encL.addView(reloadBtn)
+        contentL.addView(encL)
+
+        reloadBtn.setOnClickListener(function()
+            local selectedEnc = encCodes[encSpinner.getSelectedItemPosition() + 1]
+            service.asyncSpeak("إعادة تحميل الملف بترميز " .. selectedEnc)
+            local text, err = extractTxtTextLocal(filePath, selectedEnc)
+            if text then
+                initialText = text
+                pagesCache = smartSplitText(initialText, 2000)
+                currentCacheIdx = 1
+                updateDisplayPage()
+            else
+                service.asyncSpeak("فشل إعادة التحميل.")
+            end
+        end)
+    end
+
     local qnaHistoryLayout = LinearLayout(service)
     qnaHistoryLayout.setOrientation(LinearLayout.VERTICAL)
     contentL.addView(qnaHistoryLayout)
@@ -1577,8 +1813,6 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText)
     local docTts = nil
     local isDocTtsInit = false
     local isPlaying = false
-
-    local stopReading, initDocTts, readCurrentPage, updateDisplayPage, fetchRangeContentRemote
 
     stopReading = function()
         isPlaying = false
@@ -1721,8 +1955,8 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText)
         local headers = {["Content-Type"] = "application/json"}
         local root = JSONObject(); local contentObj = JSONObject(); local partsArray = JSONArray()
         
-        if isWordLocal then
-            -- For local Word, we send the extracted text instead of file_uri
+        if isWordLocal or isTxt then
+            -- For local Word or Txt, we send the extracted text instead of file_uri
             local sysPart = JSONObject(); sysPart.put("text", "System: You are an assistant answering questions about the following document content.\n\nContent:\n" .. (initialText or ""))
             partsArray.put(sysPart)
         else
@@ -1808,10 +2042,10 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText)
         end
     end)
 
-    local winP = WindowManager.LayoutParams(); winP.width=WindowManager.LayoutParams.MATCH_PARENT; winP.height=math.floor(service.getResources().getDisplayMetrics().heightPixels*0.85); winP.type=WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY; winP.flags=WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL|WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN; winP.format=PixelFormat.TRANSLUCENT; winP.gravity=Gravity.CENTER; winP.horizontalMargin=0.05; winP.verticalMargin=0.05
+    local winP = WindowManager.LayoutParams(); winP.width=WindowManager.LayoutParams.MATCH_PARENT; winP.height=math.floor(service.getResources().getDisplayMetrics().heightPixels*0.85); winP.type=WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY; winP.flags=WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL|WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN; winP.format=PixelFormat.TRANSLUCENT; winP.gravity=Gravity.CENTER; winP.horizontalMargin=0.05; winP.verticalMargin=0.05
     pcall(function() wm.addView(resultWindow, winP) end)
     
-    if isWordLocal and initialText then
+    if (isWordLocal or isTxt) and initialText then
         pagesCache = smartSplitText(initialText, 2000)
         currentCacheIdx = 1
         updateDisplayPage()
@@ -1852,6 +2086,32 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText)
         end
         detectPageCount()
     end
+end
+
+function extractTxtTextLocal(filePath, encoding)
+    import "java.io.File"
+    import "java.io.FileInputStream"
+    import "java.io.InputStreamReader"
+    import "java.io.BufferedReader"
+    import "java.lang.StringBuilder"
+
+    encoding = encoding or "UTF-8"
+    local success, result = pcall(function()
+        local file = File(filePath)
+        local is = FileInputStream(file)
+        local reader = BufferedReader(InputStreamReader(is, encoding))
+        local sb = StringBuilder()
+        local line = reader.readLine()
+        while line ~= nil do
+            sb.append(line)
+            sb.append("\n")
+            line = reader.readLine()
+        end
+        reader.close()
+        return sb.toString()
+    end)
+
+    if success then return result else return nil, tostring(result) end
 end
 
 function extractDocxTextLocal(filePath)
@@ -1964,6 +2224,16 @@ function loadDocumentAndShowViewer(filePath)
         else
             service.asyncSpeak("فشل قراءة الملف: " .. (err or "خطأ غير معروف"))
             showResultWindow("خطأ", err or "فشل استخراج النص من ملف Word.")
+        end
+    elseif ext == "txt" then
+        service.asyncSpeak("جاري قراءة الملف النصي...")
+        -- Try UTF-8 first
+        local text, err = extractTxtTextLocal(filePath, "UTF-8")
+        if text then
+            showDocumentViewerWindow(filePath, nil, true, text)
+        else
+            service.asyncSpeak("فشل قراءة الملف: " .. (err or "خطأ غير معروف"))
+            showResultWindow("خطأ", err or "فشل استخراج النص من الملف النصي.")
         end
     else
         service.asyncSpeak("عذراً، صيغة الملف غير مدعومة حالياً.")
@@ -2194,7 +2464,10 @@ function openSettings()
         witApiKey = witApiKeyIn.getText().toString()
         saveSettings()
         hideSettings()
-        openFilePickerWindow("/storage/emulated/0", function(selectedPath)
+        local paths = getStoragePaths()
+        local startPath = "/storage/emulated/0"
+        if #paths > 0 then startPath = paths[1].path end
+        openFilePickerWindow(startPath, function(selectedPath)
             service.asyncSpeak("جاري الرفع والمعالجة...")
             showResultWindow("نتيجة التحويل", "⏳ جاري الرفع والمعالجة...")
             transcribeAudio(selectedPath, function(result, isDone)
@@ -2207,10 +2480,13 @@ function openSettings()
     end)
     toolsCard.addView(transcribeFileBtn)
     
-    local readPdfBtn = Button(service); readPdfBtn.setText("📄 قراءة ومحادثة المستندات (PDF/Word)"); styleButton(readPdfBtn, "secondary")
+    local readPdfBtn = Button(service); readPdfBtn.setText("📄 قراءة ومحادثة المستندات (PDF/Word/Text)"); styleButton(readPdfBtn, "secondary")
     readPdfBtn.setOnClickListener(function()
         hideSettings()
-        openDocumentPickerWindow("/storage/emulated/0", function(selectedPath)
+        local paths = getStoragePaths()
+        local startPath = "/storage/emulated/0"
+        if #paths > 0 then startPath = paths[1].path end
+        openDocumentPickerWindow(startPath, function(selectedPath)
             loadDocumentAndShowViewer(selectedPath)
         end)
     end)
@@ -2237,7 +2513,7 @@ function openSettings()
     contentL.addView(btnL)
 
     scrollV.addView(contentL); settingsDialog.addView(scrollV)
-    local p=WindowManager.LayoutParams(); p.width=WindowManager.LayoutParams.MATCH_PARENT; p.height=WindowManager.LayoutParams.WRAP_CONTENT; p.type=WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY; p.flags=WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN; p.format=PixelFormat.TRANSLUCENT; p.gravity=Gravity.CENTER
+    local p=WindowManager.LayoutParams(); p.width=WindowManager.LayoutParams.MATCH_PARENT; p.height=WindowManager.LayoutParams.WRAP_CONTENT; p.type=WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY; p.flags=WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN; p.format=PixelFormat.TRANSLUCENT; p.gravity=Gravity.CENTER
     pcall(function() wm.addView(settingsDialog,p) end)
 end
 
@@ -2425,5 +2701,9 @@ function onDestroy()
 end
 
 -- **Start the Service**
-createAndShowFloatingButton()
-startVoiceRecognition()
+mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+    run = function()
+        createAndShowFloatingButton()
+        startVoiceRecognition()
+    end
+}))
