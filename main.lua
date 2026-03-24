@@ -681,12 +681,20 @@ function openPdfTtsSettings(onSaved)
         end
     })
 
-    addLabel("سرعة الصوت (0.5 - 3.0):")
-    local speedEt = EditText(service)
-    speedEt.setInputType(8194) -- TYPE_CLASS_NUMBER | TYPE_NUMBER_FLAG_DECIMAL
-    speedEt.setText(tostring(pdfTtsSpeed))
-    styleEditText(speedEt)
-    contentL.addView(speedEt)
+    addLabel("سرعة الصوت:")
+    local speedNames = ArrayList()
+    local speedValues = {0.5, 1.0, 1.5, 2.0, 2.5, 3.0}
+    for _, s in ipairs(speedValues) do speedNames.add(tostring(s) .. "x") end
+    local speedSpinner = Spinner(service)
+    local speedAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, speedNames)
+    speedAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+    speedSpinner.setAdapter(speedAdapter)
+    local currSpeedIdx = 1 -- Default to 1.0x
+    for i, s in ipairs(speedValues) do
+        if math.abs(s - (pdfTtsSpeed or 1.0)) < 0.01 then currSpeedIdx = i - 1; break end
+    end
+    speedSpinner.setSelection(currSpeedIdx)
+    contentL.addView(speedSpinner)
 
     local switchAutoNext = Switch(service)
     switchAutoNext.setChecked(pdfTtsAutoNext)
@@ -706,7 +714,7 @@ function openPdfTtsSettings(onSaved)
         if vPos >= 0 then
             pdfTtsVoiceName = currentVoices[vPos + 1]
         end
-        pdfTtsSpeed = tonumber(speedEt.getText().toString()) or 1.0
+        pdfTtsSpeed = speedValues[speedSpinner.getSelectedItemPosition() + 1] or 1.0
         pdfTtsAutoNext = switchAutoNext.isChecked()
 
         local editor = prefs.edit()
@@ -1696,79 +1704,103 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
     local isEpub = filePath:lower():match("%.epub$") ~= nil
     local accumulatedQnA = (isTxt and "ملف نصي محمل محلياً.\n\n") or (isWordLocal and "ملف Word محمل محلياً.\n\n") or (isEpub and "ملف EPUB محمل محلياً.\n\n") or "ملف PDF محمل.\n\n"
     
-    resultWindow = LinearLayout(service); resultWindow.setOrientation(LinearLayout.VERTICAL); resultWindow.setBackgroundColor(0xFF121212); resultWindow.setPadding(30,30,30,30)
+    resultWindow = LinearLayout(service); resultWindow.setOrientation(LinearLayout.VERTICAL); resultWindow.setBackgroundColor(0xFF121212); resultWindow.setPadding(20,20,20,20)
     
+    local headerL = LinearLayout(service); headerL.setOrientation(LinearLayout.HORIZONTAL); headerL.setGravity(Gravity.CENTER_VERTICAL); headerL.setPadding(0,0,0,10)
     local titleV = TextView(service);
-    local titleText = "عارض ومحادثة المستند"
-    if isTxt then titleText = "عارض ومحادثة النص (txt)"
-    elseif isWordLocal then titleText = "عارض ومحادثة Word"
-    elseif isEpub then titleText = "عارض ومحادثة الكتاب الإلكتروني"
-    else titleText = "عارض ومحادثة PDF" end
-    titleV.setText(titleText); titleV.setTextSize(22); titleV.setTextColor(0xFFFFFFFF); titleV.setTypeface(nil, Typeface.BOLD); titleV.setGravity(Gravity.CENTER); titleV.setPadding(0,0,0,20); resultWindow.addView(titleV)
-    
-    local scrollV = ScrollView(service); local contentL = LinearLayout(service); contentL.setOrientation(LinearLayout.VERTICAL); contentL.setPadding(10,10,10,10)
+    local titleText = "عارض المستند"
+    if isTxt then titleText = "النص (txt)"
+    elseif isWordLocal then titleText = "Word"
+    elseif isEpub then titleText = "EPUB"
+    else titleText = "PDF" end
+    titleV.setText("📄 " .. titleText); titleV.setTextSize(18); titleV.setTextColor(0xFFFFFFFF); titleV.setTypeface(nil, Typeface.BOLD)
+    headerL.addView(titleV, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0))
+
+    local fastCloseBtn = Button(service); fastCloseBtn.setText("❌"); styleButton(fastCloseBtn, "danger")
+    fastCloseBtn.setPadding(10,10,10,10)
+    headerL.addView(fastCloseBtn, LinearLayout.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT))
+    resultWindow.addView(headerL)
     
     local pagesCache = {}
     local currentCacheIdx = 1
+    local sentencesList = {}
+    local currentSentenceIdx = 1
+    local isPlaying = false
+    local docTts = nil
+    local isDocTtsInit = false
 
-    local stopReading, initDocTts, readCurrentPage, updateDisplayPage, fetchRangeContentRemote
+    local stopReading, initDocTts, readCurrentSentence, rebuildSentencesList, updateDisplayPage, fetchRangeContentRemote, updateProgress
 
-    local pageCtrlL = LinearLayout(service); pageCtrlL.setOrientation(LinearLayout.HORIZONTAL); pageCtrlL.setGravity(Gravity.CENTER_VERTICAL); pageCtrlL.setPadding(0,0,0,20)
+    local controlsL = LinearLayout(service); controlsL.setOrientation(LinearLayout.VERTICAL); resultWindow.addView(controlsL)
+
     if not isWordLocal and not isTxt and not isEpub then
+        local pageCtrlL = LinearLayout(service); pageCtrlL.setOrientation(LinearLayout.HORIZONTAL); pageCtrlL.setGravity(Gravity.CENTER_VERTICAL); pageCtrlL.setPadding(0,0,0,10)
         local l1 = TextView(service); l1.setText("من:"); l1.setTextColor(0xFFB0B0B0); l1.setPadding(0,0,10,0); pageCtrlL.addView(l1)
         local e1 = EditText(service); e1.setInputType(2); e1.setText("1"); e1.setHint("1"); styleEditText(e1); local lp1 = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0); lp1.rightMargin=10; pageCtrlL.addView(e1, lp1)
         local l2 = TextView(service); l2.setText("إلى:"); l2.setTextColor(0xFFB0B0B0); l2.setPadding(0,0,10,0); pageCtrlL.addView(l2)
         local e2 = EditText(service); e2.setInputType(2); e2.setText("5"); e2.setHint("5"); styleEditText(e2); local lp2 = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0); pageCtrlL.addView(e2, lp2)
+        controlsL.addView(pageCtrlL)
 
-        local function showKeyboard(view)
-            if not view then return end
-            view.requestFocus()
-            local imm = service.getSystemService(Context.INPUT_METHOD_SERVICE)
-            if imm then imm.showSoftInput(view, InputMethodManager.SHOW_IMPLICIT) end
-        end
-        e1.setOnTouchListener(View.OnTouchListener{ onTouch = function(v, event) if event.getAction() == MotionEvent.ACTION_UP then showKeyboard(v) end return false end })
-        e2.setOnTouchListener(View.OnTouchListener{ onTouch = function(v, event) if event.getAction() == MotionEvent.ACTION_UP then showKeyboard(v) end return false end })
-        contentL.addView(pageCtrlL)
-
-        local loadBtn = Button(service); loadBtn.setText("📂 تحميل الصفحات المحددة"); styleButton(loadBtn, "primary")
-        local btnP1 = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT); btnP1.setMargins(0,0,0,20)
-        loadBtn.setLayoutParams(btnP1)
-        contentL.addView(loadBtn)
-
+        local loadBtn = Button(service); loadBtn.setText("📂 تحميل الصفحات"); styleButton(loadBtn, "primary")
         loadBtn.setOnClickListener(function()
-            local sP = e1.getText().toString()
-            local eP = e2.getText().toString()
-            if sP == "" or eP == "" then service.asyncSpeak("يرجى إدخال نطاق الصفحات.") return end
+            local sP, eP = e1.getText().toString(), e2.getText().toString()
             local nS, nE = tonumber(sP), tonumber(eP)
-            if not nS or not nE then service.asyncSpeak("خطأ: يرجى إدخال أرقام صالحة.") return end
-            if nS > nE then service.asyncSpeak("خطأ: صفحة البداية يجب أن تكون أقل من أو تساوي صفحة النهاية.") return end
+            if not nS or not nE or nS > nE then service.asyncSpeak("أدخل نطاق صفحات صحيح.") return end
             fetchRangeContentRemote(sP, eP)
         end)
+        controlsL.addView(loadBtn)
     end
 
-    local navL = LinearLayout(service); navL.setOrientation(LinearLayout.HORIZONTAL); navL.setGravity(Gravity.CENTER); navL.setPadding(0,0,0,20)
-    local prevBtn = Button(service); prevBtn.setText("⬅️ السابق"); styleButton(prevBtn, "secondary")
-    local pageInd = TextView(service); pageInd.setText("صفحة: -"); pageInd.setTextColor(0xFFFFFFFF); pageInd.setTextSize(18); pageInd.setPadding(30,0,30,0)
-    local nextBtn = Button(service); nextBtn.setText("التالي ➡️"); styleButton(nextBtn, "secondary")
-    navL.addView(prevBtn); navL.addView(pageInd); navL.addView(nextBtn)
-    contentL.addView(navL)
-
-    local playbackL = LinearLayout(service); playbackL.setOrientation(LinearLayout.HORIZONTAL); playbackL.setGravity(Gravity.CENTER); playbackL.setPadding(0,0,0,20)
-    local playBtn = Button(service); playBtn.setText("▶️ تشغيل"); styleButton(playBtn, "primary")
-    local stopTtsBtn = Button(service); stopTtsBtn.setText("⏹️ إيقاف"); styleButton(stopTtsBtn, "danger")
+    local playbackL = LinearLayout(service); playbackL.setOrientation(LinearLayout.HORIZONTAL); playbackL.setGravity(Gravity.CENTER); playbackL.setPadding(0,10,0,10)
+    local prevSkipBtn = Button(service); prevSkipBtn.setText("⏪"); styleButton(prevSkipBtn, "secondary")
+    local playBtn = Button(service); playBtn.setText("▶️"); styleButton(playBtn, "primary")
+    local nextSkipBtn = Button(service); nextSkipBtn.setText("⏩"); styleButton(nextSkipBtn, "secondary")
     local ttsSetBtn = Button(service); ttsSetBtn.setText("⚙️"); styleButton(ttsSetBtn, "secondary")
 
-    local playParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0); playParams.rightMargin=10
-    local stopParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0); stopParams.rightMargin=10
-    local setParams = LinearLayout.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+    local btnParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0); btnParams.setMargins(5,0,5,0)
+    playbackL.addView(prevSkipBtn, btnParams); playbackL.addView(playBtn, btnParams); playbackL.addView(nextSkipBtn, btnParams); playbackL.addView(ttsSetBtn, LinearLayout.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT))
+    controlsL.addView(playbackL)
 
-    playbackL.addView(playBtn, playParams); playbackL.addView(stopTtsBtn, stopParams); playbackL.addView(ttsSetBtn, setParams)
-    contentL.addView(playbackL)
+    local progressL = LinearLayout(service); progressL.setOrientation(LinearLayout.HORIZONTAL); progressL.setGravity(Gravity.CENTER_VERTICAL); progressL.setPadding(10,0,10,10)
+    local seekBar = SeekBar(service); seekBar.setMax(100); local lpS = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0); progressL.addView(seekBar, lpS)
+    local progressTv = TextView(service); progressTv.setText("0%"); progressTv.setTextColor(0xFF64B5F6); progressTv.setPadding(10,0,0,0); progressL.addView(progressTv)
+    controlsL.addView(progressL)
 
-    local pageContentTV = TextView(service)
-    pageContentTV.setText(isWordLocal and "جاري معالجة النص..." or "يرجى تحديد نطاق الصفحات والضغط على تحميل.")
-    pageContentTV.setTextSize(18); pageContentTV.setTextColor(0xFFE0E0E0); pageContentTV.setPadding(10,20,10,20); pageContentTV.setTextIsSelectable(true)
-    contentL.addView(pageContentTV)
+    local listView = ListView(service); listView.setDividerHeight(0)
+    listView.setChoiceMode(ListView.CHOICE_MODE_SINGLE)
+
+    local adapter = ArrayAdapter(service, android.R.layout.simple_list_item_activated_1, ArrayList())
+    listView.setAdapter(adapter)
+    resultWindow.addView(listView, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0))
+
+    listView.setOnItemClickListener(AdapterView.OnItemClickListener{
+        onItemClick = function(parent, view, position, id)
+            local wasPlaying = isPlaying
+            stopReading()
+            currentSentenceIdx = position + 1
+            updateProgress()
+            if wasPlaying then readCurrentSentence() end
+        end
+    })
+
+    local footerL = LinearLayout(service); footerL.setOrientation(LinearLayout.VERTICAL)
+    local footerParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+    footerParams.topMargin = 10
+    resultWindow.addView(footerL, footerParams)
+
+    local qnaScroll = ScrollView(service)
+    qnaScroll.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 150))
+    local qnaHistoryLayout = LinearLayout(service); qnaHistoryLayout.setOrientation(LinearLayout.VERTICAL); qnaScroll.addView(qnaHistoryLayout); footerL.addView(qnaScroll)
+
+    local footerBtnsL = LinearLayout(service); footerBtnsL.setOrientation(LinearLayout.HORIZONTAL)
+    local voiceQBtn = Button(service); voiceQBtn.setText("🎤 سؤال"); styleButton(voiceQBtn, "primary")
+    local closeBtn = Button(service); closeBtn.setText("❌ إغلاق"); styleButton(closeBtn, "danger")
+
+    local lpBtn = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0)
+    lpBtn.setMargins(10, 5, 10, 5)
+    footerBtnsL.addView(voiceQBtn, lpBtn)
+    footerBtnsL.addView(closeBtn, lpBtn)
+    footerL.addView(footerBtnsL)
 
     local currentChapterIdx = 1
     if isEpub and epubSpine then
@@ -1782,27 +1814,27 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
         chapAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         chapSpinner.setAdapter(chapAdapter)
         chapL.addView(chapSpinner, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0))
-        contentL.addView(chapL)
+        controlsL.addView(chapL)
 
         chapSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener {
             onItemSelected = function(parent, view, position, id)
                 if currentChapterIdx == position + 1 and pagesCache and #pagesCache > 0 then return end
                 currentChapterIdx = position + 1
                 local chapPath = epubSpine[currentChapterIdx].path
-                pageContentTV.setText("⏳ جاري تحميل الفصل...")
+                service.asyncSpeak("جاري تحميل الفصل...")
                 local wasPlaying = isPlaying
                 stopReading()
 
                 local chapText, err = extractEpubChapterText(filePath, chapPath)
                 if chapText then
                     initialText = chapText
-                    pagesCache = smartSplitText(initialText, 2000)
+                    pagesCache = {initialText}
                     currentCacheIdx = 1
                     updateDisplayPage()
-                    if wasPlaying then readCurrentPage() end
+                    if wasPlaying then readCurrentSentence() end
                 else
                     service.asyncSpeak("فشل تحميل الفصل.")
-                    pageContentTV.setText("خطأ: " .. tostring(err))
+                    service.asyncSpeak("خطأ: " .. tostring(err))
                 end
             end
         })
@@ -1827,7 +1859,7 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
 
         local reloadBtn = Button(service); reloadBtn.setText("🔄 إعادة تحميل"); styleButton(reloadBtn, "secondary")
         encL.addView(reloadBtn)
-        contentL.addView(encL)
+        controlsL.addView(encL)
 
         reloadBtn.setOnClickListener(function()
             local selectedEnc = encCodes[encSpinner.getSelectedItemPosition() + 1]
@@ -1835,7 +1867,7 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
             local text, err = extractTxtTextLocal(filePath, selectedEnc)
             if text then
                 initialText = text
-                pagesCache = smartSplitText(initialText, 2000)
+                pagesCache = {initialText}
                 currentCacheIdx = 1
                 updateDisplayPage()
             else
@@ -1844,23 +1876,33 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
         end)
     end
 
-    local qnaHistoryLayout = LinearLayout(service)
-    qnaHistoryLayout.setOrientation(LinearLayout.VERTICAL)
-    contentL.addView(qnaHistoryLayout)
-    
-    local voiceQBtn = Button(service); voiceQBtn.setText("🎤 التحدث للسؤال عن الملف"); styleButton(voiceQBtn, "primary")
-    local btnP2 = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT); btnP2.setMargins(0,10,0,20)
-    voiceQBtn.setLayoutParams(btnP2)
-    contentL.addView(voiceQBtn)
-
-    local docTts = nil
-    local isDocTtsInit = false
-    local isPlaying = false
-
     stopReading = function()
         isPlaying = false
         if docTts then pcall(function() docTts.stop() end) end
-        playBtn.setText("▶️ تشغيل")
+        playBtn.setText("▶️")
+    end
+
+    updateProgress = function()
+        if #sentencesList > 0 then
+            local percent = math.floor((currentSentenceIdx / #sentencesList) * 100)
+            seekBar.setProgress(percent)
+            progressTv.setText(percent .. "%")
+        end
+    end
+
+    rebuildSentencesList = function()
+        sentencesList = {}
+        adapter.clear()
+        for i, pageText in ipairs(pagesCache) do
+            local pageSentences = splitIntoSentences(pageText)
+            for _, s in ipairs(pageSentences) do
+                table.insert(sentencesList, s)
+                adapter.add(s)
+            end
+        end
+        currentSentenceIdx = 1
+        listView.setItemChecked(0, true)
+        updateProgress()
     end
 
     initDocTts = function(callback)
@@ -1888,13 +1930,15 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
                             local progressListener = UtteranceProgressListener{
                                 onStart = function(id) end,
                                 onDone = function(id)
-                                    if id == "doc_page" and pdfTtsAutoNext and isPlaying then
+                                    if id == "doc_seg" and isPlaying then
                                         mainHandler.post(luajava.createProxy("java.lang.Runnable", {
                                             run = function()
-                                                if currentCacheIdx < #pagesCache then
-                                                    currentCacheIdx = currentCacheIdx + 1
-                                                    updateDisplayPage()
-                                                    readCurrentPage()
+                                                if currentSentenceIdx < #sentencesList then
+                                                    currentSentenceIdx = currentSentenceIdx + 1
+                                                    updateProgress()
+                                                    listView.setItemChecked(currentSentenceIdx - 1, true)
+                                                    listView.smoothScrollToPosition(currentSentenceIdx - 1)
+                                                    readCurrentSentence()
                                                 elseif isEpub and epubSpine and currentChapterIdx < #epubSpine then
                                                     service.asyncSpeak("انتهى الفصل. جاري الانتقال للفصل التالي.")
                                                     currentChapterIdx = currentChapterIdx + 1
@@ -1902,8 +1946,6 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
                                                 else stopReading() end
                                             end
                                         }))
-                                    elseif id == "doc_page" then
-                                        mainHandler.post(luajava.createProxy("java.lang.Runnable", { run = function() stopReading() end }))
                                     end
                                 end,
                                 onError = function(id) end
@@ -1919,17 +1961,22 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
         }))
     end
 
-    readCurrentPage = function()
-        if not pagesCache or #pagesCache == 0 then return end
-        local text = pagesCache[currentCacheIdx]
-        if not text or text == "" then return end
+    readCurrentSentence = function()
+        if not sentencesList or #sentencesList == 0 then return end
+        local text = sentencesList[currentSentenceIdx]
+        if not text or text == "" then
+            if currentSentenceIdx < #sentencesList then
+                currentSentenceIdx = currentSentenceIdx + 1
+                return readCurrentSentence()
+            else return stopReading() end
+        end
         isPlaying = true
-        playBtn.setText("⏸️ إيقاف مؤقت")
+        playBtn.setText("⏸️")
         local function startSpeak()
             if docTts and isDocTtsInit then
-                local s_s, err = pcall(function() docTts.speak(tostring(text), TextToSpeech.QUEUE_FLUSH, nil, "doc_page") end)
+                local s_s, err = pcall(function() docTts.speak(tostring(text), TextToSpeech.QUEUE_FLUSH, nil, "doc_seg") end)
                 if not s_s then
-                    local params = HashMap(); params.put("utteranceId", "doc_page")
+                    local params = HashMap(); params.put("utteranceId", "doc_seg")
                     pcall(function() docTts.speak(tostring(text), TextToSpeech.QUEUE_FLUSH, params) end)
                 end
             else service.asyncSpeak(tostring(text)) end
@@ -1940,14 +1987,12 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
 
     updateDisplayPage = function()
         if pagesCache and #pagesCache > 0 then
-            local text = pagesCache[currentCacheIdx]
-            pageInd.setText("صفحة: " .. currentCacheIdx .. "/" .. #pagesCache)
-            pageContentTV.setText(text)
+            rebuildSentencesList()
         end
     end
 
     fetchRangeContentRemote = function(startP, endP)
-        pageContentTV.setText("⏳ جاري استخراج النصوص من الصفحة " .. startP .. " إلى " .. endP .. "...")
+        service.asyncSpeak("جاري استخراج النصوص من الصفحة " .. startP .. " إلى " .. endP .. "...")
         local q = "استخرج النص الموجود في هذا الملف من الصفحة " .. startP .. " إلى الصفحة " .. endP .. ". افصل بين كل صفحة وأخرى بوضع العلامة التالية فقط: ===PAGE_BREAK==="
         local url = "https://generativelanguage.googleapis.com/v1beta/models/" .. selectedGeminiModelId .. ":generateContent?key=" .. geminiApiKey
         local headers = {["Content-Type"] = "application/json"}
@@ -1972,7 +2017,7 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
             else resultTxt = "Error: " .. status .. " - " .. tostring(response) end
             mainHandler.post(luajava.createProxy("java.lang.Runnable", {
                 run = function()
-                    if resultTxt:match("^Error:") then pageContentTV.setText(resultTxt)
+                    if resultTxt:match("^Error:") then service.asyncSpeak(resultTxt)
                     else
                         pagesCache = {}
                         local delimiter = "===PAGE_BREAK==="
@@ -1989,7 +2034,7 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
                             s = e + #delimiter
                         end
                         if #pagesCache > 0 then currentCacheIdx = 1; updateDisplayPage()
-                        else pageContentTV.setText("تعذر تقسيم النص إلى صفحات. النص المستخرج:\n" .. resultTxt) end
+                        else service.asyncSpeak("تعذر تقسيم النص.") end
                     end
                 end
             }))
@@ -2003,7 +2048,6 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
         local root = JSONObject(); local contentObj = JSONObject(); local partsArray = JSONArray()
         
         if isWordLocal or isTxt or isEpub then
-            -- For local Word, Txt or Epub, we send the current extracted text (chapter for EPUB)
             local sysPart = JSONObject(); sysPart.put("text", "System: You are an assistant answering questions about the following document content.\n\nContent:\n" .. (initialText or ""))
             partsArray.put(sysPart)
         else
@@ -2033,15 +2077,46 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
                         aiBubble.getChildAt(0).setText(resultTxt) 
                         speakAIResponseViaCustomTTS(resultTxt, "ar")
                         accumulatedQnA = accumulatedQnA .. "AI: " .. resultTxt .. "\n\n"
-                        pcall(function() scrollV.fullScroll(ScrollView.FOCUS_DOWN) end)
+                        pcall(function() qnaScroll.fullScroll(ScrollView.FOCUS_DOWN) end)
                     end
                 end
             }))
         end)
     end
     
-    playBtn.setOnClickListener(function() if isPlaying then stopReading() else readCurrentPage() end end)
-    stopTtsBtn.setOnClickListener(function() stopReading() end)
+    playBtn.setOnClickListener(function() if isPlaying then stopReading() else readCurrentSentence() end end)
+
+    prevSkipBtn.setOnClickListener(function()
+        local wasPlaying = isPlaying; stopReading()
+        currentSentenceIdx = math.max(1, currentSentenceIdx - 4)
+        updateProgress(); listView.setItemChecked(currentSentenceIdx - 1, true); listView.setSelection(currentSentenceIdx - 1)
+        if wasPlaying then readCurrentSentence() end
+    end)
+
+    nextSkipBtn.setOnClickListener(function()
+        local wasPlaying = isPlaying; stopReading()
+        currentSentenceIdx = math.min(#sentencesList, currentSentenceIdx + 4)
+        updateProgress(); listView.setItemChecked(currentSentenceIdx - 1, true); listView.setSelection(currentSentenceIdx - 1)
+        if wasPlaying then readCurrentSentence() end
+    end)
+
+    seekBar.setOnSeekBarChangeListener(luajava.createProxy("android.widget.SeekBar$OnSeekBarChangeListener", {
+        onProgressChanged = function(s, p, fromUser)
+            if fromUser and #sentencesList > 0 then
+                progressTv.setText(p .. "%")
+            end
+        end,
+        onStartTrackingTouch = function() end,
+        onStopTrackingTouch = function(s)
+            if #sentencesList > 0 then
+                local p = s.getProgress()
+                local wasPlaying = isPlaying; stopReading()
+                currentSentenceIdx = math.max(1, math.floor((p / 100) * #sentencesList))
+                updateProgress(); listView.setItemChecked(currentSentenceIdx - 1, true); listView.setSelection(currentSentenceIdx - 1)
+                if wasPlaying then readCurrentSentence() end
+            end
+        end
+    }))
     ttsSetBtn.setOnClickListener(function() stopReading(); openPdfTtsSettings(function() isDocTtsInit = false end) end)
 
     voiceQBtn.setOnClickListener(function()
@@ -2051,7 +2126,7 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
         local qIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH); qIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM); qIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, selectedLanguage or "ar"); qIntent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false); qIntent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
         localRec.setRecognitionListener(RecognitionListener{
             onReadyForSpeech=function() voiceQBtn.setText("...تحدث الآن") end, onEndOfSpeech=function() voiceQBtn.setText("🤔 جاري المعالجة...") end,
-            onError=function(e) service.asyncSpeak("خطأ استماع"); pcall(function()localRec.destroy()end); voiceQBtn.setText("🎤 التحدث للسؤال عن الملف"); voiceQBtn.setEnabled(true); end,
+            onError=function(e) service.asyncSpeak("خطأ استماع"); pcall(function()localRec.destroy()end); voiceQBtn.setText("🎤 سؤال حول الملف"); voiceQBtn.setEnabled(true); end,
             onResults=function(r)
                 local m=r.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                 if m and m.size()>0 then
@@ -2059,41 +2134,32 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
                     if uQ and uQ~="" then
                         local userBubble = createChatBubble(uQ, true); qnaHistoryLayout.addView(userBubble)
                         local aiBubble = createChatBubble("جاري البحث...", false); qnaHistoryLayout.addView(aiBubble)
-                        pcall(function() scrollV.fullScroll(ScrollView.FOCUS_DOWN) end)
+                        pcall(function() qnaScroll.fullScroll(ScrollView.FOCUS_DOWN) end)
                         local q = accumulatedQnA .. "Question: " .. uQ
                         askAiAboutDoc(q, aiBubble)
                         accumulatedQnA = accumulatedQnA .. "User: " .. uQ .. "\n"
                     end
                 end
-                pcall(function()localRec.destroy()end); voiceQBtn.setText("🎤 التحدث للسؤال عن الملف"); voiceQBtn.setEnabled(true)
+                pcall(function()localRec.destroy()end); voiceQBtn.setText("🎤 سؤال حول الملف"); voiceQBtn.setEnabled(true)
             end
         }); pcall(function() localRec.startListening(qIntent) end)
     end)
     
-    scrollV.addView(contentL); local scrP = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,0,1.0); resultWindow.addView(scrollV,scrP)
-    local closeBtn = Button(service); closeBtn.setText("❌ إغلاق"); styleButton(closeBtn, "danger")
-    closeBtn.setOnClickListener(function() if resultWindow then pcall(function()wm.removeView(resultWindow)end); resultWindow=nil end end)
-    local clP = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,LinearLayout.LayoutParams.WRAP_CONTENT); clP.topMargin=10; resultWindow.addView(closeBtn,clP)
-    
-    prevBtn.setOnClickListener(function()
-        if pagesCache and #pagesCache > 0 and currentCacheIdx > 1 then
-            local wasPlaying = isPlaying; stopReading(); currentCacheIdx = currentCacheIdx - 1; updateDisplayPage()
-            if wasPlaying then readCurrentPage() end
-        end
-    end)
+    local closeAction = function()
+        stopReading()
+        if docTts then pcall(function() docTts.shutdown() end) end
+        if resultWindow then pcall(function() wm.removeView(resultWindow) end); resultWindow = nil end
+        service.asyncSpeak("تم إغلاق المستند.")
+    end
 
-    nextBtn.setOnClickListener(function()
-        if pagesCache and #pagesCache > 0 and currentCacheIdx < #pagesCache then
-            local wasPlaying = isPlaying; stopReading(); currentCacheIdx = currentCacheIdx + 1; updateDisplayPage()
-            if wasPlaying then readCurrentPage() end
-        end
-    end)
+    fastCloseBtn.setOnClickListener(function() closeAction() end)
+    closeBtn.setOnClickListener(function() closeAction() end)
 
-    local winP = WindowManager.LayoutParams(); winP.width=WindowManager.LayoutParams.MATCH_PARENT; winP.height=math.floor(service.getResources().getDisplayMetrics().heightPixels*0.85); winP.type=WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY; winP.flags=WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL|WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN; winP.format=PixelFormat.TRANSLUCENT; winP.gravity=Gravity.CENTER; winP.horizontalMargin=0.05; winP.verticalMargin=0.05
+    local winP = WindowManager.LayoutParams(); winP.width=WindowManager.LayoutParams.MATCH_PARENT; winP.height=math.floor(service.getResources().getDisplayMetrics().heightPixels*0.85); winP.type=WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY; winP.flags=WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL; winP.format=PixelFormat.TRANSLUCENT; winP.gravity=Gravity.CENTER; winP.horizontalMargin=0.05; winP.verticalMargin=0.05
     pcall(function() wm.addView(resultWindow, winP) end)
     
     if (isWordLocal or isTxt or isEpub) and initialText then
-        pagesCache = smartSplitText(initialText, 2000)
+        pagesCache = {initialText}
         currentCacheIdx = 1
         updateDisplayPage()
     elseif not isWordLocal and not isEpub then
@@ -2120,7 +2186,7 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
                                 if countText then
                                     local msg = "هذا الملف يحتوي على " .. countText .. " صفحة. يمكنك الآن تحديد النطاق والتحميل."
                                     mainHandler.post(luajava.createProxy("java.lang.Runnable", {
-                                        run = function() pageContentTV.setText(msg); service.asyncSpeak(msg) end
+                                        run = function() service.asyncSpeak(msg) end
                                     }))
                                     return
                                 end
@@ -2132,9 +2198,10 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
             end)
         end
         detectPageCount()
+    else
+        service.asyncSpeak("يرجى الضغط على زر تحميل الصفحات للبدء.")
     end
 end
-
 function extractTxtTextLocal(filePath, encoding)
     import "java.io.File"
     import "java.io.FileInputStream"
@@ -2320,6 +2387,30 @@ function extractDocxTextLocal(filePath)
     end)
 
     if success then return result else return nil, tostring(result) end
+end
+
+function splitIntoSentences(text)
+    if not text then return {} end
+    local sentences = {}
+
+    -- We use a marker to split without breaking UTF-8 Arabic characters
+    -- Negated character sets like [^...] are byte-based in Lua and break Arabic
+    local s = text
+    s = s:gsub("([%.!%?\n\r]+)", "%1\0")
+    s = s:gsub("(؟+)", "%1\0")
+    s = s:gsub("(؛+)", "%1\0")
+
+    for part in s:gmatch("([^%z]+)") do
+        local cleaned = part:gsub("^%s+", ""):gsub("%s+$", "")
+        if #cleaned > 0 then
+            table.insert(sentences, cleaned)
+        end
+    end
+
+    if #sentences == 0 and #text > 0 then
+        table.insert(sentences, text)
+    end
+    return sentences
 end
 
 function smartSplitText(text, limit)
