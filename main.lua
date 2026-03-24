@@ -1049,51 +1049,49 @@ function transcribeAudio(filePath, callback)
             run = function()
                 local success, err = pcall(function()
                     local file = File(filePath)
-                    local fileSize = file.length()
-                    local url = URL("https://api.groq.com/openai/v1/audio/transcriptions")
-                    local conn = url.openConnection()
-                    conn.setFixedLengthStreamingMode(-1) -- Use -1 if content length is unknown or multipart
+                    local url = URL(tostring("https://api.groq.com/openai/v1/audio/transcriptions"))
+                    local conn = url:openConnection()
+                    conn:setChunkedStreamingMode(8192)
                     local boundary = "*****" .. tostring(System.currentTimeMillis()) .. "*****"
-                    conn.setDoInput(true)
-                    conn.setDoOutput(true)
-                    conn.setUseCaches(false)
-                    conn.setRequestMethod("POST")
-                    conn.setRequestProperty("Connection", "Keep-Alive")
-                    conn.setRequestProperty("Authorization", "Bearer " .. groqApiKey)
-                    conn.setRequestProperty("Content-Type", "multipart/form-data;boundary=" .. boundary)
-                    local dos = DataOutputStream(conn.getOutputStream())
-                    dos.writeBytes("--" .. boundary .. "\r\n")
-                    dos.writeBytes("Content-Disposition: form-data; name=\"model\"\r\n\r\n")
-                    dos.writeBytes(modId .. "\r\n")
-                    local file = File(filePath)
-                    dos.writeBytes("--" .. boundary .. "\r\n")
-                    dos.writeBytes("Content-Disposition: form-data; name=\"file\"; filename=\"" .. file.getName() .. "\"\r\n")
-                    dos.writeBytes("Content-Type: application/octet-stream\r\n\r\n")
+                    conn:setDoInput(true)
+                    conn:setDoOutput(true)
+                    conn:setUseCaches(false)
+                    conn:setRequestMethod("POST")
+                    conn:setRequestProperty("Connection", "Keep-Alive")
+                    conn:setRequestProperty("Authorization", "Bearer " .. groqApiKey)
+                    conn:setRequestProperty("Content-Type", "multipart/form-data;boundary=" .. boundary)
+                    local dos = DataOutputStream(conn:getOutputStream())
+                    dos:writeBytes("--" .. boundary .. "\r\n")
+                    dos:writeBytes("Content-Disposition: form-data; name=\"model\"\r\n\r\n")
+                    dos:writeBytes(tostring(modId) .. "\r\n")
+                    dos:writeBytes("--" .. boundary .. "\r\n")
+                    dos:writeBytes("Content-Disposition: form-data; name=\"file\"; filename=\"" .. file:getName() .. "\"\r\n")
+                    dos:writeBytes("Content-Type: application/octet-stream\r\n\r\n")
                     local fileInputStream = FileInputStream(file)
                     local bufferSize = 4096
                     local buffer = luajava.newArray(luajava.bindClass("java.lang.Byte").TYPE, bufferSize)
-                    local bytesRead = fileInputStream:read(buffer, 0, bufferSize)
+                    local bytesRead = fileInputStream:read(buffer)
                     while bytesRead > 0 do
-                        dos.write(buffer, 0, bytesRead)
-                        bytesRead = fileInputStream:read(buffer, 0, bufferSize)
+                        dos:write(buffer, 0, bytesRead)
+                        bytesRead = fileInputStream:read(buffer)
                     end
                     fileInputStream:close()
-                    dos.writeBytes("\r\n")
-                    dos.writeBytes("--" .. boundary .. "--\r\n")
-                    dos.flush()
-                    dos.close()
-                    local responseCode = conn.getResponseCode()
-                    local is = responseCode == 200 and conn.getInputStream() or conn.getErrorStream()
+                    dos:writeBytes("\r\n")
+                    dos:writeBytes("--" .. boundary .. "--\r\n")
+                    dos:flush()
+                    dos:close()
+                    local responseCode = conn:getResponseCode()
+                    local is = (responseCode == 200) and conn:getInputStream() or conn:getErrorStream()
                     local br = BufferedReader(InputStreamReader(is))
                     local response = ""
-                    local line = br.readLine()
-                    while line ~= nil do response = response .. line; line = br.readLine() end
-                    br.close()
+                    local line = br:readLine()
+                    while line ~= nil do response = response .. line; line = br:readLine() end
+                    br:close()
                     mainHandler.post(luajava.createProxy("java.lang.Runnable", {
                         run = function()
                             if responseCode == 200 then
                                 local s, j = pcall(function() return JSONObject(response) end)
-                                if s and j.has("text") then callback(j.getString("text"), true) else callback("Error: " .. response, true) end
+                                if s and j:has("text") then callback(j:getString("text"), true) else callback("Error: " .. response, true) end
                             else callback("Error: " .. responseCode .. " - " .. response, true) end
                         end
                     }))
@@ -1172,50 +1170,50 @@ function transcribeAudio(filePath, callback)
                     elseif ext == "m4a" or ext == "aac" then mime = "audio/aac"
                     elseif ext == "raw" then mime = "audio/raw" end
                     
-                    local url = URL("https://api.wit.ai/dictation?v=20240304")
-                    local conn = url.openConnection()
-                    conn.setConnectTimeout(60000)
-                    conn.setReadTimeout(300000)
-                    conn.setDoInput(true)
-                    conn.setDoOutput(true)
-                    conn.setUseCaches(false)
-                    conn.setRequestMethod("POST")
-                    conn.setRequestProperty("Authorization", "Bearer " .. witApiKey)
-                    conn.setRequestProperty("Content-Type", mime)
+                    local url = URL(tostring("https://api.wit.ai/dictation?v=20240304"))
+                    local conn = url:openConnection()
+                    conn:setConnectTimeout(60000)
+                    conn:setReadTimeout(300000)
+                    conn:setDoInput(true)
+                    conn:setDoOutput(true)
+                    conn:setUseCaches(false)
+                    conn:setRequestMethod("POST")
+                    conn:setRequestProperty("Authorization", "Bearer " .. witApiKey)
+                    conn:setRequestProperty("Content-Type", mime)
                     
-                    conn.setChunkedStreamingMode(8192)
+                    conn:setChunkedStreamingMode(8192)
                     
-                    local dos = DataOutputStream(conn.getOutputStream())
+                    local dos = DataOutputStream(conn:getOutputStream())
                     local file = File(filePath)
                     local fileInputStream = FileInputStream(file)
                     local bufferSize = 8192
                     local buffer = luajava.newArray(luajava.bindClass("java.lang.Byte").TYPE, bufferSize)
-                    local bytesRead = fileInputStream:read(buffer, 0, bufferSize)
+                    local bytesRead = fileInputStream:read(buffer)
                     while bytesRead > 0 do
-                        dos.write(buffer, 0, bytesRead)
-                        dos.flush()
-                        bytesRead = fileInputStream:read(buffer, 0, bufferSize)
+                        dos:write(buffer, 0, bytesRead)
+                        dos:flush()
+                        bytesRead = fileInputStream:read(buffer)
                     end
                     fileInputStream:close()
-                    dos.close()
+                    dos:close()
                     
-                    local responseCode = conn.getResponseCode()
-                    local is = responseCode == 200 and conn.getInputStream() or conn.getErrorStream()
+                    local responseCode = conn:getResponseCode()
+                    local is = (responseCode == 200) and conn:getInputStream() or conn:getErrorStream()
                     local br = BufferedReader(InputStreamReader(is))
                     local accumulatedFinals = ""
                     local lastText = ""
                     
-                    local line = br.readLine()
+                    local line = br:readLine()
                     local jsonBuffer = ""
                     while line ~= nil do 
                         jsonBuffer = jsonBuffer .. line .. "\n"
                         if line:match("}") then
                             local s, j = pcall(function() return JSONObject(jsonBuffer) end)
                             if s then
-                                if j.has("text") then
-                                    local currentText = j.getString("text")
+                                if j:has("text") then
+                                    local currentText = j:getString("text")
                                     lastText = currentText
-                                    local isFinal = j.has("is_final") and j.getBoolean("is_final")
+                                    local isFinal = j:has("is_final") and j:getBoolean("is_final")
                                     
                                     local displayStr = accumulatedFinals
                                     if isFinal then
