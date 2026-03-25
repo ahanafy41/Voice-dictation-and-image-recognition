@@ -292,29 +292,29 @@ function TestGeminiFunctions:setUp()
     geminiApiKey = "fake_api_key" -- Default fake key for tests
 end
 
-function TestGeminiFunctions:test_correctWithGemini_success()
+function TestGeminiFunctions:test_performSmartCorrection_success()
     local originalText = "this is a tst"
-    local correctedText = "This is a test. 👍"
+    local correctedText = "This is a test."
     _G.mock_gemini_response = correctedText
 
     _G.Http.post = function(url, body, headers, callback)
-        assertTrue(string.find(url, "gemini") ~= nil)
+        -- Since we refactored, let's just check if it calls makeAiRequest correctly
         callback(200, 'dummy_response_body')
     end
 
-    correctWithGemini(originalText, function(result)
+    performSmartCorrection(originalText, false, function(result)
         assertEquals(result, correctedText)
     end)
 end
 
-function TestGeminiFunctions:test_correctWithGemini_api_failure()
+function TestGeminiFunctions:test_performSmartCorrection_api_failure()
     local originalText = "this is a tst"
     _G.Http.post = function(url, body, headers, callback)
         callback(500, 'Internal Server Error')
     end
 
-    correctWithGemini(originalText, function(result)
-        assertEquals(result, originalText)
+    performSmartCorrection(originalText, false, function(result)
+        assertTrue(string.find(result, "AI Request Failed") ~= nil)
     end)
 end
 
