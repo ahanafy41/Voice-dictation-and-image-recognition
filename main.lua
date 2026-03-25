@@ -157,7 +157,9 @@ local prefs = service.getSharedPreferences("voice_settings", Context.MODE_PRIVAT
 selectedLanguage = prefs.getString("language", defaultSelectedLanguage)
 continuousDictationEnabled = prefs.getBoolean("continuousDictation", false)
 autoSpaceEnabled = prefs.getBoolean("autoSpaceEnabled", true)
-geminiCorrectionEnabled = prefs.getBoolean("geminiCorrectionEnabled", false)
+-- Smart Correction Settings (Migrated from geminiCorrectionEnabled)
+smartCorrectionWithEmojiEnabled = prefs.getBoolean("smartCorrectionWithEmojiEnabled", prefs.getBoolean("geminiCorrectionEnabled", false))
+smartCorrectionNoEmojiEnabled = prefs.getBoolean("smartCorrectionNoEmojiEnabled", false)
 
 -- Provider Settings
 geminiApiKey = prefs.getString("geminiApiKey", "")
@@ -863,9 +865,11 @@ function makeAiRequest(prompt, systemInstruction, imageBase64, modelIdOverride, 
 end
 
 -- ### Feature Wrapper Functions
-function correctWithGemini(text, callback)
-    local prompt = "Fix text and add suitable emojis. Return ONLY the text:"
-    if not geminiCorrectionEnabled then return callback(text) end
+function performSmartCorrection(text, withEmoji, callback)
+    local prompt = "Fix spelling errors in the following text. Do NOT change the dialect, word order, or meaning. Return ONLY the corrected text:"
+    if withEmoji then
+        prompt = "Fix spelling errors and add suitable emojis to the following text. Do NOT change the dialect, word order, or meaning. Return ONLY the corrected text:"
+    end
     makeAiRequest(prompt .. "\n" .. text, nil, nil, nil, callback)
 end
 
@@ -2526,7 +2530,8 @@ function saveSettings()
     showFloatingSettingsButtonEnabled = showFloatingSettingsButtonEnabled or false
     continuousDictationEnabled = continuousDictationEnabled or false
     autoSpaceEnabled = autoSpaceEnabled or true
-    geminiCorrectionEnabled = geminiCorrectionEnabled or false
+    smartCorrectionWithEmojiEnabled = smartCorrectionWithEmojiEnabled or false
+    smartCorrectionNoEmojiEnabled = smartCorrectionNoEmojiEnabled or false
     summarizeEnabled = summarizeEnabled or false
     imageDescriptionEnabled = imageDescriptionEnabled or false
     newTranslationFeatureEnabled = newTranslationFeatureEnabled or false
@@ -2535,7 +2540,8 @@ function saveSettings()
     editor.putString("language", selectedLanguage or defaultSelectedLanguage)
     editor.putBoolean("continuousDictation", continuousDictationEnabled)
     editor.putBoolean("autoSpaceEnabled", autoSpaceEnabled)
-    editor.putBoolean("geminiCorrectionEnabled", geminiCorrectionEnabled)
+    editor.putBoolean("smartCorrectionWithEmojiEnabled", smartCorrectionWithEmojiEnabled)
+    editor.putBoolean("smartCorrectionNoEmojiEnabled", smartCorrectionNoEmojiEnabled)
     
     editor.putString("geminiApiKey", geminiApiKey or "")
     editor.putString("groqApiKey", groqApiKey or "")
@@ -2693,7 +2699,17 @@ function openSettings()
 
     -- SECTION: Voice & Language
     local voiceCard = createCard(contentL)
-    addSectionHeader("إعدادات الصوت", voiceCard)
+    addSectionHeader("إعدادات الصوت واللغة", voiceCard)
+
+    voiceCard.addView(createLabel("لغة الإملاء الصوتي (Dictation Language):"))
+    local dictNames = ArrayList(); local dictIds = {}
+    for _, lang in ipairs(supportedLanguages) do dictNames.add(lang.name); table.insert(dictIds, lang.code) end
+    local dictAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, dictNames); dictAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+    local dictSpinner = Spinner(service); dictSpinner.setAdapter(dictAdapter)
+    local currDictIdx = -1; for i, id in ipairs(dictIds) do if id == selectedLanguage then currDictIdx = i-1 break end end
+    if currDictIdx ~= -1 then dictSpinner.setSelection(currDictIdx) end
+    dictSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener { onItemSelected = function(parent, view, position, id) selectedLanguage = dictIds[position + 1] end })
+    voiceCard.addView(dictSpinner)
     
     local switchCont = Switch(service); switchCont.setChecked(continuousDictationEnabled); switchCont.setOnCheckedChangeListener(function(_, c) continuousDictationEnabled=c end)
     createSettingRow("الإملاء المستمر", switchCont, voiceCard)
@@ -2708,8 +2724,37 @@ function openSettings()
     local switchTrans = Switch(service); switchTrans.setChecked(newTranslationFeatureEnabled); switchTrans.setOnCheckedChangeListener(function(_, c) newTranslationFeatureEnabled=c end)
     createSettingRow("الترجمة التلقائية", switchTrans, aiCard)
 
-    local switchCorr = Switch(service); switchCorr.setChecked(geminiCorrectionEnabled); switchCorr.setOnCheckedChangeListener(function(_, c) geminiCorrectionEnabled=c end)
-    createSettingRow("تصحيح + إيموجي", switchCorr, aiCard)
+    aiCard.addView(createLabel("الترجمة إلى (Target Language):"))
+    local trNames = ArrayList(); local trIds = {}
+    for _, lang in ipairs(supportedLanguages) do trNames.add(lang.name); table.insert(trIds, lang.code) end
+    local trAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, trNames); trAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+    local trSpinner = Spinner(service); trSpinner.setAdapter(trAdapter)
+    local currTrIdx = -1; for i, id in ipairs(trIds) do if id == translateToLanguage then currTrIdx = i-1 break end end
+    if currTrIdx ~= -1 then trSpinner.setSelection(currTrIdx) end
+    trSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener { onItemSelected = function(parent, view, position, id) translateToLanguage = trIds[position + 1] end })
+    aiCard.addView(trSpinner)
+
+    local switchCorrWithEmoji = Switch(service); switchCorrWithEmoji.setChecked(smartCorrectionWithEmojiEnabled)
+    local switchCorrNoEmoji = Switch(service); switchCorrNoEmoji.setChecked(smartCorrectionNoEmojiEnabled)
+
+    switchCorrWithEmoji.setOnCheckedChangeListener(function(_, c)
+        smartCorrectionWithEmojiEnabled = c
+        if c and switchCorrNoEmoji.isChecked() then
+            switchCorrNoEmoji.setChecked(false)
+            smartCorrectionNoEmojiEnabled = false
+        end
+    end)
+
+    switchCorrNoEmoji.setOnCheckedChangeListener(function(_, c)
+        smartCorrectionNoEmojiEnabled = c
+        if c and switchCorrWithEmoji.isChecked() then
+            switchCorrWithEmoji.setChecked(false)
+            smartCorrectionWithEmojiEnabled = false
+        end
+    end)
+
+    createSettingRow("التصحيح الذكي (مع إيموجي)", switchCorrWithEmoji, aiCard)
+    createSettingRow("التصحيح الذكي (بدون إيموجي)", switchCorrNoEmoji, aiCard)
 
     -- SECTION: Tools
     local toolsCard = createCard(contentL)
@@ -2909,8 +2954,10 @@ function startVoiceRecognition()
                     end
 
                     local function handleCorrection(textToCorrect, callback)
-                        if geminiCorrectionEnabled then
-                            correctWithGemini(textToCorrect, callback)
+                        if smartCorrectionWithEmojiEnabled then
+                            performSmartCorrection(textToCorrect, true, callback)
+                        elseif smartCorrectionNoEmojiEnabled then
+                            performSmartCorrection(textToCorrect, false, callback)
                         else
                             callback(textToCorrect)
                         end
