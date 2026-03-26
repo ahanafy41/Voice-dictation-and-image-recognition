@@ -48,11 +48,6 @@ import "java.net.HttpURLConnection"
 import "java.io.InputStreamReader"
 import "java.io.BufferedReader"
 import "java.io.OutputStreamWriter"
-import "android.hardware.Camera"
-import "android.view.TextureView"
-import "android.graphics.SurfaceTexture"
-import "android.graphics.YuvImage"
-import "android.graphics.Rect"
 import "android.graphics.BitmapFactory"
 import "android.graphics.Matrix"
 
@@ -238,7 +233,6 @@ function styleButton(btn, colorType)
     end
     btn.setBackgroundDrawable(bg)
 end
-
 function styleEditText(et)
     local bg = GradientDrawable()
     bg.setColor(0xFF1E1E1E)
@@ -528,19 +522,6 @@ function cleanupResources()
     if settingsDialog then local r = pcall(function() wm.removeView(settingsDialog) end); if r then settingsDialog = nil end end
     if resultWindow then local r = pcall(function() wm.removeView(resultWindow) end); if r then resultWindow = nil; globalResultContentTextView = nil end end
     if summaryWindow then local r = pcall(function() wm.removeView(summaryWindow) end); if r then summaryWindow = nil end end
-    if smartCameraWindow then
-        pcall(function()
-            if cameraObj then
-                cameraObj.stopPreview()
-                cameraObj.setPreviewCallback(nil)
-                cameraObj.release()
-                cameraObj = nil
-            end
-        end)
-        if smartRecognizer then pcall(function() smartRecognizer.close() end); smartRecognizer = nil end
-        pcall(function() wm.removeView(smartCameraWindow) end)
-        smartCameraWindow = nil
-    end
     removeFloatingButton()
     speechRecord = nil
 
@@ -1981,8 +1962,9 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
 
         chapSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener {
             onItemSelected = function(parent, view, position, id)
-                if currentChapterIdx == position + 1 and pagesCache and #pagesCache > 0 then return end
-                currentChapterIdx = position + 1
+                local newIdx = position + 1
+                if currentChapterIdx == newIdx and pagesCache and #pagesCache > 0 then return end
+                currentChapterIdx = newIdx
                 local chapPath = epubSpine[currentChapterIdx].path
                 service.asyncSpeak("جاري تحميل الفصل...")
                 local wasPlaying = isPlaying
@@ -2103,9 +2085,7 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
                                                     listView.smoothScrollToPosition(currentSentenceIdx - 1)
                                                     readCurrentSentence()
                                                 elseif isEpub and epubSpine and currentChapterIdx < #epubSpine then
-                                                    service.asyncSpeak("انتهى الفصل. جاري الانتقال للفصل التالي.")
-                                                    currentChapterIdx = currentChapterIdx + 1
-                                                    if _G.updateEpubChapterSelection then _G.updateEpubChapterSelection(currentChapterIdx) end
+                                                    if _G.updateEpubChapterSelection then _G.updateEpubChapterSelection(currentChapterIdx + 1) end
                                                 else stopReading() end
                                             end
                                         }))
@@ -2366,406 +2346,6 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
     end
 end
 
--- ### Smart Camera Feature ###
-local smartCameraWindow = nil
-local cameraObj = nil
-local smartRecognizerObj = nil
-local smartObjectDetectorObj = nil
-local isProcessingFrame = false
-local lastGuidanceTime = 0
-
-function smartCameraSpeak(msg)
-    if not msg or msg == "" then return end
-    if mainHandler and mainHandler.post then
-        mainHandler:post(luajava.createProxy("java.lang.Runnable", {
-            run = function()
-                if service then
-                    pcall(function() service:asyncSpeak(tostring(msg)) end)
-                end
-            end
-        }))
-    else
-        pcall(function() service:asyncSpeak(tostring(msg)) end)
-    end
-end
-
-function openSmartCameraWindow()
-    if smartCameraWindow then return end
-    isProcessingFrame = false
-    lastGuidanceTime = 0
-
-    smartCameraSpeak("جاري فتح الكاميرا الذكية...")
-
-    -- Dynamically load ML Kit classes
-    local hasMlKit, InputImage = pcall(function() return luajava.bindClass("com.google.mlkit.vision.common.InputImage") end)
-    local hasTextRec, TextRecognition = pcall(function() return luajava.bindClass("com.google.mlkit.vision.text.TextRecognition") end)
-    local _, TextRecognizerOptions = pcall(function() return luajava.bindClass("com.google.mlkit.vision.text.latin.TextRecognizerOptions") end)
-    local _, ArabicTextRecognizerOptions = pcall(function() return luajava.bindClass("com.google.mlkit.vision.text.arabic.ArabicTextRecognizerOptions") end)
-    local hasObjDet, ObjectDetection = pcall(function() return luajava.bindClass("com.google.mlkit.vision.objects.ObjectDetection") end)
-    local _, ObjectDetectorOptions = pcall(function() return luajava.bindClass("com.google.mlkit.vision.objects.defaults.ObjectDetectorOptions") end)
-
-    local canUseSmartGuidance = hasMlKit and (hasTextRec or hasObjDet)
-
-    smartCameraWindow = FrameLayout(service)
-    smartCameraWindow.setBackgroundColor(0xFF000000) -- Black background initially
-
-    local textureView = TextureView(service)
-    smartCameraWindow:addView(textureView, FrameLayout.LayoutParams(-1, -1))
-
-    local statusTV = TextView(service)
-    statusTV:setTextColor(0xFFFFFFFF)
-    statusTV:setBackgroundColor(0x66000000)
-    statusTV:setGravity(Gravity.CENTER)
-    statusTV:setTextSize(18)
-    statusTV:setText("جاري تشغيل الكاميرا...")
-    local statusParams = FrameLayout.LayoutParams(-1, -2)
-    statusParams.gravity = Gravity.TOP
-    statusParams:setMargins(20, 100, 20, 20)
-    smartCameraWindow:addView(statusTV, statusParams)
-
-    smartRecognizerObj = nil
-    smartObjectDetectorObj = nil
-
-    if canUseSmartGuidance then
-        pcall(function()
-            if hasTextRec and type(TextRecognition) ~= "string" then
-                local builder = nil
-                if type(ArabicTextRecognizerOptions) ~= "string" and ArabicTextRecognizerOptions.Builder then
-                    builder = ArabicTextRecognizerOptions:Builder()
-                elseif type(TextRecognizerOptions) ~= "string" and TextRecognizerOptions.Builder then
-                    builder = TextRecognizerOptions:Builder()
-                end
-                if builder then
-                    smartRecognizerObj = TextRecognition:getClient(builder:build())
-                end
-            end
-            if hasObjDet and type(ObjectDetection) ~= "string" and type(ObjectDetectorOptions) ~= "string" then
-                local builder = ObjectDetectorOptions:Builder()
-                builder:setDetectorMode(1) -- 1 = STREAM_MODE
-                smartObjectDetectorObj = ObjectDetection:getClient(builder:build())
-            end
-        end)
-        if smartObjectDetectorObj or smartRecognizerObj then
-             smartCameraSpeak("حساسات التوجيه جاهزة.")
-             if statusTV then statusTV:setText("الحساسات جاهزة") end
-        else
-             smartCameraSpeak("فشل تشغيل الحساسات، التصوير سيكون يدوي.")
-             if statusTV then statusTV:setText("التصوير يدوي") end
-        end
-    else
-        smartCameraSpeak("جهازك مش بيدعم التوجيه الذكي، التصوير هيكون يدوي.")
-    end
-
-    local previewW, previewH = 1280, 720
-
-    textureView:setSurfaceTextureListener(luajava.createProxy("android.view.TextureView$SurfaceTextureListener", {
-        onSurfaceTextureAvailable = function(st, w, h)
-            -- Wait a moment for surface to be ready
-            mainHandler:postDelayed(luajava.createProxy("java.lang.Runnable", {
-                run = function()
-                    if not st then return end
-                    local success, err = pcall(function()
-                if not st then error("SurfaceTexture is null") end
-                -- Try back camera
-                local info = Camera.CameraInfo()
-                local backCamId = -1
-                local numCams = 0
-                pcall(function() numCams = Camera.getNumberOfCameras() end)
-                for i = 0, numCams - 1 do
-                    Camera.getCameraInfo(i, info)
-                    if info.facing == Camera.CameraInfo.CAMERA_FACING_BACK then
-                        backCamId = i
-                        break
-                    end
-                end
-
-                pcall(function()
-                    if backCamId ~= -1 then
-                        cameraObj = Camera.open(backCamId)
-                    else
-                        cameraObj = Camera.open()
-                    end
-                end)
-
-                if not cameraObj then
-                    smartCameraSpeak("خطأ في تشغيل الكاميرا. قد تكون مستخدمة من تطبيق آخر.")
-                    if statusTV then statusTV:setText("فشل فتح الكاميرا") end
-                    error("لم يتم العثور على كاميرا متاحة.")
-                end
-
-                cameraObj:setDisplayOrientation(90)
-                cameraObj:setPreviewTexture(st)
-
-                local params = nil
-                local ok_params, err_params = pcall(function() params = cameraObj:getParameters() end)
-                if not ok_params then error("Failed to get camera parameters: " .. tostring(err_params)) end
-
-                cameraObj:setDisplayOrientation(90)
-                cameraObj:setPreviewTexture(st)
-
-                local previewSizes = params:getSupportedPreviewSizes()
-                local bestSize = previewSizes:get(0)
-                for i = 0, previewSizes:size() - 1 do
-                    local s = previewSizes:get(i)
-                    if s.width <= 1280 and s.width >= 640 then bestSize = s; break end
-                end
-                params:setPreviewSize(bestSize.width, bestSize.height)
-                previewW, previewH = bestSize.width, bestSize.height
-
-                local focusModes = params:getSupportedFocusModes()
-                for i = 0, focusModes:size() - 1 do
-                    if tostring(focusModes:get(i)) == "continuous-picture" then
-                        params:setFocusMode("continuous-picture")
-                        break
-                    end
-                end
-                cameraObj:setParameters(params)
-                cameraObj:startPreview()
-                smartCameraSpeak("الكاميرا فتحت، وجهها للورقة.")
-                mainHandler:post(luajava.createProxy("java.lang.Runnable", {
-                    run = function()
-                        if statusTV then statusTV:setText("وجه الكاميرا للورقة") end
-                    end
-                }))
-
-                if canUseSmartGuidance then
-                    local function analysisLoop()
-                        if not smartCameraWindow or not cameraObj then return end
-                        local now = java.lang.System.currentTimeMillis()
-
-                        if isProcessingFrame and (now - lastGuidanceTime > 15000) then isProcessingFrame = false end
-
-                        if not isProcessingFrame and (now - lastGuidanceTime >= 1200) then
-                            isProcessingFrame = true
-                            -- Using setOneShotPreviewCallback is often more stable in AndroLua for ML Kit
-                            pcall(function()
-                                cameraObj:setOneShotPreviewCallback(luajava.createProxy("android.hardware.Camera$PreviewCallback", {
-                                    onPreviewFrame = function(data, cam)
-                                        if not data or not smartCameraWindow then isProcessingFrame = false; return end
-
-                                        -- InputImage.fromByteArray(byte[] data, int width, int height, int rotation, int format)
-                                        -- format 17 is NV21
-                                        local ok_img, image = pcall(function()
-                                            if type(InputImage) == "string" then error("InputImage class not available") end
-                                            return InputImage:fromByteArray(data, previewW, previewH, 90, 17)
-                                        end)
-                                        if not ok_img then isProcessingFrame = false; return end
-
-                                        local frameW, frameH = previewH, previewW -- rotated
-
-                                        local function giveGuidance(boxList)
-                                            if not boxList or boxList:size() == 0 then return false end
-                                            local minX, minY, maxX, maxY = frameW, frameH, 0, 0
-                                            local totalArea = 0
-                                            for i = 0, boxList:size() - 1 do
-                                                local box = boxList:get(i):getBoundingBox()
-                                                totalArea = totalArea + (box:width() * box:height())
-                                                if box.left < minX then minX = box.left end
-                                                if box.top < minY then minY = box.top end
-                                                if box.right > maxX then maxX = box.right end
-                                                if box.bottom > maxY then maxY = box.bottom end
-                                            end
-                                            local coverage = totalArea / (frameW * frameH)
-                                            local centerX, centerY = (minX + maxX) / 2, (minY + maxY) / 2
-                                            local guidance = ""
-                                            if coverage < 0.1 then guidance = "قرب الموبايل شوية."
-                                            elseif coverage > 0.85 then guidance = "ابعد الموبايل شوية."
-                                            elseif centerX < frameW * 0.25 then guidance = "حرك الموبايل شمال."
-                                            elseif centerX > frameW * 0.75 then guidance = "حرك الموبايل يمين."
-                                            elseif centerY < frameH * 0.25 then guidance = "ارفع الموبايل لفوق."
-                                            elseif centerY > frameH * 0.75 then guidance = "نزل الموبايل لتحت."
-                                            else guidance = "الوضع تمام، ثبت إيدك وصور." end
-
-                                            smartCameraSpeak(guidance)
-                                            if statusTV then
-                                                mainHandler:post(luajava.createProxy("java.lang.Runnable", {
-                                                    run = function()
-                                                        statusTV:setText(guidance)
-                                                    end
-                                                }))
-                                            end
-                                            lastGuidanceTime = java.lang.System.currentTimeMillis()
-                                            return true
-                                        end
-
-                                        local function finalCleanup()
-                                            mainHandler:post(luajava.createProxy("java.lang.Runnable", {
-                                                run = function()
-                                                    isProcessingFrame = false
-                                                    if smartCameraWindow then
-                                                        pcall(function()
-                                                            mainHandler:postDelayed(luajava.createProxy("java.lang.Runnable", {
-                                                                run = function() analysisLoop() end
-                                                            }), 600)
-                                                        end)
-                                                    end
-                                                end
-                                            }))
-                                        end
-
-                                        local function runTextDetection()
-                                            if smartRecognizerObj then
-                                                local ok_rec, rec_task = pcall(function() return smartRecognizerObj:process(image) end)
-                                                if ok_rec and rec_task then
-                                                    rec_task:addOnSuccessListener(luajava.createProxy("com.google.android.gms.tasks.OnSuccessListener", {
-                                                        onSuccess = function(text)
-                                                            if not giveGuidance(text:getTextBlocks()) then
-                                                                if java.lang.System.currentTimeMillis() - lastGuidanceTime > 5000 then
-                                                                    smartCameraSpeak("بدور على الورقة، حرك الموبايل بالراحة.")
-                                                                    if statusTV then statusTV:setText("بدور على الورقة...") end
-                                                                    lastGuidanceTime = java.lang.System.currentTimeMillis()
-                                                                    pcall(function() if cameraObj then cameraObj:autoFocus(nil) end end)
-                                                                end
-                                                            end
-                                                            finalCleanup()
-                                                        end
-                                                    })):addOnFailureListener(luajava.createProxy("com.google.android.gms.tasks.OnFailureListener", {onFailure = finalCleanup}))
-                                                    return
-                                                end
-                                            end
-                                            finalCleanup()
-                                        end
-
-                                        if smartObjectDetectorObj then
-                                            local ok_obj, obj_task = pcall(function() return smartObjectDetectorObj:process(image) end)
-                                            if ok_obj and obj_task then
-                                                obj_task:addOnSuccessListener(luajava.createProxy("com.google.android.gms.tasks.OnSuccessListener", {
-                                                    onSuccess = function(objs)
-                                                        if not giveGuidance(objs) then runTextDetection() else finalCleanup() end
-                                                    end
-                                                })):addOnFailureListener(luajava.createProxy("com.google.android.gms.tasks.OnFailureListener", {onFailure = runTextDetection}))
-                                            else runTextDetection() end
-                                        else runTextDetection() end
-                                    end
-                                }))
-                            end)
-                        else
-                            pcall(function()
-                                mainHandler:postDelayed(luajava.createProxy("java.lang.Runnable", {
-                                    run = function() analysisLoop() end
-                                }), 500)
-                            end)
-                        end
-                    end
-                    pcall(function()
-                        mainHandler:postDelayed(luajava.createProxy("java.lang.Runnable", {
-                            run = function() analysisLoop() end
-                        }), 1000)
-                    end)
-                end
-            end)
-                    if not success then
-                        smartCameraSpeak("خطأ في الكاميرا: " .. tostring(err))
-                        if statusTV then statusTV:setText("خطأ") end
-                    end
-                end
-            }), 300)
-        end,
-        onSurfaceTextureSizeChanged = function(st, w, h) end,
-        onSurfaceTextureDestroyed = function(st)
-            if cameraObj then
-                pcall(function() cameraObj:stopPreview(); cameraObj:release() end)
-                cameraObj = nil
-            end
-            if smartRecognizerObj then pcall(function() smartRecognizerObj:close() end); smartRecognizerObj = nil end
-            if smartObjectDetectorObj then pcall(function() smartObjectDetectorObj:close() end); smartObjectDetectorObj = nil end
-            return true
-        end,
-        onSurfaceTextureUpdated = function(st) end
-    }))
-
-    local controlsL = LinearLayout(service)
-    controlsL:setOrientation(LinearLayout.HORIZONTAL)
-    controlsL:setGravity(Gravity.CENTER)
-    controlsL:setPadding(20, 20, 20, 20)
-    controlsL:setBackgroundColor(0xAA1E1E1E) -- Dark semi-transparent background
-    local controlsLParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT)
-    controlsLParams.gravity = Gravity.BOTTOM
-    controlsL:setLayoutParams(controlsLParams)
-
-    local captureBtn = Button(service)
-    captureBtn:setText("📸 تصوير واستخراج النص")
-    styleButton(captureBtn, "primary")
-    captureBtn:setOnClickListener(function()
-        if not cameraObj then return end
-        smartCameraSpeak("جاري التصوير...")
-        pcall(function()
-            cameraObj:takePicture(nil, nil, luajava.createProxy("android.hardware.Camera$PictureCallback", {
-                onPictureTaken = function(data, camera)
-                    local arrayLen = 0
-                    pcall(function()
-                        local jArray = luajava.bindClass("java.lang.reflect.Array")
-                        arrayLen = jArray:getLength(data)
-                    end)
-                    if not arrayLen or arrayLen == 0 then pcall(function() arrayLen = #data end) end
-                    if not arrayLen or arrayLen == 0 then
-                        smartCameraSpeak("خطأ في بيانات الصورة.")
-                        if cameraObj then pcall(function() cameraObj:startPreview() end) end
-                        return
-                    end
-
-                    local bmp = BitmapFactory.decodeByteArray(data, 0, arrayLen)
-                    local matrix = Matrix()
-                    matrix:postRotate(90)
-                    local rotatedBmp = Bitmap.createBitmap(bmp, 0, 0, bmp:getWidth(), bmp:getHeight(), matrix, true)
-
-                    local baos = ByteArrayOutputStream()
-                    rotatedBmp:compress(Bitmap.CompressFormat.JPEG, 90, baos)
-                    local b64 = Base64:encodeToString(baos:toByteArray(), 2) -- 2 = NO_WRAP
-
-                    describeImageWithGemini(b64, function(result)
-                        local d, o = parseImageDescription(result)
-                        local finalContent = "الوصف: " .. d .. "\n\nالنص:\n" .. o
-                        showResultWindow("نتائج الكاميرا", finalContent)
-                        smartCameraSpeak(finalContent)
-                    end)
-
-                    bmp:recycle()
-                    rotatedBmp:recycle()
-                    if cameraObj then pcall(function() cameraObj:startPreview() end) end
-                end
-            }))
-        end)
-    end)
-    controlsL.addView(captureBtn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0))
-
-    local closeBtn = Button(service)
-    closeBtn:setText("❌ إغلاق")
-    styleButton(closeBtn, "danger")
-    closeBtn:setOnClickListener(function()
-        if smartCameraWindow then
-            pcall(function()
-                if cameraObj then
-                    cameraObj:stopPreview()
-                    cameraObj.setPreviewCallback(nil)
-                    cameraObj:release()
-                    cameraObj = nil
-                end
-            end)
-            if smartRecognizerObj then pcall(function() smartRecognizerObj:close() end); smartRecognizerObj = nil end
-            if smartObjectDetectorObj then pcall(function() smartObjectDetectorObj:close() end); smartObjectDetectorObj = nil end
-            pcall(function() if smartCameraWindow then wm:removeView(smartCameraWindow) end end)
-            smartCameraWindow = nil
-            smartCameraSpeak("تم إغلاق الكاميرا.")
-        end
-    end)
-    controlsL.addView(closeBtn, LinearLayout.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT))
-
-    smartCameraWindow:addView(controlsL)
-
-    local winP = WindowManager.LayoutParams()
-    winP.width = WindowManager.LayoutParams.MATCH_PARENT
-    winP.height = WindowManager.LayoutParams.MATCH_PARENT
-    winP.type = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
-    winP.flags = WindowManager.LayoutParams.FLAG_FULLSCREEN | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL | WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
-    winP.format = PixelFormat.TRANSLUCENT
-    winP.gravity = Gravity.CENTER
-
-    pcall(function()
-        wm:addView(smartCameraWindow, winP)
-        smartCameraSpeak("تم فتح واجهة الكاميرا الذكية.")
-    end)
-end
 
 function extractTxtTextLocal(filePath, encoding)
     import "java.io.File"
@@ -2977,7 +2557,6 @@ function splitIntoSentences(text)
     end
     return sentences
 end
-
 function smartSplitText(text, limit)
     limit = limit or 2000
     local pages = {}
@@ -3158,7 +2737,6 @@ end
 function getTextFromScreen()
     local rootN = service.getRootInActiveWindow(); if rootN then local txtL={}; collectText(rootN,txtL); pcall(rootN.recycle,rootN); return table.concat(txtL," ") end; return ""
 end
-
 function collectText(node, textList)
     if not node then return end
     local nT; local s=pcall(function() nT=node.getText() end); if s and nT and #tostring(nT)>0 then table.insert(textList,tostring(nT)) end
@@ -3407,14 +2985,6 @@ function openSettings()
     local btnParamsPdf = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT); btnParamsPdf.topMargin = 15;
     toolsCard.addView(readPdfBtn, btnParamsPdf)
 
-    local smartCamBtn = Button(service); smartCamBtn.setText("📷 الكاميرا الذكية (توجيه وتصوير)"); styleButton(smartCamBtn, "secondary")
-    smartCamBtn.setOnClickListener(function()
-        hideSettings()
-        openSmartCameraWindow()
-    end)
-    local btnParamsCam = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT); btnParamsCam.topMargin = 15;
-    toolsCard.addView(smartCamBtn, btnParamsCam)
-
     -- SECTION: UI
     local uiCard = createCard(contentL)
     addSectionHeader("الواجهة", uiCard)
@@ -3543,12 +3113,6 @@ function startVoiceRecognition()
                             if shouldContinue then startListening() end
                         end
                     end)
-                    return
-                elseif lowerRecognizedText == "smart camera" or recognizedText == "الكاميرا الذكية" or recognizedText == "كاميرا ذكية" then
-                    commandProcessed=true
-                    stopDictation = true
-                    if recognizer then recognizer.destroy(); recognizer = nil end
-                    openSmartCameraWindow()
                     return
                 end
 
