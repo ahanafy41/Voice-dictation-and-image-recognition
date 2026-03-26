@@ -2946,8 +2946,50 @@ function openSettings()
     local switchSum = Switch(service); switchSum.setChecked(summarizeEnabled); switchSum.setOnCheckedChangeListener(function(_, c) summarizeEnabled=c end)
     createSettingRow("تلخيص النصوص", switchSum, toolsCard)
 
-    local switchImg = Switch(service); switchImg.setChecked(imageDescriptionEnabled); switchImg.setOnCheckedChangeListener(function(_, c) imageDescriptionEnabled=c end)
+    local switchImg = Switch(service); switchImg.setChecked(imageDescriptionEnabled)
     createSettingRow("وصف الصور", switchImg, toolsCard)
+
+    -- Screenshot Mode Spinner (dependent on Image Description)
+    local screenModeContainer = LinearLayout(service)
+    screenModeContainer.setOrientation(LinearLayout.VERTICAL)
+    screenModeContainer.setPadding(60, 0, 40, 20)
+
+    screenModeContainer.addView(createLabel("نطاق التقاط الوصف:"))
+    local smNames = ArrayList(); local smIds = {"full", "focus"}
+    smNames.add("كامل الشاشة")
+    smNames.add("العنصر المحدد")
+
+    local smAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, smNames)
+    smAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+    local smSpinner = Spinner(service)
+    smSpinner.setAdapter(smAdapter)
+
+    local currSmIdx = 0
+    if screenshotMode == "focus" then currSmIdx = 1 end
+    smSpinner.setSelection(currSmIdx)
+
+    smSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener {
+        onItemSelected = function(parent, view, position, id)
+            screenshotMode = smIds[position + 1]
+        end
+    })
+    screenModeContainer.addView(smSpinner)
+    toolsCard.addView(screenModeContainer)
+
+    -- Visibility logic
+    local function updateSmVisibility(enabled)
+        if enabled then
+            screenModeContainer.setVisibility(View.VISIBLE)
+        else
+            screenModeContainer.setVisibility(View.GONE)
+        end
+    end
+    updateSmVisibility(imageDescriptionEnabled)
+
+    switchImg.setOnCheckedChangeListener(function(_, c)
+        imageDescriptionEnabled = c
+        updateSmVisibility(c)
+    end)
 
     local transcribeFileBtn = Button(service); transcribeFileBtn.setText("📁 تحويل ملف صوتي إلى نص"); styleButton(transcribeFileBtn, "secondary")
     transcribeFileBtn.setOnClickListener(function()
