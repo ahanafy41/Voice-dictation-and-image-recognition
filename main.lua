@@ -132,6 +132,13 @@ local groqModels = {
     { name = "Llama 3.3 70B (High Usage)", id = "llama-3.3-70b-versatile" }, 
     { name = "Mixtral 8x7B", id = "mixtral-8x7b-32768" }
 }
+-- **Groq Vision Models**
+local groqVisionModels = {
+    { name = "Llama 3.2 11B Vision (أداء مذهل)", id = "llama-3.2-11b-vision-preview" },
+    { name = "Llama 3.2 90B Vision (أدق وأكثر ذكاءً)", id = "llama-3.2-90b-vision-preview" }
+}
+local defaultGroqVisionModelId = "llama-3.2-11b-vision-preview"
+local defaultImageDescriptionProvider = "gemini"
 local defaultGroqModelId = "llama-3.1-8b-instant" 
 
 -- **Audio Models (Whisper & Gemini)**
@@ -2956,8 +2963,7 @@ function openSettings()
 
     screenModeContainer.addView(createLabel("نطاق التقاط الوصف:"))
     local smNames = ArrayList(); local smIds = {"full", "focus"}
-    smNames.add("كامل الشاشة")
-    smNames.add("العنصر المحدد")
+    smNames.add("كامل الشاشة"); smNames.add("العنصر المحدد")
 
     local smAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, smNames)
     smAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
@@ -2975,20 +2981,61 @@ function openSettings()
     })
     screenModeContainer.addView(smSpinner)
     toolsCard.addView(screenModeContainer)
+    local providerContainer = LinearLayout(service)
+    providerContainer.setOrientation(LinearLayout.VERTICAL)
+    providerContainer.setPadding(60, 0, 40, 10)
+    providerContainer.addView(createLabel("مزود خدمة وصف الصور:"))
+    local provNames = ArrayList(); local provIds = {"gemini", "groq"}
+    provNames.add("Google Gemini"); provNames.add("Groq Cloud (مجاني)")
+    local provAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, provNames); provAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+    local provSpinner = Spinner(service); provSpinner.setAdapter(provAdapter)
+    local currProvIdx = 0; if imageDescriptionProvider == "groq" then currProvIdx = 1 end
+    provSpinner.setSelection(currProvIdx)
+    providerContainer.addView(provSpinner)
+    toolsCard.addView(providerContainer)
 
-    -- Visibility logic
-    local function updateSmVisibility(enabled)
+    local groqVisionModelContainer = LinearLayout(service)
+    groqVisionModelContainer.setOrientation(LinearLayout.VERTICAL)
+    groqVisionModelContainer.setPadding(60, 0, 40, 10)
+    groqVisionModelContainer.addView(createLabel("موديل Groq للصور:"))
+    local grvNames = ArrayList(); local grvIds = {}
+    for _, m in ipairs(groqVisionModels) do grvNames.add(m.name); table.insert(grvIds, m.id) end
+    local grvAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, grvNames); grvAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+    local grvSpinner = Spinner(service); grvSpinner.setAdapter(grvAdapter)
+    local currGrvIdx = 0; for i, id in ipairs(grvIds) do if id == selectedGroqVisionModelId then currGrvIdx = i-1 break end end
+    grvSpinner.setSelection(currGrvIdx)
+    grvSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener { onItemSelected = function(parent, view, position, id) selectedGroqVisionModelId = grvIds[position + 1] end })
+    groqVisionModelContainer.addView(grvSpinner)
+    toolsCard.addView(groqVisionModelContainer)
+
+    local function updateVisionVisibility(enabled)
         if enabled then
+            providerContainer.setVisibility(View.VISIBLE)
             screenModeContainer.setVisibility(View.VISIBLE)
+            if imageDescriptionProvider == "groq" then
+                groqVisionModelContainer.setVisibility(View.VISIBLE)
+            else
+                groqVisionModelContainer.setVisibility(View.GONE)
+            end
         else
+            providerContainer.setVisibility(View.GONE)
             screenModeContainer.setVisibility(View.GONE)
+            groqVisionModelContainer.setVisibility(View.GONE)
         end
     end
-    updateSmVisibility(imageDescriptionEnabled)
+
+    provSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener {
+        onItemSelected = function(parent, view, position, id)
+            imageDescriptionProvider = provIds[position + 1]
+            updateVisionVisibility(imageDescriptionEnabled)
+        end
+    })
+
+    updateVisionVisibility(imageDescriptionEnabled)
 
     switchImg.setOnCheckedChangeListener(function(_, c)
         imageDescriptionEnabled = c
-        updateSmVisibility(c)
+        updateVisionVisibility(c)
     end)
 
     local transcribeFileBtn = Button(service); transcribeFileBtn.setText("📁 تحويل ملف صوتي إلى نص"); styleButton(transcribeFileBtn, "secondary")
@@ -3129,8 +3176,10 @@ function startVoiceRecognition()
                         if shouldContinue then startListening() end; return
                     end
                     isDescribingImage=true
-                    if geminiApiKey == "" then
-                        service.asyncSpeak(getFeedbackString("api_key_missing_for_feature", currentDictLangDetails.code, "Image Description"))
+                    local visionApiKey = (imageDescriptionProvider == "groq") and groqApiKey or geminiApiKey
+                    local visionProviderName = (imageDescriptionProvider == "groq") and "Groq Cloud" or "Gemini"
+                    if visionApiKey == "" then
+                        service.asyncSpeak(getFeedbackString("api_key_missing_for_feature", currentDictLangDetails.code, "Image Description (" .. visionProviderName .. ")"))
                         isDescribingImage=false; if shouldContinue then startListening() else cleanupResources() end; return
                     end
 
@@ -3198,7 +3247,12 @@ function startVoiceRecognition()
                                          insertFinalResult(correctedText, false); return
                                     end
                                     translateTextWithGemini_New(correctedText, sourceLangDetails.human_readable_for_gemini, targetLangDetails.human_readable_for_gemini, function(translatedText)
-                                        insertFinalResult(translatedText, true)
+                                        if translatedText and not (translatedText:match("^Error:") or translatedText:match("^خطأ:")) then
+                                            insertFinalResult(translatedText, true)
+                                        else
+                                            service.asyncSpeak(getFeedbackString("image_desc_fail_api", currentDictLangDetails.code, translatedText))
+                                            insertFinalResult(correctedText, false)
+                                        end
                                     end)
                                 else
                                     service.asyncSpeak(getFeedbackString("error_translation_lang_invalid", currentDictLangDetails.code))
