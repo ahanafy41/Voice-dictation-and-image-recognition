@@ -919,6 +919,35 @@ function querySummaryWithGemini(summary, history, userQuery, callback)
     makeAiRequest(prompt, "Answer about summary. Concise.", nil, nil, callback)
 end
 
+function waitForGeminiFileActive(fileUri, apiKey, callback)
+    local url = fileUri .. "?key=" .. apiKey
+    Http.get(url, nil, "UTF-8", nil, function(status, response)
+        if status == 200 then
+            local s, j = pcall(function() return JSONObject(response) end)
+            if s and j.has("state") then
+                local state = j.getString("state")
+                if state == "ACTIVE" then
+                    callback(true)
+                elseif state == "FAILED" then
+                    local errDetail = ""
+                    if j.has("error") then errDetail = j.getJSONObject("error").toString() end
+                    if j.has("failed_reason") then errDetail = errDetail .. " Reason: " .. j.getString("failed_reason") end
+                    callback(false, "File processing failed: " .. state .. " " .. errDetail)
+                else
+                    -- Still processing, poll again
+                    mainHandler.postDelayed(luajava.createProxy("java.lang.Runnable", {
+                        run = function() waitForGeminiFileActive(fileUri, apiKey, callback) end
+                    }), 5000)
+                end
+            else
+                callback(false, "Invalid status response: " .. tostring(response))
+            end
+        else
+            callback(false, "Status check failed (" .. status .. "): " .. tostring(response))
+        end
+    end)
+end
+
 function uploadFileToGemini(filePath, mimeType, apiKey, callback)
     import "java.lang.Thread"
     import "java.lang.Runnable"
@@ -937,6 +966,8 @@ function uploadFileToGemini(filePath, mimeType, apiKey, callback)
                 local file = File(filePath)
                 local fileName = file.getName()
                 local fileSize = file.length()
+                local fileSizeStr = string.format("%.0f", fileSize)
+                local Long = luajava.bindClass("java.lang.Long")
 
                 -- Step 1: Initialize Resumable Upload
                 local initUrl = URL("https://generativelanguage.googleapis.com/upload/v1beta/files?key=" .. apiKey)
@@ -945,16 +976,17 @@ function uploadFileToGemini(filePath, mimeType, apiKey, callback)
                 conn.setDoOutput(true)
                 conn.setRequestProperty("X-Goog-Upload-Protocol", "resumable")
                 conn.setRequestProperty("X-Goog-Upload-Command", "start")
-                conn.setRequestProperty("X-Goog-Upload-Header-Content-Length", tostring(fileSize))
+                conn.setRequestProperty("X-Goog-Upload-Header-Content-Length", fileSizeStr)
                 conn.setRequestProperty("X-Goog-Upload-Header-Content-Type", mimeType)
                 conn.setRequestProperty("Content-Type", "application/json")
 
                 local metadata = JSONObject()
                 local fileObj = JSONObject()
-                fileObj.put("display_name", fileName)
+                local sanitizedName = fileName:gsub("[^%w]", ""):sub(1, 30)
+                fileObj.put("display_name", sanitizedName)
                 metadata.put("file", fileObj)
 
-                local osw = OutputStreamWriter(conn.getOutputStream())
+                local osw = OutputStreamWriter(conn.getOutputStream(), "UTF-8")
                 osw.write(metadata.toString())
                 osw.flush()
                 osw.close()
@@ -976,7 +1008,7 @@ function uploadFileToGemini(filePath, mimeType, apiKey, callback)
                 local putConn = putUrl.openConnection()
                 putConn.setRequestMethod("PUT") -- PUT is standard for resumable upload parts
                 putConn.setDoOutput(true)
-                putConn.setFixedLengthStreamingMode(fileSize)
+                putConn.setFixedLengthStreamingMode(Long.valueOf(fileSizeStr))
                 putConn.setRequestProperty("X-Goog-Upload-Protocol", "resumable")
                 putConn.setRequestProperty("X-Goog-Upload-Command", "upload, finalize")
                 putConn.setRequestProperty("X-Goog-Upload-Offset", "0")
@@ -1544,6 +1576,114 @@ function showSummaryWindow(summary)
     end
 end
 
+function showVideoAnalysisWindow(initialSummary, fileUri, filePath)
+    if resultWindow then pcall(function() wm.removeView(resultWindow) end); resultWindow = nil end
+    local currentDictLangDetails = getLanguageDetails(selectedLanguage)
+    local accumulatedQnA = "ملخص الفيديو: " .. (initialSummary or "") .. "\n\n"
+
+    resultWindow = LinearLayout(service); resultWindow.setOrientation(LinearLayout.VERTICAL); resultWindow.setBackgroundColor(0xFF121212); resultWindow.setPadding(30,30,30,30)
+
+    local titleV = TextView(service); titleV.setText("تحليل الفيديو والدردشة"); titleV.setTextSize(22); titleV.setTextColor(0xFFFFFFFF); titleV.setTypeface(nil, Typeface.BOLD); titleV.setGravity(Gravity.CENTER); titleV.setPadding(0,0,0,20); resultWindow.addView(titleV)
+
+    local scrollV = ScrollView(service); local contentL = LinearLayout(service); contentL.setOrientation(LinearLayout.VERTICAL); contentL.setPadding(10,10,10,10)
+
+    local sumLbl = TextView(service); sumLbl.setText("ملخص الفيديو:"); sumLbl.setTextSize(18); sumLbl.setTypeface(nil, Typeface.BOLD); sumLbl.setTextColor(0xFF64B5F6); contentL.addView(sumLbl)
+    local sumTxtV = TextView(service); sumTxtV.setText(initialSummary); sumTxtV.setTextIsSelectable(true); sumTxtV.setTextSize(16); sumTxtV.setTextColor(0xFFE0E0E0); sumTxtV.setPadding(0,10,0,20); contentL.addView(sumTxtV)
+
+    local copySumBtn = Button(service); copySumBtn.setText("📋 نسخ الملخص"); styleButton(copySumBtn, "secondary");
+    copySumBtn.setOnClickListener(function() local cb=service.getSystemService(Context.CLIPBOARD_SERVICE); local cl=ClipData.newPlainText("Video Summary",sumTxtV.getText().toString());cb.setPrimaryClip(cl);service.asyncSpeak(getFeedbackString("copy_general_text", currentDictLangDetails.code)) end);
+    contentL.addView(copySumBtn)
+
+    local qnaLbl = TextView(service); qnaLbl.setText("المحادثة والأسئلة:"); qnaLbl.setTextSize(18); qnaLbl.setTypeface(nil, Typeface.BOLD); qnaLbl.setTextColor(0xFF64B5F6); qnaLbl.setPadding(0,30,0,10); contentL.addView(qnaLbl)
+
+    local qnaHistoryLayout = LinearLayout(service)
+    qnaHistoryLayout.setOrientation(LinearLayout.VERTICAL)
+    contentL.addView(qnaHistoryLayout)
+
+    local askQBtn = Button(service); askQBtn.setText("🎤 سؤال صوتي حول الفيديو"); styleButton(askQBtn, "primary")
+    askQBtn.setOnClickListener(function()
+        if not SpeechRecognizer.isRecognitionAvailable(service) then service.asyncSpeak(getFeedbackString("error_speech_unavailable", currentDictLangDetails.code)); return end
+        askQBtn.setText("⏳ جارٍ الاستماع..."); askQBtn.setEnabled(false)
+        local localRec = SpeechRecognizer.createSpeechRecognizer(service)
+        local qIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH); qIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM); qIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, selectedLanguage or "ar"); qIntent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false); qIntent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+        localRec.setRecognitionListener(RecognitionListener{
+            onReadyForSpeech=function() askQBtn.setText("...تحدث الآن") end, onEndOfSpeech=function() askQBtn.setText("🤔 جاري المعالجة...") end,
+            onError=function(e) service.asyncSpeak("خطأ في الاستماع"); pcall(function()localRec.destroy()end); askQBtn.setText("🎤 سؤال صوتي حول الفيديو"); askQBtn.setEnabled(true); end,
+            onResults=function(r)
+                local m=r.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                if m and m.size()>0 then
+                    local uQ=m.get(0)
+                    if uQ and uQ~="" then
+                        local userBubble = createChatBubble(uQ, true); qnaHistoryLayout.addView(userBubble)
+                        local aiBubble = createChatBubble("جاري البحث...", false); qnaHistoryLayout.addView(aiBubble)
+                        pcall(function() scrollV.fullScroll(ScrollView.FOCUS_DOWN) end)
+
+                        local promptText = accumulatedQnA .. "سؤال المستخدم: " .. uQ
+                        local ext = filePath:match("%.([^%.]+)$") or "mp4"
+                        ext = ext:lower()
+                        local mime = "video/" .. ext
+                        if ext == "mov" then mime = "video/quicktime"
+                        elseif ext == "avi" then mime = "video/x-msvideo"
+                        elseif ext == "webm" then mime = "video/webm"
+                        elseif ext == "3gp" then mime = "video/3gpp"
+                        elseif ext == "mkv" then mime = "video/x-matroska"
+                        elseif ext == "mpeg" or ext == "mpg" then mime = "video/mpeg"
+                        elseif ext == "flv" then mime = "video/x-flv"
+                        elseif ext == "wmv" then mime = "video/x-ms-wmv"
+                        end
+
+                        local url = "https://generativelanguage.googleapis.com/v1beta/models/" .. selectedGeminiModelId .. ":generateContent?key=" .. geminiApiKey
+                        local headers = {["Content-Type"] = "application/json"}
+                        local root = JSONObject(); local contentObj = JSONObject(); local partsArray = JSONArray()
+                        local filePart = JSONObject(); local fileData = JSONObject()
+                        fileData.put("mime_type", mime); fileData.put("file_uri", fileUri)
+                        filePart.put("file_data", fileData); partsArray.put(filePart)
+                        local textPart = JSONObject(); textPart.put("text", promptText); partsArray.put(textPart)
+                        contentObj.put("parts", partsArray); local contentsArray = JSONArray(); contentsArray.put(contentObj); root.put("contents", contentsArray)
+
+                        Http.post(url, root.toString(), headers, function(status, response)
+                            local resultTxt = "Error: " .. status
+                            if status == 200 then
+                                local s, j = pcall(function() return JSONObject(response) end)
+                                if s and j.has("candidates") then
+                                    local cands = j.getJSONArray("candidates")
+                                    if cands.length() > 0 then
+                                        local parts = cands.getJSONObject(0).getJSONObject("content").getJSONArray("parts")
+                                        if parts.length() > 0 and parts.getJSONObject(0).has("text") then resultTxt = parts.getJSONObject(0).getString("text") end
+                                    end
+                                end
+                            end
+                            mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                                run = function()
+                                    aiBubble.getChildAt(0).setText(resultTxt)
+                                    speakAIResponseViaCustomTTS(resultTxt, "ar")
+                                    accumulatedQnA = accumulatedQnA .. "سؤالي: " .. uQ .. "\nإجابتك: " .. resultTxt .. "\n\n"
+                                    pcall(function() scrollV.fullScroll(ScrollView.FOCUS_DOWN) end)
+                                end
+                            }))
+                        end)
+                    end
+                end
+                pcall(function()localRec.destroy()end); askQBtn.setText("🎤 سؤال صوتي حول الفيديو"); askQBtn.setEnabled(true)
+            end
+        }); pcall(function() localRec.startListening(qIntent) end)
+    end)
+
+    local btnParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+    btnParams.setMargins(0,30,0,10); askQBtn.setLayoutParams(btnParams); contentL.addView(askQBtn)
+
+    scrollV.addView(contentL); local scrP = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,0,1.0); resultWindow.addView(scrollV,scrP)
+
+    local closeBtn = Button(service); closeBtn.setText("❌ إغلاق"); styleButton(closeBtn, "danger")
+    closeBtn.setOnClickListener(function() if resultWindow then pcall(function()wm.removeView(resultWindow)end); resultWindow=nil end end)
+    local btnP = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,LinearLayout.LayoutParams.WRAP_CONTENT); btnP.topMargin=20; resultWindow.addView(closeBtn,btnP)
+
+    local winP = WindowManager.LayoutParams(); winP.width=WindowManager.LayoutParams.MATCH_PARENT; winP.height=math.floor(service.getResources().getDisplayMetrics().heightPixels*0.85); winP.type=WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY; winP.flags=WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL|WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN; winP.format=PixelFormat.TRANSLUCENT; winP.gravity=Gravity.CENTER; winP.horizontalMargin=0.05; winP.verticalMargin=0.05
+    pcall(function() wm.addView(resultWindow, winP) end)
+
+    if initialSummary and initialSummary ~= "" then speakAIResponseViaCustomTTS(initialSummary, "ar") end
+end
+
 function showResultWindow(titleTextStr, contentTextStr)
     if resultWindow and globalResultContentTextView then 
         globalResultContentTextView.setText(contentTextStr)
@@ -1712,9 +1852,12 @@ end
 
 function openDocumentPickerWindow(startPath, onFileSelected)
     local function docFilter(fname)
-        return fname:match("%.pdf$") or fname:match("%.docx$") or fname:match("%.txt$") or fname:match("%.epub$")
+        return fname:match("%.pdf$") or fname:match("%.docx$") or fname:match("%.txt$") or fname:match("%.epub$") or
+               fname:match("%.mp4$") or fname:match("%.mov$") or fname:match("%.avi$") or fname:match("%.webm$") or
+               fname:match("%.3gp$") or fname:match("%.mkv$") or fname:match("%.mpeg$") or fname:match("%.mpg$") or
+               fname:match("%.flv$") or fname:match("%.wmv$")
     end
-    showUniversalFilePicker("اختر مستند (PDF/Word/Text/EPUB) 📄", startPath, docFilter, onFileSelected)
+    showUniversalFilePicker("اختر مستند أو فيديو (PDF/Video/...) 📄", startPath, docFilter, onFileSelected)
 end
 
 function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, epubSpine)
@@ -2329,7 +2472,7 @@ function openSmartCameraWindow()
                 local numCams = 0
                 pcall(function() numCams = Camera.getNumberOfCameras() end)
                 for i = 0, numCams - 1 do
-                    Camera:getCameraInfo(i, info)
+                    Camera.getCameraInfo(i, info)
                     if info.facing == Camera.CameraInfo.CAMERA_FACING_BACK then
                         backCamId = i
                         break
@@ -2338,9 +2481,9 @@ function openSmartCameraWindow()
 
                 pcall(function()
                     if backCamId ~= -1 then
-                        cameraObj = Camera:open(backCamId)
+                        cameraObj = Camera.open(backCamId)
                     else
-                        cameraObj = Camera:open()
+                        cameraObj = Camera.open()
                     end
                 end)
 
@@ -2564,7 +2707,7 @@ function openSmartCameraWindow()
                     local bmp = BitmapFactory.decodeByteArray(data, 0, arrayLen)
                     local matrix = Matrix()
                     matrix:postRotate(90)
-                    local rotatedBmp = Bitmap:createBitmap(bmp, 0, 0, bmp:getWidth(), bmp:getHeight(), matrix, true)
+                    local rotatedBmp = Bitmap.createBitmap(bmp, 0, 0, bmp:getWidth(), bmp:getHeight(), matrix, true)
 
                     local baos = ByteArrayOutputStream()
                     rotatedBmp:compress(Bitmap.CompressFormat.JPEG, 90, baos)
@@ -2862,6 +3005,89 @@ function smartSplitText(text, limit)
     return pages
 end
 
+function loadVideoAndShowViewer(filePath)
+    if geminiApiKey == "" then
+        service.asyncSpeak("مفتاح Gemini مفقود.")
+        return
+    end
+    service.asyncSpeak("جاري رفع الفيديو للتحليل...")
+    showResultWindow("تحليل الفيديو", "⏳ جاري رفع ملف الفيديو...")
+
+    local ext = filePath:match("%.([^%.]+)$") or "mp4"
+    ext = ext:lower()
+    local mime = "video/" .. ext
+    if ext == "mov" then mime = "video/quicktime"
+    elseif ext == "avi" then mime = "video/x-msvideo"
+    elseif ext == "webm" then mime = "video/webm"
+    elseif ext == "3gp" then mime = "video/3gpp"
+    elseif ext == "mkv" then mime = "video/x-matroska"
+    elseif ext == "mpeg" or ext == "mpg" then mime = "video/mpeg"
+    elseif ext == "flv" then mime = "video/x-flv"
+    elseif ext == "wmv" then mime = "video/x-ms-wmv"
+    end
+
+    uploadFileToGemini(filePath, mime, geminiApiKey, function(fileUriOrError)
+        if fileUriOrError:match("^Error:") then
+            service.asyncSpeak("خطأ في رفع الفيديو.")
+            showResultWindow("خطأ", fileUriOrError)
+            return
+        end
+
+        service.asyncSpeak("تم الرفع بنجاح. بانتظار معالجة الفيديو من جوجل...")
+        showResultWindow("تحليل الفيديو", "⏳ جاري المعالجة على سيرفرات جوجل (قد يستغرق دقائق حسب حجم الملف)...")
+
+        -- Videos usually need some time before the first poll is even useful
+        mainHandler.postDelayed(luajava.createProxy("java.lang.Runnable", {
+            run = function()
+                waitForGeminiFileActive(fileUriOrError, geminiApiKey, function(success, err)
+                    if success then
+                        service.asyncSpeak("اكتملت المعالجة. جاري استخراج ملخص الفيديو...")
+                        showResultWindow("تحليل الفيديو", "⏳ جاري التحليل المبدئي...")
+
+                        local prompt = "قدم ملخصاً شاملاً لما يحدث في هذا الفيديو باللغة العربية. اذكر أهم الأحداث أو المعلومات المذكورة بوضوح."
+                        local url = "https://generativelanguage.googleapis.com/v1beta/models/" .. selectedGeminiModelId .. ":generateContent?key=" .. geminiApiKey
+                        local headers = {["Content-Type"] = "application/json"}
+                        local root = JSONObject(); local contentObj = JSONObject(); local partsArray = JSONArray()
+                        local filePart = JSONObject(); local fileData = JSONObject()
+                        fileData.put("mime_type", mime); fileData.put("file_uri", fileUriOrError)
+                        filePart.put("file_data", fileData); partsArray.put(filePart)
+                        local textPart = JSONObject(); textPart.put("text", prompt); partsArray.put(textPart)
+                        contentObj.put("parts", partsArray); local contentsArray = JSONArray(); contentsArray.put(contentObj); root.put("contents", contentsArray)
+
+                        Http.post(url, root.toString(), headers, function(status, response)
+                            local resultTxt = ""
+                            if status == 200 then
+                                local s, j = pcall(function() return JSONObject(response) end)
+                                if s and j.has("candidates") then
+                                    local cands = j.getJSONArray("candidates")
+                                    if cands.length() > 0 then
+                                        local parts = cands.getJSONObject(0).getJSONObject("content").getJSONArray("parts")
+                                        if parts.length() > 0 and parts.getJSONObject(0).has("text") then resultTxt = parts.getJSONObject(0).getString("text") end
+                                    end
+                                end
+                            else resultTxt = "Error: " .. status .. " - " .. tostring(response) end
+
+                            mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                                run = function()
+                                    if resultTxt:match("^Error:") then
+                                        service.asyncSpeak("فشل التحليل المبدئي.")
+                                        showResultWindow("خطأ", resultTxt)
+                                    else
+                                        showVideoAnalysisWindow(resultTxt, fileUriOrError, filePath)
+                                    end
+                                end
+                            }))
+                        end)
+                    else
+                        service.asyncSpeak("فشلت معالجة الفيديو.")
+                        showResultWindow("خطأ", err or "فشلت المعالجة.")
+                    end
+                end)
+            end
+        }), 15000)
+    end)
+end
+
 function loadPdfAndShowViewer(filePath)
     if geminiApiKey == "" then
         service.asyncSpeak("مفتاح Gemini مفقود.")
@@ -2886,6 +3112,8 @@ function loadDocumentAndShowViewer(filePath)
 
     if ext == "pdf" then
         loadPdfAndShowViewer(filePath)
+    elseif ext == "mp4" or ext == "mov" or ext == "avi" or ext == "webm" or ext == "3gp" or ext == "mkv" or ext == "mpeg" or ext == "mpg" or ext == "flv" or ext == "wmv" then
+        loadVideoAndShowViewer(filePath)
     elseif ext == "docx" then
         service.asyncSpeak("جاري قراءة ملف الوورد محلياً...")
         local text, err = extractDocxTextLocal(filePath)
@@ -3166,7 +3394,7 @@ function openSettings()
     end)
     toolsCard.addView(transcribeFileBtn)
     
-    local readPdfBtn = Button(service); readPdfBtn.setText("📄 قراءة ومحادثة المستندات (PDF/Word/Text/EPUB)"); styleButton(readPdfBtn, "secondary")
+    local readPdfBtn = Button(service); readPdfBtn.setText("📄 قراءة ومحادثة المستندات والفيديو (PDF/Video/...)"); styleButton(readPdfBtn, "secondary")
     readPdfBtn.setOnClickListener(function()
         hideSettings()
         local paths = getStoragePaths()
