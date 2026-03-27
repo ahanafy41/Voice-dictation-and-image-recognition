@@ -130,8 +130,22 @@ local groqModels = {
     { name = "Llama 3.1 8B (Recommended)", id = "llama-3.1-8b-instant" }, 
     { name = "Gemma 2 9B IT (Fast)", id = "gemma2-9b-it" }, 
     { name = "Llama 3.3 70B (High Usage)", id = "llama-3.3-70b-versatile" }, 
-    { name = "Mixtral 8x7B", id = "mixtral-8x7b-32768" }
+    { name = "Mixtral 8x7B", id = "mixtral-8x7b-32768" },
+    { name = "Groq Search (Compound)", id = "compound-beta" },
+    { name = "Groq Search (Compound Mini)", id = "compound-beta-mini" }
 }
+
+-- **Dictation Modes (AI Personalization)**
+local dictationModes = {
+    { id = "none", name = "إيقاف (نص خام)", prompt = "" },
+    { id = "correct", name = "تصحيح لغوي فقط", prompt = "Fix grammar and spelling errors. Keep it natural. Return ONLY corrected text:" },
+    { id = "emoji", name = "تصحيح + إيموجي", prompt = "Fix text and add suitable emojis. Return ONLY the text:" },
+    { id = "fusha", name = "الوضع الرسمي (فصحى)", prompt = "Rewrite the input in professional and formal Modern Standard Arabic (Fusha). Return ONLY the rewritten text:" },
+    { id = "egyptian", name = "الوضع المصري (عامية)", prompt = "Rewrite the input in friendly and natural Egyptian Arabic dialect. Return ONLY the rewritten text:" },
+    { id = "dialect_to_fusha", name = "تحويل اللهجة إلى فصحى", prompt = "Translate any Arabic dialect in the input into clear and formal Modern Standard Arabic. Return ONLY the translation:" },
+    { id = "creative", name = "وضع الإبداع والتحسين", prompt = "Improve the style and flow of the text to make it more engaging and creative. Return ONLY the improved text:" }
+}
+local defaultDictationMode = "none"
 -- **Groq Vision Models**
 local groqVisionModels = {
     { name = "Llama 3.2 11B Vision (أداء مذهل)", id = "llama-3.2-11b-vision-preview" },
@@ -181,6 +195,9 @@ end
 selectedGeminiModelId = isValidModel and loadedModelId or defaultGeminiModelId
 
 selectedGroqModelId = prefs.getString("groqModelId", defaultGroqModelId)
+selectedSearchModelId = prefs.getString("searchModelId", "compound-beta")
+dashboardOrder = prefs.getString("dashboardOrder", "assistant,dictation,reader,image,transcription,settings")
+selectedDictationMode = prefs.getString("selectedDictationMode", defaultDictationMode)
 selectedAudioModelId = prefs.getString("audioModelId", defaultAudioModelId)
 
 summarizeEnabled = prefs.getBoolean("summarizeEnabled", false)
@@ -776,9 +793,9 @@ function makeAiRequest(prompt, systemInstruction, imageBase64, modelIdOverride, 
     end
 
     local fastSystemInstruction = "Return ONLY the direct result. No explanations, no markdown." 
-    local combinedSystemInstruction = fastSystemInstruction
-    if systemInstruction then
-        combinedSystemInstruction = fastSystemInstruction .. " " .. systemInstruction
+    local combinedSystemInstruction = systemInstruction or fastSystemInstruction
+    if modelIdOverride and modelIdOverride:match("compound") then
+        combinedSystemInstruction = systemInstruction or "You are a helpful AI assistant with search capabilities."
     end
 
     local url, requestBody, headers
@@ -873,9 +890,24 @@ end
 
 -- ### Feature Wrapper Functions
 function correctWithGemini(text, callback)
-    local prompt = "Fix text and add suitable emojis. Return ONLY the text:"
-    if not geminiCorrectionEnabled then return callback(text) end
-    makeAiRequest(prompt .. "\n" .. text, nil, nil, nil, callback)
+    -- If new dictation mode is enabled and not "none", use it
+    if selectedDictationMode and selectedDictationMode ~= "none" then
+        local prompt = ""
+        for _, m in ipairs(dictationModes) do
+            if m.id == selectedDictationMode then prompt = m.prompt; break end
+        end
+        if prompt ~= "" then
+            return makeAiRequest(prompt .. "\n" .. text, nil, nil, nil, callback)
+        end
+    end
+
+    -- Fallback to old emoji correction if enabled
+    if geminiCorrectionEnabled then
+        local prompt = "Fix text and add suitable emojis. Return ONLY the text:"
+        return makeAiRequest(prompt .. "\n" .. text, nil, nil, nil, callback)
+    end
+
+    callback(text)
 end
 
 function translateTextWithGemini_New(textToTranslate, sourceLang, targetLang, callback)
@@ -2816,6 +2848,9 @@ function saveSettings()
     editor.putString("geminiModelId", selectedGeminiModelId or defaultGeminiModelId)
     editor.putString("groqModelId", selectedGroqModelId or defaultGroqModelId)
     editor.putString("audioModelId", selectedAudioModelId or defaultAudioModelId)
+    editor.putString("searchModelId", selectedSearchModelId or "compound-beta")
+editor.putString("dashboardOrder", dashboardOrder or "assistant,dictation,reader,image,transcription,settings")
+    editor.putString("selectedDictationMode", selectedDictationMode or defaultDictationMode)
 
     editor.putBoolean("summarizeEnabled", summarizeEnabled)
     editor.putBoolean("imageDescriptionEnabled", imageDescriptionEnabled)
@@ -2867,100 +2902,83 @@ function openMainWindow()
     titleTxt.setPadding(0, 20, 0, 50)
     contentL.addView(titleTxt)
 
-    local dictBtn = Button(service)
-    dictBtn.setText("🎙️ الإملاء والترجمة")
-    dictBtn.setContentDescription("فتح الإملاء الصوتي والترجمة")
-    styleButton(dictBtn, "primary")
-    dictBtn.setOnClickListener(function()
-        hideMainWindow()
-        startVoiceRecognition(true)
-    end)
-    contentL.addView(dictBtn)
-
-    local readerBtn = Button(service)
-    readerBtn.setText("📄 قارئ المستندات والفيديو")
-    readerBtn.setContentDescription("فتح قارئ الملفات والمستندات والفيديو")
-    styleButton(readerBtn, "secondary")
-    readerBtn.setOnClickListener(function()
-        hideMainWindow()
-        local paths = getStoragePaths()
-        local startPath = "/storage/emulated/0"
-        if #paths > 0 then startPath = paths[1].path end
-        openDocumentPickerWindow(startPath, function(selectedPath)
-            loadDocumentAndShowViewer(selectedPath)
-        end)
-    end)
-    local btnParamsReader = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-    btnParamsReader.topMargin = 20
-    contentL.addView(readerBtn, btnParamsReader)
-
-    local imageBtn = Button(service)
-    imageBtn.setText("🖼️ وصف الصور")
-    imageBtn.setContentDescription("التقاط الشاشة ووصف الصور")
-    styleButton(imageBtn, "secondary")
-    imageBtn.setOnClickListener(function()
-        hideMainWindow()
-        runImageDescription()
-    end)
-    local btnParamsImage = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-    btnParamsImage.topMargin = 20
-    contentL.addView(imageBtn, btnParamsImage)
-
-    local transcriptionBtn = Button(service)
-    transcriptionBtn.setText("📁 تحويل الصوت إلى نص")
-    transcriptionBtn.setContentDescription("اختيار ملف صوتي وتحويله إلى نص")
-    styleButton(transcriptionBtn, "secondary")
-    transcriptionBtn.setOnClickListener(function()
-        hideMainWindow()
-        local paths = getStoragePaths()
-        local startPath = "/storage/emulated/0"
-        if #paths > 0 then startPath = paths[1].path end
-        openFilePickerWindow(startPath, function(selectedPath)
-            service.asyncSpeak("جاري الرفع والمعالجة...")
-            showResultWindow("نتيجة التحويل", "⏳ جاري الرفع والمعالجة...")
-            transcribeAudio(selectedPath, function(result, isDone)
-                showResultWindow("نتيجة التحويل", result)
-                if isDone then
-                    service.asyncSpeak("اكتمل التحويل.")
-                end
+    local buttons = {
+        assistant = function()
+            local btn = Button(service); btn.setText("🤖 المساعد الشخصي")
+            btn.setContentDescription("فتح المساعد الشخصي والبحث الذكي")
+            styleButton(btn, "primary")
+            btn.setOnClickListener(showPersonalAssistantWindow)
+            return btn
+        end,
+        dictation = function()
+            local btn = Button(service); btn.setText("🎙️ الإملاء والترجمة")
+            btn.setContentDescription("فتح الإملاء الصوتي والترجمة")
+            styleButton(btn, "primary")
+            btn.setOnClickListener(function() hideMainWindow(); startVoiceRecognition(true) end)
+            return btn
+        end,
+        reader = function()
+            local btn = Button(service); btn.setText("📄 قارئ المستندات والفيديو")
+            btn.setContentDescription("فتح قارئ الملفات والمستندات والفيديو")
+            styleButton(btn, "secondary")
+            btn.setOnClickListener(function()
+                hideMainWindow(); local paths = getStoragePaths(); local startPath = "/storage/emulated/0"
+                if #paths > 0 then startPath = paths[1].path end
+                openDocumentPickerWindow(startPath, function(selectedPath) loadDocumentAndShowViewer(selectedPath) end)
             end)
-        end)
-    end)
-    local btnParamsTrans = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-    btnParamsTrans.topMargin = 20
-    contentL.addView(transcriptionBtn, btnParamsTrans)
+            return btn
+        end,
+        image = function()
+            local btn = Button(service); btn.setText("🖼️ وصف الصور")
+            btn.setContentDescription("التقاط الشاشة ووصف الصور")
+            styleButton(btn, "secondary")
+            btn.setOnClickListener(function() hideMainWindow(); runImageDescription() end)
+            return btn
+        end,
+        transcription = function()
+            local btn = Button(service); btn.setText("📁 تحويل الصوت إلى نص")
+            btn.setContentDescription("اختيار ملف صوتي وتحويله إلى نص")
+            styleButton(btn, "secondary")
+            btn.setOnClickListener(function()
+                hideMainWindow(); local paths = getStoragePaths(); local startPath = "/storage/emulated/0"
+                if #paths > 0 then startPath = paths[1].path end
+                openFilePickerWindow(startPath, function(selectedPath)
+                    service.asyncSpeak("جاري الرفع والمعالجة..."); showResultWindow("نتيجة التحويل", "⏳ جاري الرفع والمعالجة...")
+                    transcribeAudio(selectedPath, function(result, isDone)
+                        showResultWindow("نتيجة التحويل", result); if isDone then service.asyncSpeak("اكتمل التحويل.") end
+                    end)
+                end)
+            end)
+            return btn
+        end,
+        settings = function()
+            local btn = Button(service); btn.setText("⚙️ الإعدادات المتقدمة")
+            btn.setContentDescription("تخصيص مفاتيح الربط واللغات والموديلات")
+            styleButton(btn, "secondary")
+            btn.setOnClickListener(function() hideMainWindow(); openSettings() end)
+            return btn
+        end
+    }
 
-    local settingsBtn = Button(service)
-    settingsBtn.setText("⚙️ الإعدادات المتقدمة")
-    settingsBtn.setContentDescription("تخصيص مفاتيح الربط واللغات والموديلات")
-    styleButton(settingsBtn, "secondary")
-    settingsBtn.setOnClickListener(function()
-        hideMainWindow()
-        openSettings()
-    end)
-    local btnParamsSet = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-    btnParamsSet.topMargin = 40
-    contentL.addView(settingsBtn, btnParamsSet)
+    local orderStr = dashboardOrder or "assistant,dictation,reader,image,transcription,settings"
+    for k in orderStr:gmatch("([^,]+)") do
+        local key = k:gsub("^%s+", ""):gsub("%s+$", "")
+        if buttons[key] then
+            local b = buttons[key]()
+            local lp = LinearLayout.LayoutParams(-1, -2)
+            lp.topMargin = 20
+            contentL.addView(b, lp)
+        end
+    end
 
-    -- Placeholder for step-by-step button additions
-
-    local closeBtn = Button(service)
-    closeBtn.setText("❌ إغلاق")
-    styleButton(closeBtn, "danger")
+    local closeBtn = Button(service); closeBtn.setText("❌ إغلاق"); styleButton(closeBtn, "danger")
     closeBtn.setOnClickListener(hideMainWindow)
-    local closeParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-    closeParams.topMargin = 40
+    local closeParams = LinearLayout.LayoutParams(-1, -2); closeParams.topMargin = 40
     contentL.addView(closeBtn, closeParams)
 
-    scrollV.addView(contentL)
-    mainWindowDialog.addView(scrollV)
-
-    local p = WindowManager.LayoutParams()
-    p.width = WindowManager.LayoutParams.MATCH_PARENT
-    p.height = WindowManager.LayoutParams.WRAP_CONTENT
-    p.type = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
-    p.flags = WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-    p.format = PixelFormat.TRANSLUCENT
+    scrollV.addView(contentL); mainWindowDialog.addView(scrollV)
+    local p = WindowManager.LayoutParams(-1, -2, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN, -3)
     p.gravity = Gravity.CENTER
     pcall(function() wm.addView(mainWindowDialog, p) end)
 end
@@ -3091,6 +3109,89 @@ function openSettings()
     gemSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener { onItemSelected = function(parent, view, position, id) selectedGeminiModelId = gemIds[position + 1] end })
     modelCard.addView(gemSpinner)
 
+    modelCard.addView(createLabel("اختر محرك البحث (AI Search Model):"))
+    local searchNames = ArrayList(); local searchIds = {}
+    -- Only show compound models for search
+    for _, m in ipairs(groqModels) do
+        if m.id:match("compound") then
+            searchNames.add(m.name); table.insert(searchIds, m.id)
+        end
+    end
+    local searchAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, searchNames); searchAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+    local searchSpinner = Spinner(service); searchSpinner.setAdapter(searchAdapter)
+    local currSearchIdx = -1; for i, id in ipairs(searchIds) do if id == selectedSearchModelId then currSearchIdx = i-1 break end end
+    if currSearchIdx ~= -1 then searchSpinner.setSelection(currSearchIdx) end
+    searchSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener { onItemSelected = function(parent, view, position, id) selectedSearchModelId = searchIds[position + 1] end })
+    modelCard.addView(searchSpinner)
+
+        local sortCard = createCard(contentL)
+    addSectionHeader("ترتيب اللوحة السريعة", sortCard)
+
+    local sortContainer = LinearLayout(service)
+    sortContainer.setOrientation(LinearLayout.VERTICAL)
+    sortCard.addView(sortContainer)
+
+    local function refreshSortUI()
+        sortContainer.removeAllViews()
+        local keys = {}
+        if not dashboardOrder then dashboardOrder = "assistant,dictation,reader,image,transcription,settings" end
+        for k in dashboardOrder:gmatch("([^,]+)") do
+            keys[#keys + 1] = k:gsub("^%%s+", ""):gsub("%%s+$", "")
+        end
+
+        local keyNames = {
+            assistant = "المساعد الشخصي",
+            dictation = "الإملاء والترجمة",
+            reader = "قارئ المستندات",
+            image = "وصف الصور",
+            transcription = "تفريغ الصوت",
+            settings = "الإعدادات"
+        }
+
+        for i, k in ipairs(keys) do
+            local row = LinearLayout(service)
+            row.setGravity(Gravity.CENTER_VERTICAL)
+            row.setPadding(0, 15, 0, 15)
+
+            local nameTv = TextView(service)
+            nameTv.setText(keyNames[k] or k)
+            nameTv.setTextColor(0xFFFFFFFF)
+            nameTv.setTextSize(17)
+            local lp = LinearLayout.LayoutParams(0, -2, 1.0)
+            row.addView(nameTv, lp)
+
+            if i > 1 then
+                local upBtn = Button(service); upBtn.setText("🔼"); styleButton(upBtn, "secondary")
+                upBtn.setContentDescription("نقل " .. (keyNames[k] or k) .. " للأعلى")
+                upBtn.setPadding(10, 10, 10, 10)
+                upBtn.setOnClickListener(function()
+                    keys[i], keys[i-1] = keys[i-1], keys[i]
+                    dashboardOrder = table.concat(keys, ",")
+                    service.asyncSpeak("تم نقل " .. (keyNames[k] or k) .. " للأعلى")
+                    refreshSortUI()
+                end)
+                row.addView(upBtn)
+            end
+
+            if i < #keys then
+                local downBtn = Button(service); downBtn.setText("🔽"); styleButton(downBtn, "secondary")
+                downBtn.setContentDescription("نقل " .. (keyNames[k] or k) .. " للأسفل")
+                downBtn.setPadding(10, 10, 10, 10)
+                downBtn.setOnClickListener(function()
+                    keys[i], keys[i+1] = keys[i+1], keys[i]
+                    dashboardOrder = table.concat(keys, ",")
+                    service.asyncSpeak("تم نقل " .. (keyNames[k] or k) .. " للأسفل")
+                    refreshSortUI()
+                end)
+                local dlp = LinearLayout.LayoutParams(-2, -2)
+                dlp.leftMargin = 15
+                row.addView(downBtn, dlp)
+            end
+            sortContainer.addView(row)
+        end
+    end
+    refreshSortUI()
+
     -- SECTION: Voice & Language
     local voiceCard = createCard(contentL)
     addSectionHeader("إعدادات الصوت", voiceCard)
@@ -3109,7 +3210,17 @@ function openSettings()
     createSettingRow("الترجمة التلقائية", switchTrans, aiCard)
 
     local switchCorr = Switch(service); switchCorr.setChecked(geminiCorrectionEnabled); switchCorr.setOnCheckedChangeListener(function(_, c) geminiCorrectionEnabled=c end)
-    createSettingRow("تصحيح + إيموجي", switchCorr, aiCard)
+    createSettingRow("تصحيح + إيموجي (قديم)", switchCorr, aiCard)
+
+    aiCard.addView(createLabel("اختر وضع الإملاء الذكي الجديد:"))
+    local dmNames = ArrayList(); local dmIds = {}
+    for _, m in ipairs(dictationModes) do dmNames.add(m.name); table.insert(dmIds, m.id) end
+    local dmAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, dmNames); dmAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+    local dmSpinner = Spinner(service); dmSpinner.setAdapter(dmAdapter)
+    local currDmIdx = -1; for i, id in ipairs(dmIds) do if id == selectedDictationMode then currDmIdx = i-1 break end end
+    if currDmIdx ~= -1 then dmSpinner.setSelection(currDmIdx) end
+    dmSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener { onItemSelected = function(parent, view, position, id) selectedDictationMode = dmIds[position + 1] end })
+    aiCard.addView(dmSpinner)
 
     -- SECTION: Tools
     local toolsCard = createCard(contentL)
@@ -3274,6 +3385,13 @@ function startVoiceRecognition(fromDashboard)
                 if lowerRecognizedText == "stop" or recognizedText == "توقف" or lowerRecognizedText == "arrêter" then
                     service.asyncSpeak(getFeedbackString("command_stop", currentDictLangDetails.code)); stopDictation=true; cleanupResources(); return
                 
+                elseif recognizedText == "المساعد الشخصي" or lowerRecognizedText == "assistant" or lowerRecognizedText == "personal assistant" then
+                    service.asyncSpeak("فتح المساعد الشخصي");
+                    stopDictation = true
+                    if recognizer then recognizer.destroy(); recognizer = nil end
+                    showPersonalAssistantWindow()
+                    return
+
                 elseif lowerRecognizedText == "settings" or recognizedText == "الضبط" or recognizedText == "ضبط" or recognizedText == "الإعدادات" or lowerRecognizedText == "paramètres" or lowerRecognizedText == "réglages" then
                     service.asyncSpeak("فتح لوحة التحكم");
                     stopDictation = true 
@@ -3364,7 +3482,8 @@ function startVoiceRecognition(fromDashboard)
                     end
 
                     local function handleCorrection(textToCorrect, callback)
-                        if geminiCorrectionEnabled then
+                        local needsCorrection = geminiCorrectionEnabled or (selectedDictationMode and selectedDictationMode ~= "none")
+                        if needsCorrection then
                             correctWithGemini(textToCorrect, callback)
                         else
                             callback(textToCorrect)
@@ -3431,3 +3550,111 @@ mainHandler.post(luajava.createProxy("java.lang.Runnable", {
         if startWithDictation then startVoiceRecognition(false) else openMainWindow() end
     end
 }))
+-- ### Personal Assistant Feature ###
+local personalAssistantWindow = nil
+
+function showPersonalAssistantWindow()
+    if personalAssistantWindow then return end
+    hideMainWindow()
+
+    local layout = LinearLayout(service)
+    layout.setOrientation(LinearLayout.VERTICAL)
+    local bg = GradientDrawable()
+    bg.setColor(0xFF121212) -- Ultra dark background
+    layout.setBackgroundDrawable(bg)
+    layout.setPadding(30, 30, 30, 30)
+
+    -- Header
+    local headerL = LinearLayout(service)
+    headerL.setOrientation(LinearLayout.HORIZONTAL)
+    headerL.setGravity(Gravity.CENTER_VERTICAL)
+    headerL.setPadding(0, 10, 0, 30)
+
+    local titleTv = TextView(service)
+    titleTv.setText("🤖 المساعد الشخصي (AI Search)")
+    titleTv.setTextSize(20)
+    titleTv.setTypeface(nil, Typeface.BOLD)
+    titleTv.setTextColor(0xFF64B5F6)
+    local titleLp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0)
+    headerL.addView(titleTv, titleLp)
+
+    local closeBtn = Button(service)
+    closeBtn.setText("❌")
+    styleButton(closeBtn, "secondary")
+    closeBtn.setPadding(10, 10, 10, 10)
+    closeBtn.setOnClickListener(function()
+        if personalAssistantWindow then wm.removeView(personalAssistantWindow); personalAssistantWindow = nil end
+    end)
+    headerL.addView(closeBtn)
+    layout.addView(headerL)
+
+    -- Chat History Area
+    local chatScroll = ScrollView(service)
+    local chatLp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0)
+    chatLp.setMargins(0, 0, 0, 20)
+    chatScroll.setLayoutParams(chatLp)
+
+    local chatContentL = LinearLayout(service)
+    chatContentL.setOrientation(LinearLayout.VERTICAL)
+    chatScroll.addView(chatContentL)
+    layout.addView(chatScroll)
+
+    -- Input Area
+    local inputL = LinearLayout(service)
+    inputL.setOrientation(LinearLayout.HORIZONTAL)
+    inputL.setGravity(Gravity.CENTER_VERTICAL)
+
+    local inputEt = EditText(service)
+    inputEt.setHint("اسألني أي شيء أو ابحث...")
+    styleEditText(inputEt)
+    local etLp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0)
+    inputEt.setLayoutParams(etLp)
+    inputEt.setOnTouchListener(View.OnTouchListener{ onTouch = function(v, event) if event.getAction() == MotionEvent.ACTION_UP then v.requestFocus(); local imm = service.getSystemService(Context.INPUT_METHOD_SERVICE); if imm then imm.showSoftInput(v, 1) end end return false end })
+    inputL.addView(inputEt)
+
+    local sendBtn = Button(service)
+    sendBtn.setText("🔎")
+    styleButton(sendBtn, "primary")
+    local btnLp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+    btnLp.leftMargin = 15
+    sendBtn.setLayoutParams(btnLp)
+    inputL.addView(sendBtn)
+    layout.addView(inputL)
+
+    -- Send Functionality
+    sendBtn.setOnClickListener(function()
+        local query = inputEt.getText().toString()
+        if query == "" then return end
+
+        -- Add User Message
+        chatContentL.addView(createChatBubble(query, true))
+        inputEt.setText("")
+
+        -- Add Loading Bubble
+        local loadingBubble = createChatBubble("⏳ جاري البحث والتفكير...", false)
+        chatContentL.addView(loadingBubble)
+
+        -- Auto scroll to bottom
+        mainHandler.postDelayed(function() chatScroll.fullScroll(View.FOCUS_DOWN) end, 100)
+
+        -- AI Request using the model selected in Groq settings (e.g., compound-beta)
+        local assistantModel = selectedSearchModelId or "compound-beta"
+
+        makeAiRequest(query, "You are a helpful personal assistant. If the model supports search, provide updated info and links.", nil, assistantModel, function(response)
+            -- Remove loading bubble and add actual response
+            chatContentL.removeView(loadingBubble)
+            chatContentL.addView(createChatBubble(response, false))
+            mainHandler.postDelayed(function() chatScroll.fullScroll(View.FOCUS_DOWN) end, 100)
+        end)
+    end)
+
+    -- Show Window
+    local params = WindowManager.LayoutParams(
+        WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
+        WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+        WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+        PixelFormat.TRANSLUCENT
+    )
+    wm.addView(layout, params)
+    personalAssistantWindow = layout
+end
