@@ -194,6 +194,7 @@ translateToLanguage = prefs.getString("translateToLanguage", defaultTranslateTo)
 pdfTtsEngine = prefs.getString("pdfTtsEngine", "")
 pdfTtsVoiceName = prefs.getString("pdfTtsVoiceName", "")
 pdfTtsSpeed = prefs.getFloat("pdfTtsSpeed", 1.0)
+startWithDictation = prefs.getBoolean("startWithDictation", true)
 pdfTtsAutoNext = prefs.getBoolean("pdfTtsAutoNext", true)
 
 -- **Global UI Handler**
@@ -502,7 +503,7 @@ function createAndShowFloatingButton()
     bg.setStroke(3, 0xFF64B5F6)
     floatingSettingsBtn.setBackgroundDrawable(bg)
     floatingSettingsBtn.setPadding(25, 25, 25, 25)
-    floatingSettingsBtn.setOnClickListener(function() openSettings() end)
+    floatingSettingsBtn.setOnClickListener(function() openMainWindow() end)
     local params = WindowManager.LayoutParams()
     params.width = WindowManager.LayoutParams.WRAP_CONTENT; params.height = WindowManager.LayoutParams.WRAP_CONTENT
     params.type = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
@@ -2751,6 +2752,43 @@ function collectText(node, textList)
     for i=0,cC-1 do local ch; s=pcall(function() ch=node.getChild(i) end); if s and ch then collectText(ch,textList); pcall(ch.recycle,ch) end end
 end
 
+function runImageDescription()
+    if isDescribingImage then
+        service.asyncSpeak(getFeedbackString("image_desc_already_running", selectedLanguage))
+        return
+    end
+
+    local currentDictLangDetails = getLanguageDetails(selectedLanguage)
+    local visionProviderName = (imageDescriptionProvider == "groq") and "Groq" or "Gemini"
+    local keyToUse = (imageDescriptionProvider == "groq") and groqApiKey or geminiApiKey
+
+    if not keyToUse or keyToUse == "" then
+        service.asyncSpeak(getFeedbackString("api_key_missing_for_feature", currentDictLangDetails.code, "Image Description (" .. visionProviderName .. ")"))
+        return
+    end
+
+    isDescribingImage = true
+    service.asyncSpeak(getFeedbackString("image_desc_start", currentDictLangDetails.code))
+    takeScreenshotAndEncode(function(encImg)
+        if encImg then
+            describeImageWithGemini(encImg, function(descRes, rB64)
+                local d, o = parseImageDescription(descRes)
+                if descRes and (descRes:match("^Error:") or descRes:match("^خطأ:")) then
+                    service.asyncSpeak(getFeedbackString("image_desc_fail_api", currentDictLangDetails.code, descRes))
+                else
+                    service.asyncSpeak(getFeedbackString("image_desc_success", currentDictLangDetails.code))
+                end
+                showImageDescriptionWindow(d, o, rB64)
+                isDescribingImage = false
+            end)
+        else
+            service.asyncSpeak(getFeedbackString("image_desc_fail_screenshot", currentDictLangDetails.code))
+            showResultWindow("خطأ في وصف الصورة", getFeedbackString("image_desc_fail_screenshot", currentDictLangDetails.code))
+            isDescribingImage = false
+        end
+    end)
+end
+
 function takeScreenshotAndEncode(callback)
     local function procBmp(bmp) if bmp then local s,r=pcall(function() local b=ByteArrayOutputStream(); bmp.compress(Bitmap.CompressFormat.PNG,90,b); local iB=b.toByteArray(); b.close(); pcall(bmp.recycle,bmp); return Base64.encodeToString(iB,Base64.NO_WRAP) end); if s then callback(r) else if bmp and not bmp.isRecycled() then pcall(bmp.recycle,bmp) end; callback(nil) end else callback(nil) end end
     if screenshotMode=="focus" then local n=service.getFocusView(); if n then pcall(function() service.getScreenShot(n,{onScreenCaptureDone=procBmp}) end); pcall(n.recycle,n) else pcall(function() service.getScreenShot({onScreenCaptureDone=procBmp}) end) end else pcall(function() service.getScreenShot({onScreenCaptureDone=procBmp}) end) end
@@ -2785,6 +2823,7 @@ function saveSettings()
     editor.putBoolean("showFloatingSettingsButton", showFloatingSettingsButtonEnabled)
     editor.putBoolean("newTranslationFeatureEnabled", newTranslationFeatureEnabled)
     editor.putString("translateToLanguage", translateToLanguage or defaultTranslateTo)
+    editor.putBoolean("startWithDictation", startWithDictation)
     editor.apply()
 
     local currentDictLangDetails = getLanguageDetails(selectedLanguage)
@@ -2798,6 +2837,132 @@ end
 
 function hideSettings()
     if settingsDialog then local r = pcall(function() wm.removeView(settingsDialog) end); if r then settingsDialog = nil end end
+end
+
+local mainWindowDialog = nil
+
+function hideMainWindow()
+    if mainWindowDialog then pcall(function() wm.removeView(mainWindowDialog) end); mainWindowDialog = nil end
+end
+
+function openMainWindow()
+    if mainWindowDialog then return end
+    hideSettings()
+
+    mainWindowDialog = LinearLayout(service)
+    mainWindowDialog.setOrientation(LinearLayout.VERTICAL)
+    mainWindowDialog.setBackgroundColor(0xFF000000)
+    mainWindowDialog.setPadding(30, 30, 30, 30)
+
+    local scrollV = ScrollView(service)
+    local contentL = LinearLayout(service)
+    contentL.setOrientation(LinearLayout.VERTICAL)
+
+    local titleTxt = TextView(service)
+    titleTxt.setText("لوحة التحكم الذكية")
+    titleTxt.setTextSize(26)
+    titleTxt.setTypeface(nil, Typeface.BOLD)
+    titleTxt.setTextColor(0xFFFFFFFF)
+    titleTxt.setGravity(Gravity.CENTER)
+    titleTxt.setPadding(0, 20, 0, 50)
+    contentL.addView(titleTxt)
+
+    local dictBtn = Button(service)
+    dictBtn.setText("🎙️ الإملاء والترجمة")
+    dictBtn.setContentDescription("فتح الإملاء الصوتي والترجمة")
+    styleButton(dictBtn, "primary")
+    dictBtn.setOnClickListener(function()
+        hideMainWindow()
+        startVoiceRecognition(true)
+    end)
+    contentL.addView(dictBtn)
+
+    local readerBtn = Button(service)
+    readerBtn.setText("📄 قارئ المستندات والفيديو")
+    readerBtn.setContentDescription("فتح قارئ الملفات والمستندات والفيديو")
+    styleButton(readerBtn, "secondary")
+    readerBtn.setOnClickListener(function()
+        hideMainWindow()
+        local paths = getStoragePaths()
+        local startPath = "/storage/emulated/0"
+        if #paths > 0 then startPath = paths[1].path end
+        openDocumentPickerWindow(startPath, function(selectedPath)
+            loadDocumentAndShowViewer(selectedPath)
+        end)
+    end)
+    local btnParamsReader = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+    btnParamsReader.topMargin = 20
+    contentL.addView(readerBtn, btnParamsReader)
+
+    local imageBtn = Button(service)
+    imageBtn.setText("🖼️ وصف الصور")
+    imageBtn.setContentDescription("التقاط الشاشة ووصف الصور")
+    styleButton(imageBtn, "secondary")
+    imageBtn.setOnClickListener(function()
+        hideMainWindow()
+        runImageDescription()
+    end)
+    local btnParamsImage = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+    btnParamsImage.topMargin = 20
+    contentL.addView(imageBtn, btnParamsImage)
+
+    local transcriptionBtn = Button(service)
+    transcriptionBtn.setText("📁 تحويل الصوت إلى نص")
+    transcriptionBtn.setContentDescription("اختيار ملف صوتي وتحويله إلى نص")
+    styleButton(transcriptionBtn, "secondary")
+    transcriptionBtn.setOnClickListener(function()
+        hideMainWindow()
+        local paths = getStoragePaths()
+        local startPath = "/storage/emulated/0"
+        if #paths > 0 then startPath = paths[1].path end
+        openFilePickerWindow(startPath, function(selectedPath)
+            service.asyncSpeak("جاري الرفع والمعالجة...")
+            showResultWindow("نتيجة التحويل", "⏳ جاري الرفع والمعالجة...")
+            transcribeAudio(selectedPath, function(result, isDone)
+                showResultWindow("نتيجة التحويل", result)
+                if isDone then
+                    service.asyncSpeak("اكتمل التحويل.")
+                end
+            end)
+        end)
+    end)
+    local btnParamsTrans = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+    btnParamsTrans.topMargin = 20
+    contentL.addView(transcriptionBtn, btnParamsTrans)
+
+    local settingsBtn = Button(service)
+    settingsBtn.setText("⚙️ الإعدادات المتقدمة")
+    settingsBtn.setContentDescription("تخصيص مفاتيح الربط واللغات والموديلات")
+    styleButton(settingsBtn, "secondary")
+    settingsBtn.setOnClickListener(function()
+        hideMainWindow()
+        openSettings()
+    end)
+    local btnParamsSet = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+    btnParamsSet.topMargin = 40
+    contentL.addView(settingsBtn, btnParamsSet)
+
+    -- Placeholder for step-by-step button additions
+
+    local closeBtn = Button(service)
+    closeBtn.setText("❌ إغلاق")
+    styleButton(closeBtn, "danger")
+    closeBtn.setOnClickListener(hideMainWindow)
+    local closeParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+    closeParams.topMargin = 40
+    contentL.addView(closeBtn, closeParams)
+
+    scrollV.addView(contentL)
+    mainWindowDialog.addView(scrollV)
+
+    local p = WindowManager.LayoutParams()
+    p.width = WindowManager.LayoutParams.MATCH_PARENT
+    p.height = WindowManager.LayoutParams.WRAP_CONTENT
+    p.type = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
+    p.flags = WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+    p.format = PixelFormat.TRANSLUCENT
+    p.gravity = Gravity.CENTER
+    pcall(function() wm.addView(mainWindowDialog, p) end)
 end
 
 function openSettings()
@@ -2815,7 +2980,7 @@ function openSettings()
     contentL.setPadding(10,10,10,10)
 
     local titleTxt = TextView(service)
-    titleTxt.setText("إعدادات الإملاء الصوتي ✨")
+    titleTxt.setText("الإعدادات المتقدمة ⚙️")
     titleTxt.setTextSize(24)
     titleTxt.setTypeface(nil, Typeface.BOLD)
     titleTxt.setTextColor(0xFFFFFFFF)
@@ -2913,7 +3078,7 @@ function openSettings()
     modelCard.addView(grSpinner)
 
     local grFetchBtn = Button(service); grFetchBtn.setText("🔄 تحديث قائمة Groq"); styleButton(grFetchBtn, "secondary")
-    grFetchBtn.setOnClickListener(function() fetchGroqModels(function() hideSettings(); openSettings() end) end)
+    grFetchBtn.setOnClickListener(function() fetchGroqModels(function() hideSettings(); openMainWindow() end) end)
     modelCard.addView(grFetchBtn)
 
     modelCard.addView(createLabel("اختر موديل Gemini (Vision/PDF):"))
@@ -3038,45 +3203,11 @@ function openSettings()
         updateVisionVisibility(c)
     end)
 
-    local transcribeFileBtn = Button(service); transcribeFileBtn.setText("📁 تحويل ملف صوتي إلى نص"); styleButton(transcribeFileBtn, "secondary")
-    transcribeFileBtn.setOnClickListener(function()
-        groqApiKey = groqApiKeyIn.getText().toString()
-        geminiApiKey = gemApiKeyIn.getText().toString()
-        witApiKey = witApiKeyIn.getText().toString()
-        saveSettings()
-        hideSettings()
-        local paths = getStoragePaths()
-        local startPath = "/storage/emulated/0"
-        if #paths > 0 then startPath = paths[1].path end
-        openFilePickerWindow(startPath, function(selectedPath)
-            service.asyncSpeak("جاري الرفع والمعالجة...")
-            showResultWindow("نتيجة التحويل", "⏳ جاري الرفع والمعالجة...")
-            transcribeAudio(selectedPath, function(result, isDone)
-                showResultWindow("نتيجة التحويل", result)
-                if isDone then
-                    service.asyncSpeak("اكتمل التحويل.")
-                end
-            end)
-        end)
-    end)
-    toolsCard.addView(transcribeFileBtn)
-    
-    local readPdfBtn = Button(service); readPdfBtn.setText("📄 قراءة ومحادثة المستندات والفيديو (PDF/Video/...)"); styleButton(readPdfBtn, "secondary")
-    readPdfBtn.setOnClickListener(function()
-        hideSettings()
-        local paths = getStoragePaths()
-        local startPath = "/storage/emulated/0"
-        if #paths > 0 then startPath = paths[1].path end
-        openDocumentPickerWindow(startPath, function(selectedPath)
-            loadDocumentAndShowViewer(selectedPath)
-        end)
-    end)
-    local btnParamsPdf = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT); btnParamsPdf.topMargin = 15;
-    toolsCard.addView(readPdfBtn, btnParamsPdf)
-
-    -- SECTION: UI
     local uiCard = createCard(contentL)
     addSectionHeader("الواجهة", uiCard)
+    local switchStart = Switch(service); switchStart.setChecked(startWithDictation); switchStart.setOnCheckedChangeListener(function(_, c) startWithDictation=c end)
+    createSettingRow("بدء التطبيق بالإملاء", switchStart, uiCard)
+
 
     local switchFloat = Switch(service); switchFloat.setChecked(showFloatingSettingsButtonEnabled); switchFloat.setOnCheckedChangeListener(function(_, c) showFloatingSettingsButtonEnabled=c end)
     createSettingRow("الزر العائم", switchFloat, uiCard)
@@ -3092,6 +3223,10 @@ function openSettings()
     btnL.addView(saveBtn)
     local closeBtn = Button(service); closeBtn.setText("❌ إلغاء"); styleButton(closeBtn, "danger"); closeBtn.setOnClickListener(hideSettings); local lpClose = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT); lpClose.topMargin=20; btnL.addView(closeBtn, lpClose)
     contentL.addView(btnL)
+    local backBtn = Button(service); backBtn.setText("⬅️ العودة للوحة التحكم"); styleButton(backBtn, "secondary");
+    backBtn.setOnClickListener(function() hideSettings(); openMainWindow() end);
+    local lpBack = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT); lpBack.topMargin=20; btnL.addView(backBtn, lpBack)
+
 
     scrollV.addView(contentL); settingsDialog.addView(scrollV)
     local p=WindowManager.LayoutParams(); p.width=WindowManager.LayoutParams.MATCH_PARENT; p.height=WindowManager.LayoutParams.WRAP_CONTENT; p.type=WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY; p.flags=WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN; p.format=PixelFormat.TRANSLUCENT; p.gravity=Gravity.CENTER
@@ -3099,12 +3234,13 @@ function openSettings()
 end
 
 -- ### Main Voice Recognition Function
-function startVoiceRecognition()
+function startVoiceRecognition(fromDashboard)
     if recognizer then pcall(function() recognizer.destroy() end); recognizer = nil; collectgarbage("collect") end
     local currentDictLangDetails = getLanguageDetails(selectedLanguage)
     if not SpeechRecognizer.isRecognitionAvailable(service) then
         service.asyncSpeak(getFeedbackString("error_speech_unavailable", currentDictLangDetails.code)); return
     end
+    if not fromDashboard then openMainWindow() end
     stopDictation = false
     createAndShowFloatingButton()
     recognizer = SpeechRecognizer.createSpeechRecognizer(service)
@@ -3139,10 +3275,10 @@ function startVoiceRecognition()
                     service.asyncSpeak(getFeedbackString("command_stop", currentDictLangDetails.code)); stopDictation=true; cleanupResources(); return
                 
                 elseif lowerRecognizedText == "settings" or recognizedText == "الضبط" or recognizedText == "ضبط" or recognizedText == "الإعدادات" or lowerRecognizedText == "paramètres" or lowerRecognizedText == "réglages" then
-                    service.asyncSpeak(getFeedbackString("command_settings", currentDictLangDetails.code)); 
+                    service.asyncSpeak("فتح لوحة التحكم");
                     stopDictation = true 
                     if recognizer then recognizer.destroy(); recognizer = nil end
-                    openSettings()
+                    openMainWindow()
                     return 
                 
                 elseif (lowerRecognizedText == "summarize text" or recognizedText == "لخص النص" or lowerRecognizedText == "résumer le texte") and summarizeEnabled then
@@ -3292,6 +3428,6 @@ end
 mainHandler.post(luajava.createProxy("java.lang.Runnable", {
     run = function()
         createAndShowFloatingButton()
-        startVoiceRecognition()
+        if startWithDictation then startVoiceRecognition(false) else openMainWindow() end
     end
 }))
