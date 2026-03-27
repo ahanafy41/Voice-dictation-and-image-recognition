@@ -1,5 +1,26 @@
 require "import"
 if activity then activity.finish() end
+
+function probeWebSocketLibraries()
+    local libs = {
+        "okhttp3.OkHttpClient",
+        "okhttp.OkHttpClient",
+        "org.java_websocket.client.WebSocketClient",
+        "com.neovisionaries.ws.client.WebSocketFactory",
+        "de.tavendo.autobahn.WebSocketConnection"
+    }
+    local found = {}
+    for _, lib in ipairs(libs) do
+        local s, r = pcall(luajava.bindClass, lib)
+        if s and r then table.insert(found, lib) end
+    end
+    if #found > 0 then
+        service.asyncSpeak("تم العثور على: " .. table.concat(found, ", "))
+    else
+        service.asyncSpeak("لم يتم العثور على أي مكتبة سوكيت.")
+    end
+end
+
 import "android.widget.*"
 import "android.speech.RecognizerIntent"
 import "android.speech.SpeechRecognizer"
@@ -48,8 +69,28 @@ import "java.net.HttpURLConnection"
 import "java.io.InputStreamReader"
 import "java.io.BufferedReader"
 import "java.io.OutputStreamWriter"
+local wm = service.getSystemService(Context.WINDOW_SERVICE)
 import "android.graphics.BitmapFactory"
 import "android.graphics.Matrix"
+
+function styleButton(btn, colorType)
+    local bg = GradientDrawable()
+    bg.setCornerRadius(20)
+    btn.setPadding(20, 25, 20, 25)
+    btn.setTextSize(16)
+    btn.setTypeface(nil, Typeface.BOLD)
+    if colorType == "primary" then
+        bg.setColor(0xFF1976D2) -- Deep Blue
+        btn.setTextColor(0xFFFFFFFF)
+    elseif colorType == "danger" then
+        bg.setColor(0xFFD32F2F) -- Red
+        btn.setTextColor(0xFFFFFFFF)
+    else
+        bg.setColor(0xFF2C2C2C) -- Dark Surface
+        bg.setStroke(2, 0xFF444444)
+        btn.setTextColor(0xFF64B5F6) -- Light Blue Accent Text
+    end
+end
 
 -- **Base64 Encode Function**
 local base64_chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
@@ -121,9 +162,20 @@ end
 local geminiModels = {
     { name = "Gemini 3.1 Flash-Lite (الأسرع والأحدث)", id = "gemini-3.1-flash-lite-preview" },
     { name = "Gemini 3 Flash (أداء عالي)", id = "gemini-3-flash-preview" },
-    { name = "Gemini 2.5 Flash (مستقر)", id = "gemini-2.5-flash" }
+    { name = "Gemini 2.5 Flash (مستقر)", id = "gemini-2.5-flash" },
+    { name = "Gemini 2.0 Flash (احدث اصدار)", id = "gemini-2.0-flash-native-audio-preview-09-2025" }
 }
 local defaultGeminiModelId = "gemini-3.1-flash-lite-preview"
+local defaultGeminiLiveModelId = "gemini-2.0-flash-native-audio-preview-09-2025"
+
+local geminiLiveVoices = {
+    { name = "Aoede (أنثوي)", id = "aoede" },
+    { name = "Charon (ذكوري)", id = "charon" },
+    { name = "Fenrir (ذكوري)", id = "fenrir" },
+    { name = "Kore (أنثوي)", id = "kore" },
+    { name = "Puck (ذكوري)", id = "puck" }
+}
+local defaultGeminiLiveVoice = "puck"
 
 -- **Groq Models (Optimized for Free Tier)**
 local groqModels = {
@@ -180,6 +232,10 @@ for _, model in ipairs(geminiModels) do
 end
 selectedGeminiModelId = isValidModel and loadedModelId or defaultGeminiModelId
 
+selectedGeminiLiveVoice = prefs.getString("geminiLiveVoice", defaultGeminiLiveVoice)
+selectedGeminiLiveModelId = prefs.getString("geminiLiveModelId", defaultGeminiLiveModelId)
+geminiLiveEnabled = prefs.getBoolean("geminiLiveEnabled", true)
+
 selectedGroqModelId = prefs.getString("groqModelId", defaultGroqModelId)
 selectedAudioModelId = prefs.getString("audioModelId", defaultAudioModelId)
 
@@ -197,6 +253,264 @@ pdfTtsSpeed = prefs.getFloat("pdfTtsSpeed", 1.0)
 startWithDictation = prefs.getBoolean("startWithDictation", true)
 pdfTtsAutoNext = prefs.getBoolean("pdfTtsAutoNext", true)
 
+
+
+local restLiveHistory = {}
+local isRestLiveListening = false
+
+function stopGeminiLive()
+
+    local AudioFormat = luajava.bindClass("android.media.AudioFormat")
+    local AudioRecord = luajava.bindClass("android.media.AudioRecord")
+    local MediaRecorder = luajava.bindClass("android.media.MediaRecorder")
+    local AudioManager = luajava.bindClass("android.media.AudioManager")
+    local AudioTrack = luajava.bindClass("android.media.AudioTrack")
+
+    isGeminiLiveRunning = false
+    isRestLiveListening = false
+    if audioRecord then
+        pcall(function() audioRecord.stop(); audioRecord.release() end)
+        audioRecord = nil
+    end
+    if audioTrack then
+        pcall(function() audioTrack.stop(); audioTrack.release() end)
+        audioTrack = nil
+    end
+    service.asyncSpeak("تم إيقاف البث.")
+end
+
+function startGeminiLive(voiceId, modelId)
+    if isGeminiLiveRunning then return end
+    if geminiApiKey == "" then service.asyncSpeak("مفتاح Gemini API مفقود."); return end
+
+    isGeminiLiveRunning = true
+    restLiveHistory = {}
+    service.asyncSpeak("بدء المحادثة المباشرة. أنا أستمع إليك...")
+
+    -- Start the first recording cycle
+    runRestLiveCycle(voiceId, modelId)
+end
+
+function runRestLiveCycle(voiceId, modelId)
+
+    local AudioFormat = luajava.bindClass("android.media.AudioFormat")
+    local AudioRecord = luajava.bindClass("android.media.AudioRecord")
+    local MediaRecorder = luajava.bindClass("android.media.MediaRecorder")
+    local AudioManager = luajava.bindClass("android.media.AudioManager")
+    local AudioTrack = luajava.bindClass("android.media.AudioTrack")
+
+    if not isGeminiLiveRunning then return end
+
+    local sampleRate = 16000
+    local channelConfig = AudioFormat.CHANNEL_IN_MONO
+    local audioFormat = AudioFormat.ENCODING_PCM_16BIT
+    local bufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat)
+
+    local AudioRecordClass = luajava.bindClass("android.media.AudioRecord")
+    audioRecord = AudioRecordClass(MediaRecorder.AudioSource.MIC, sampleRate, channelConfig, audioFormat, bufferSize)
+
+    local recordingFile = File(service.getExternalFilesDir(nil), "live_temp.pcm")
+    local fos = luajava.bindClass("java.io.FileOutputStream")(recordingFile)
+
+    audioRecord.startRecording()
+    isRestLiveListening = true
+
+    -- Record for 4 seconds or until user stops
+    Thread(luajava.createProxy("java.lang.Runnable", {
+        run = function()
+            local buffer = luajava.newArray(luajava.bindClass("java.lang.Byte").TYPE, bufferSize)
+            local startTime = System.currentTimeMillis()
+            while isGeminiLiveRunning and isRestLiveListening and (System.currentTimeMillis() - startTime < 4000) do
+                local read = audioRecord.read(buffer, 0, bufferSize)
+                if read > 0 then fos.write(buffer, 0, read) end
+            end
+            fos.close()
+            audioRecord.stop()
+            audioRecord.release()
+
+            if isGeminiLiveRunning then
+                processRestLiveAudio(recordingFile, voiceId, modelId)
+            end
+        end
+    })).start()
+end
+
+function processRestLiveAudio(file, voiceId, modelId)
+    local bytes = luajava.bindClass("java.nio.file.Files").readAllBytes(file.toPath())
+    local base64Audio = Base64.encodeToString(bytes, Base64.NO_WRAP)
+
+    local url = "https://generativelanguage.googleapis.com/v1beta/models/" .. (modelId or "gemini-2.0-flash-native-audio-preview-09-2025") .. ":generateContent?key=" .. geminiApiKey
+
+    local payload = {
+        contents = restLiveHistory,
+        generationConfig = {
+            response_modalities = {"AUDIO"},
+            speech_config = {
+                voice_config = { prebuilt_voice_config = { voice_name = voiceId or "puck" } }
+            }
+        }
+    }
+
+    -- Add user turn
+    table.insert(payload.contents, {
+        role = "user",
+        parts = { { inline_data = { mime_type = "audio/pcm;rate=16000", data = base64Audio } } }
+    })
+
+    Http.post(url, toJavaJSON(payload).toString(), {["Content-Type"]="application/json"}, function(status, response)
+        if status == 200 then
+            local j = JSONObject(response)
+            local candidate = j.getJSONArray("candidates").getJSONObject(0)
+            local content = candidate.getJSONObject("content")
+            local parts = content.getJSONArray("parts")
+
+            -- Save to history
+            table.insert(restLiveHistory, { role = "model", parts = { { text = parts.getJSONObject(0).has("text") and parts.getJSONObject(0).getString("text") or "" } } })
+
+            -- Play Audio Response
+            for i = 0, parts.length()-1 do
+                local p = parts.getJSONObject(i)
+                if p.has("inline_data") then
+                    local audioData = p.getJSONObject("inline_data").getString("data")
+                    local audioBytes = Base64.decode(audioData, Base64.DEFAULT)
+                    playAudioChunk(audioBytes)
+                end
+            end
+
+            -- Wait for playback to finish (roughly) and cycle
+            mainHandler.postDelayed(luajava.createProxy("java.lang.Runnable", {
+                run = function() runRestLiveCycle(voiceId, modelId) end
+            }), 2000)
+        else
+            service.asyncSpeak("فشل استلام الرد: " .. tostring(status))
+            stopGeminiLive()
+        end
+    end)
+end
+
+function playAudioChunk(audioBytes)
+
+    local AudioFormat = luajava.bindClass("android.media.AudioFormat")
+    local AudioRecord = luajava.bindClass("android.media.AudioRecord")
+    local MediaRecorder = luajava.bindClass("android.media.MediaRecorder")
+    local AudioManager = luajava.bindClass("android.media.AudioManager")
+    local AudioTrack = luajava.bindClass("android.media.AudioTrack")
+
+    local sampleRate = 24000
+    local channelConfig = AudioFormat.CHANNEL_OUT_MONO
+    local audioFormat = AudioFormat.ENCODING_PCM_16BIT
+    local bufferSize = AudioTrack.getMinBufferSize(sampleRate, channelConfig, audioFormat)
+    local AudioTrackClass = luajava.bindClass("android.media.AudioTrack")
+    if not audioTrack then
+        audioTrack = AudioTrackClass(AudioManager.STREAM_MUSIC, sampleRate, channelConfig, audioFormat, bufferSize, AudioTrack.MODE_STREAM)
+        audioTrack.play()
+    end
+    audioTrack.write(audioBytes, 0, #audioBytes)
+end
+
+
+local geminiLiveWindow = nil
+
+
+function showGeminiLiveWindow()
+    local success, err = pcall(function()
+        if geminiLiveWindow then return end
+        service.asyncSpeak("جاري فتح البث المباشر"); probeWebSocketLibraries()
+
+
+    geminiLiveWindow = LinearLayout(service)
+    geminiLiveWindow.setOrientation(LinearLayout.VERTICAL)
+    geminiLiveWindow.setBackgroundColor(0xFF000000)
+    geminiLiveWindow.setPadding(30, 30, 30, 30)
+
+    local titleTxt = TextView(service)
+    titleTxt.setText("بث Gemini المباشر 🎤")
+    titleTxt.setTextSize(24)
+    titleTxt.setTextColor(0xFFFFFFFF)
+    titleTxt.setGravity(Gravity.CENTER)
+    titleTxt.setPadding(0, 10, 0, 30)
+    geminiLiveWindow.addView(titleTxt)
+
+    local voiceLabel = TextView(service)
+    voiceLabel.setText("اختر الصوت:")
+    voiceLabel.setTextColor(0xFFCCCCCC)
+    geminiLiveWindow.addView(voiceLabel)
+
+    local voiceNames = ArrayList()
+    local voiceIds = {}
+    for _, v in ipairs(geminiLiveVoices) do
+        voiceNames.add(v.name)
+        table.insert(voiceIds, v.id)
+    end
+    local voiceAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, voiceNames)
+    voiceAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+    local voiceSpinner = Spinner(service)
+    voiceSpinner.setAdapter(voiceAdapter)
+
+    local currVoiceIdx = 0
+    for i, id in ipairs(voiceIds) do
+        if id == selectedGeminiLiveVoice then currVoiceIdx = i - 1; break end
+    end
+    voiceSpinner.setSelection(currVoiceIdx)
+    voiceSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener {
+        onItemSelected = function(parent, view, position, id)
+            selectedGeminiLiveVoice = voiceIds[position + 1]
+        end
+    })
+    geminiLiveWindow.addView(voiceSpinner)
+
+    local statusTxt = TextView(service)
+    statusTxt.setText("الحالة: جاهز")
+    statusTxt.setTextColor(0xFF00FF00)
+    statusTxt.setGravity(Gravity.CENTER)
+    statusTxt.setPadding(0, 30, 0, 30)
+    geminiLiveWindow.addView(statusTxt)
+
+    local startBtn = Button(service)
+    startBtn.setText("🚀 بدء البث")
+    styleButton(startBtn, "primary")
+    startBtn.setOnClickListener(function()
+        if not isGeminiLiveRunning then
+            startGeminiLive(selectedGeminiLiveVoice, selectedGeminiLiveModelId)
+            startBtn.setText("🛑 إيقاف البث")
+            styleButton(startBtn, "danger")
+            statusTxt.setText("الحالة: متصل")
+        else
+            stopGeminiLive()
+            startBtn.setText("🚀 بدء البث")
+            styleButton(startBtn, "primary")
+            statusTxt.setText("الحالة: جاهز")
+        end
+    end)
+    geminiLiveWindow.addView(startBtn)
+
+    local closeBtn = Button(service)
+    closeBtn.setText("❌ إغلاق")
+    styleButton(closeBtn, "secondary")
+    closeBtn.setOnClickListener(function()
+        if isGeminiLiveRunning then stopGeminiLive() end
+        if geminiLiveWindow then
+            pcall(function() wm.removeView(geminiLiveWindow) end)
+            geminiLiveWindow = nil
+        end
+        openMainWindow()
+    end)
+    local closeParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+    closeParams.topMargin = 20
+    geminiLiveWindow.addView(closeBtn, closeParams)
+
+    local p = WindowManager.LayoutParams()
+    p.width = WindowManager.LayoutParams.MATCH_PARENT
+    p.height = WindowManager.LayoutParams.WRAP_CONTENT
+    p.type = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
+    p.flags = WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+    p.format = PixelFormat.TRANSLUCENT
+    p.gravity = Gravity.CENTER
+    pcall(function() wm.addView(geminiLiveWindow, p) end)
+    end)
+    if not success then service.asyncSpeak("خطأ أثناء فتح النافذة: " .. tostring(err)); print(err) end
+end
+
 -- **Global UI Handler**
 mainHandler = Handler(Looper.getMainLooper())
 
@@ -204,7 +518,6 @@ mainHandler = Handler(Looper.getMainLooper())
 stopDictation = false
 speechRecord = nil
 recognizer = nil
-local wm = service.getSystemService(Context.WINDOW_SERVICE)
 local settingsDialog = nil
 local resultWindow = nil
 local globalResultContentTextView = nil
@@ -214,7 +527,7 @@ local floatingSettingsBtn = nil
 local summaryWindow = nil
 local summaryQueryRecognizer = nil
 
--- **Set Audio Focus** (for asyncSpeak)
+-- **Set Audio Focus**
 if service and service.setAsyncAudioFocus then
     local success, err = pcall(function()
         service.setAsyncAudioFocus(true)
@@ -222,25 +535,6 @@ if service and service.setAsyncAudioFocus then
 end
 
 -- ### UI Helpers for Professional Dark Mode ###
-function styleButton(btn, colorType)
-    local bg = GradientDrawable()
-    bg.setCornerRadius(20)
-    btn.setPadding(20, 25, 20, 25)
-    btn.setTextSize(16)
-    btn.setTypeface(nil, Typeface.BOLD)
-    if colorType == "primary" then
-        bg.setColor(0xFF1976D2) -- Deep Blue
-        btn.setTextColor(0xFFFFFFFF)
-    elseif colorType == "danger" then
-        bg.setColor(0xFFD32F2F) -- Red
-        btn.setTextColor(0xFFFFFFFF)
-    else
-        bg.setColor(0xFF2C2C2C) -- Dark Surface
-        bg.setStroke(2, 0xFF444444)
-        btn.setTextColor(0xFF64B5F6) -- Light Blue Accent Text
-    end
-    btn.setBackgroundDrawable(bg)
-end
 function styleEditText(et)
     local bg = GradientDrawable()
     bg.setColor(0xFF1E1E1E)
@@ -2814,6 +3108,9 @@ function saveSettings()
     editor.putString("groqApiKey", groqApiKey or "")
     editor.putString("witApiKey", witApiKey or "")
     editor.putString("geminiModelId", selectedGeminiModelId or defaultGeminiModelId)
+    editor.putString("geminiLiveVoice", selectedGeminiLiveVoice or defaultGeminiLiveVoice)
+    editor.putString("geminiLiveModelId", selectedGeminiLiveModelId or defaultGeminiLiveModelId)
+    editor.putBoolean("geminiLiveEnabled", geminiLiveEnabled)
     editor.putString("groqModelId", selectedGroqModelId or defaultGroqModelId)
     editor.putString("audioModelId", selectedAudioModelId or defaultAudioModelId)
 
@@ -2876,6 +3173,18 @@ function openMainWindow()
         startVoiceRecognition(true)
     end)
     contentL.addView(dictBtn)
+    local liveBtn = Button(service)
+    liveBtn.setText("🎙️ البث المباشر (Gemini Live)")
+    liveBtn.setContentDescription("فتح جلسة محادثة صوتية مباشرة مع Gemini")
+    styleButton(liveBtn, "primary")
+    liveBtn.setOnClickListener(function()
+        hideMainWindow()
+        showGeminiLiveWindow()
+    end)
+    local btnParamsLive = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+    btnParamsLive.topMargin = 20
+    contentL.addView(liveBtn, btnParamsLive)
+
 
     local readerBtn = Button(service)
     readerBtn.setText("📄 قارئ المستندات والفيديو")
@@ -3274,6 +3583,14 @@ function startVoiceRecognition(fromDashboard)
                 if lowerRecognizedText == "stop" or recognizedText == "توقف" or lowerRecognizedText == "arrêter" then
                     service.asyncSpeak(getFeedbackString("command_stop", currentDictLangDetails.code)); stopDictation=true; cleanupResources(); return
                 
+
+                elseif lowerRecognizedText == "gemini live" or recognizedText == "بث مباشر" or recognizedText == "محادثة حية" then
+                    service.asyncSpeak("فتح البث المباشر")
+                    stopDictation = true
+                    if recognizer then recognizer.destroy(); recognizer = nil end
+                    showGeminiLiveWindow()
+                    return
+
                 elseif lowerRecognizedText == "settings" or recognizedText == "الضبط" or recognizedText == "ضبط" or recognizedText == "الإعدادات" or lowerRecognizedText == "paramètres" or lowerRecognizedText == "réglages" then
                     service.asyncSpeak("فتح لوحة التحكم");
                     stopDictation = true 
