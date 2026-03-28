@@ -137,13 +137,13 @@ local groqModels = {
 
 -- **Dictation Modes (AI Personalization)**
 local dictationModes = {
-    { id = "none", name = "إيقاف (نص خام)", prompt = "" },
-    { id = "correct", name = "تصحيح لغوي فقط", prompt = "Fix grammar and spelling errors. Keep it natural. Return ONLY corrected text:" },
-    { id = "emoji", name = "تصحيح + إيموجي", prompt = "Fix text and add suitable emojis. Return ONLY the text:" },
-    { id = "fusha", name = "الوضع الرسمي (فصحى)", prompt = "Rewrite the input in professional and formal Modern Standard Arabic (Fusha). Return ONLY the rewritten text:" },
-    { id = "egyptian", name = "الوضع المصري (عامية)", prompt = "Rewrite the input in friendly and natural Egyptian Arabic dialect. Return ONLY the rewritten text:" },
-    { id = "dialect_to_fusha", name = "تحويل اللهجة إلى فصحى", prompt = "Translate any Arabic dialect in the input into clear and formal Modern Standard Arabic. Return ONLY the translation:" },
-    { id = "creative", name = "وضع الإبداع والتحسين", prompt = "Improve the style and flow of the text to make it more engaging and creative. Return ONLY the improved text:" }
+    { id = 'none', name = 'إيقاف (نص خام)', prompt = 'Clean the text by removing filler words (like aaa, yaani, etc.), fix minor typos, and add appropriate punctuation. Keep the original style and dialect exactly as is. Return ONLY the clean text:' },
+    { id = 'correct', name = 'تصحيح لغوي فقط', prompt = 'Fix grammar and spelling errors, remove filler words, and add punctuation. Keep it natural. Return ONLY corrected text:' },
+    { id = 'emoji', name = 'تصحيح + إيموجي', prompt = 'Fix text, remove filler words, add punctuation, and add suitable emojis. Return ONLY the text:' },
+    { id = 'fusha', name = 'الوضع الرسمي (فصحى)', prompt = 'Rewrite the input in professional and formal Modern Standard Arabic (Fusha). Remove filler words and add punctuation. Return ONLY the rewritten text:' },
+    { id = 'egyptian', name = 'الوضع المصري (عامية)', prompt = 'Rewrite the input in friendly and natural Egyptian Arabic dialect. Remove filler words and add punctuation. Return ONLY the rewritten text:' },
+    { id = 'dialect_to_fusha', name = 'تحويل اللهجة إلى فصحى', prompt = 'Translate any Arabic dialect in the input into clear and formal Modern Standard Arabic. Remove filler words and add punctuation. Return ONLY the translation:' },
+    { id = 'creative', name = 'وضع الإبداع والتحسين', prompt = 'Improve the style and flow of the text to make it more engaging and creative. Remove filler words and add punctuation. Return ONLY the improved text:' }
 }
 local defaultDictationMode = "none"
 -- **Groq Vision Models**
@@ -761,6 +761,7 @@ function openPdfTtsSettings(onSaved)
     local closeBtn = Button(service)
     closeBtn.setText("❌ إغلاق")
     styleButton(closeBtn, "danger")
+    closeBtn.setContentDescription("إغلاق نافذة اختيار الملفات")
     closeBtn.setOnClickListener(function() pcall(function() wm.removeView(settingsWin) end) end)
     btnL.addView(closeBtn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0))
 
@@ -890,21 +891,25 @@ end
 
 -- ### Feature Wrapper Functions
 function correctWithGemini(text, callback)
-    -- If new dictation mode is enabled and not "none", use it
-    if selectedDictationMode and selectedDictationMode ~= "none" then
-        local prompt = ""
+    -- Use specific dictation mode if selected
+    if selectedDictationMode and selectedDictationMode ~= 'none' then
+        local prompt = ''
         for _, m in ipairs(dictationModes) do
             if m.id == selectedDictationMode then prompt = m.prompt; break end
         end
-        if prompt ~= "" then
-            return makeAiRequest(prompt .. "\n" .. text, nil, nil, nil, callback)
+        if prompt ~= '' then
+            return makeAiRequest(prompt .. '\n' .. text, nil, nil, nil, callback)
         end
+    elseif selectedDictationMode == 'none' then
+        -- Even in 'none' mode, we clean and punctuate as requested
+        local prompt = 'Clean the text by removing filler words (like aaa, yaani, etc.), fix minor typos, and add appropriate punctuation. Keep the original style and dialect exactly as is. Return ONLY the clean text:'
+        return makeAiRequest(prompt .. '\n' .. text, nil, nil, nil, callback)
     end
 
     -- Fallback to old emoji correction if enabled
     if geminiCorrectionEnabled then
-        local prompt = "Fix text and add suitable emojis. Return ONLY the text:"
-        return makeAiRequest(prompt .. "\n" .. text, nil, nil, nil, callback)
+        local prompt = 'Clean text, remove filler words, add punctuation, and add suitable emojis. Return ONLY the text:'
+        return makeAiRequest(prompt .. '\n' .. text, nil, nil, nil, callback)
     end
 
     callback(text)
@@ -1408,14 +1413,14 @@ function showImageDescriptionWindow(initialDescription, initialOcrText, base64Im
     local descLbl = TextView(service); descLbl.setText("وصف الصورة:"); descLbl.setTextSize(18); descLbl.setTypeface(nil, Typeface.BOLD); descLbl.setTextColor(0xFF64B5F6); contentL.addView(descLbl)
     local descTxtV = TextView(service); descTxtV.setText(initialDescription); descTxtV.setTextIsSelectable(true); descTxtV.setTextSize(16); descTxtV.setTextColor(0xFFE0E0E0); descTxtV.setPadding(0,10,0,20); contentL.addView(descTxtV)
     
-    local copyDescBtn = Button(service); copyDescBtn.setText("📋 نسخ الوصف"); styleButton(copyDescBtn, "secondary"); 
+    local copyDescBtn = Button(service); copyDescBtn.setText("📋 نسخ الوصف"); styleButton(copyDescBtn, "secondary"); copyDescBtn.setContentDescription("نسخ وصف الصورة المكتوب");
     copyDescBtn.setOnClickListener(function() local cb=service.getSystemService(Context.CLIPBOARD_SERVICE); local cl=ClipData.newPlainText("Image Description",descTxtV.getText().toString());cb.setPrimaryClip(cl);service.asyncSpeak(getFeedbackString("copy_desc", currentDictLangDetails.code)) end); 
     contentL.addView(copyDescBtn)
     
     local ocrLbl = TextView(service); ocrLbl.setText("النص المستخرج:"); ocrLbl.setTextSize(18); ocrLbl.setTypeface(nil, Typeface.BOLD); ocrLbl.setTextColor(0xFF64B5F6); ocrLbl.setPadding(0,20,0,0); contentL.addView(ocrLbl)
     local ocrTxtV = TextView(service); ocrTxtV.setText(initialOcrText); ocrTxtV.setTextIsSelectable(true); ocrTxtV.setTextSize(16); ocrTxtV.setTextColor(0xFFE0E0E0); ocrTxtV.setPadding(0,10,0,20); contentL.addView(ocrTxtV)
     
-    local copyOcrBtn = Button(service); copyOcrBtn.setText("📋 نسخ النص المستخرج"); styleButton(copyOcrBtn, "secondary");
+    local copyOcrBtn = Button(service); copyOcrBtn.setText("📋 نسخ النص المستخرج"); styleButton(copyOcrBtn, "secondary"); copyOcrBtn.setContentDescription("نسخ النص الذي تم استخراجه من الصورة");
     copyOcrBtn.setOnClickListener(function() local cb=service.getSystemService(Context.CLIPBOARD_SERVICE); local cl=ClipData.newPlainText("Extracted Text",ocrTxtV.getText().toString());cb.setPrimaryClip(cl);service.asyncSpeak(getFeedbackString("copy_ocr", currentDictLangDetails.code)) end); 
     contentL.addView(copyOcrBtn)
     
@@ -1425,7 +1430,7 @@ function showImageDescriptionWindow(initialDescription, initialOcrText, base64Im
     qnaHistoryLayout.setOrientation(LinearLayout.VERTICAL)
     contentL.addView(qnaHistoryLayout)
     
-    local voiceQBtn = Button(service); voiceQBtn.setText("🎤 التحدث للسؤال عن الصورة"); styleButton(voiceQBtn, "primary")
+    local voiceQBtn = Button(service); voiceQBtn.setText("🎤 التحدث للسؤال عن الصورة"); styleButton(voiceQBtn, "primary"); voiceQBtn.setContentDescription("بدء التحدث لسؤال المساعد حول محتوى الصورة");
     voiceQBtn.setOnClickListener(function()
         if not base64Image then service.asyncSpeak(getFeedbackString("image_query_no_data", currentDictLangDetails.code)); return end
         if imageQueryRecognizer then service.asyncSpeak(getFeedbackString("image_query_pending", currentDictLangDetails.code)); return end
@@ -1477,7 +1482,7 @@ function showImageDescriptionWindow(initialDescription, initialOcrText, base64Im
     
     scrollV.addView(contentL); local scrP = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,0,1.0); resultWindow.addView(scrollV,scrP)
     
-    local closeBtn = Button(service); closeBtn.setText("❌ إغلاق"); styleButton(closeBtn, "danger")
+    local closeBtn = Button(service); closeBtn.setText("❌ إغلاق"); styleButton(closeBtn, "danger"); closeBtn.setContentDescription("إغلاق نافذة عارض المستندات");
     closeBtn.setOnClickListener(function() if resultWindow then pcall(function()wm.removeView(resultWindow)end); resultWindow=nil end; if imageQueryRecognizer then pcall(function()imageQueryRecognizer.destroy()end); imageQueryRecognizer=nil end end)
     local btnP = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,LinearLayout.LayoutParams.WRAP_CONTENT); btnP.topMargin=20; resultWindow.addView(closeBtn,btnP)
     
@@ -1511,7 +1516,7 @@ function showSummaryWindow(summary)
     local sumLbl = TextView(service); sumLbl.setText("الملخص:"); sumLbl.setTextSize(18); sumLbl.setTypeface(nil, Typeface.BOLD); sumLbl.setTextColor(0xFF64B5F6); contentL.addView(sumLbl)
     local sumTxtV = TextView(service); sumTxtV.setText(summary); sumTxtV.setTextIsSelectable(true); sumTxtV.setTextSize(16); sumTxtV.setTextColor(0xFFE0E0E0); sumTxtV.setPadding(0,10,0,20); contentL.addView(sumTxtV)
     
-    local copySumBtn = Button(service); copySumBtn.setText("📋 نسخ الملخص"); styleButton(copySumBtn, "secondary");
+    local copySumBtn = Button(service); copySumBtn.setText("📋 نسخ الملخص"); styleButton(copySumBtn, "secondary"); copySumBtn.setContentDescription("نسخ نص الملخص إلى الحافظة");
     copySumBtn.setOnClickListener(function() local cb=service.getSystemService(Context.CLIPBOARD_SERVICE); local cl=ClipData.newPlainText("Summary",sumTxtV.getText().toString());cb.setPrimaryClip(cl);service.asyncSpeak(getFeedbackString("copy_general_text", currentDictLangDetails.code)) end); 
     contentL.addView(copySumBtn)
     
@@ -1521,7 +1526,7 @@ function showSummaryWindow(summary)
     qnaHistoryLayout.setOrientation(LinearLayout.VERTICAL)
     contentL.addView(qnaHistoryLayout)
     
-    local askQBtn = Button(service); askQBtn.setText("🎤 التحدث للسؤال عن الملخص"); styleButton(askQBtn, "primary")
+    local askQBtn = Button(service); askQBtn.setText("🎤 التحدث للسؤال عن الملخص"); styleButton(askQBtn, "primary"); askQBtn.setContentDescription("بدء التحدث لسؤال المساعد حول هذا الملخص");
     askQBtn.setOnClickListener(function()
         if summaryQueryRecognizer then service.asyncSpeak(getFeedbackString("image_query_pending", currentDictLangDetails.code)); return end
         if groqApiKey=="" then service.asyncSpeak(getFeedbackString("api_key_missing_for_feature", currentDictLangDetails.code, "Summary Query")); return end
@@ -1585,7 +1590,7 @@ function showSummaryWindow(summary)
     local scrP = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,0,1.0)
     summaryWindow.addView(scrollV,scrP)
     
-    local closeBtn = Button(service); closeBtn.setText("❌ إغلاق"); styleButton(closeBtn, "danger")
+    local closeBtn = Button(service); closeBtn.setText("❌ إغلاق"); styleButton(closeBtn, "danger"); closeBtn.setContentDescription("إغلاق نافذة عارض المستندات");
     closeBtn.setOnClickListener(function() if summaryWindow then pcall(function()wm.removeView(summaryWindow)end); summaryWindow=nil end; if summaryQueryRecognizer then pcall(function()summaryQueryRecognizer.destroy()end); summaryQueryRecognizer=nil end end)
     local btnP = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,LinearLayout.LayoutParams.WRAP_CONTENT); btnP.topMargin=20; summaryWindow.addView(closeBtn,btnP)
     
@@ -1611,7 +1616,7 @@ function showVideoAnalysisWindow(initialSummary, fileUri, filePath)
     local sumLbl = TextView(service); sumLbl.setText("ملخص الفيديو:"); sumLbl.setTextSize(18); sumLbl.setTypeface(nil, Typeface.BOLD); sumLbl.setTextColor(0xFF64B5F6); contentL.addView(sumLbl)
     local sumTxtV = TextView(service); sumTxtV.setText(initialSummary); sumTxtV.setTextIsSelectable(true); sumTxtV.setTextSize(16); sumTxtV.setTextColor(0xFFE0E0E0); sumTxtV.setPadding(0,10,0,20); contentL.addView(sumTxtV)
 
-    local copySumBtn = Button(service); copySumBtn.setText("📋 نسخ الملخص"); styleButton(copySumBtn, "secondary");
+    local copySumBtn = Button(service); copySumBtn.setText("📋 نسخ الملخص"); styleButton(copySumBtn, "secondary"); copySumBtn.setContentDescription("نسخ نص الملخص إلى الحافظة");
     copySumBtn.setOnClickListener(function() local cb=service.getSystemService(Context.CLIPBOARD_SERVICE); local cl=ClipData.newPlainText("Video Summary",sumTxtV.getText().toString());cb.setPrimaryClip(cl);service.asyncSpeak(getFeedbackString("copy_general_text", currentDictLangDetails.code)) end);
     contentL.addView(copySumBtn)
 
@@ -1621,7 +1626,7 @@ function showVideoAnalysisWindow(initialSummary, fileUri, filePath)
     qnaHistoryLayout.setOrientation(LinearLayout.VERTICAL)
     contentL.addView(qnaHistoryLayout)
 
-    local askQBtn = Button(service); askQBtn.setText("🎤 سؤال صوتي حول الفيديو"); styleButton(askQBtn, "primary")
+    local askQBtn = Button(service); askQBtn.setText("🎤 سؤال صوتي حول الفيديو"); styleButton(askQBtn, "primary"); askQBtn.setContentDescription("بدء التحدث لسؤال المساعد حول محتوى الفيديو");
     askQBtn.setOnClickListener(function()
         if not SpeechRecognizer.isRecognitionAvailable(service) then service.asyncSpeak(getFeedbackString("error_speech_unavailable", currentDictLangDetails.code)); return end
         askQBtn.setText("⏳ جارٍ الاستماع..."); askQBtn.setEnabled(false)
@@ -1695,7 +1700,7 @@ function showVideoAnalysisWindow(initialSummary, fileUri, filePath)
 
     scrollV.addView(contentL); local scrP = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,0,1.0); resultWindow.addView(scrollV,scrP)
 
-    local closeBtn = Button(service); closeBtn.setText("❌ إغلاق"); styleButton(closeBtn, "danger")
+    local closeBtn = Button(service); closeBtn.setText("❌ إغلاق"); styleButton(closeBtn, "danger"); closeBtn.setContentDescription("إغلاق نافذة عارض المستندات");
     closeBtn.setOnClickListener(function() if resultWindow then pcall(function()wm.removeView(resultWindow)end); resultWindow=nil end end)
     local btnP = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,LinearLayout.LayoutParams.WRAP_CONTENT); btnP.topMargin=20; resultWindow.addView(closeBtn,btnP)
 
@@ -1717,8 +1722,8 @@ function showResultWindow(titleTextStr, contentTextStr)
     local scrollV = ScrollView(service); 
     globalResultContentTextView = TextView(service); 
     globalResultContentTextView.setText(contentTextStr); globalResultContentTextView.setTextIsSelectable(true); globalResultContentTextView.setTextSize(18); globalResultContentTextView.setTextColor(0xFFE0E0E0); globalResultContentTextView.setPadding(10,20,10,20); scrollV.addView(globalResultContentTextView); resultWindow.addView(scrollV, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,0,1.0))
-    local copyBtn = Button(service); copyBtn.setText("📋 نسخ النص"); styleButton(copyBtn, "secondary"); copyBtn.setOnClickListener(function() local cb=service.getSystemService(Context.CLIPBOARD_SERVICE); local cl=ClipData.newPlainText(titleTextStr,globalResultContentTextView.getText().toString()); cb.setPrimaryClip(cl); service.asyncSpeak(getFeedbackString("copy_general_text", currentDictLangDetails.code)) end); resultWindow.addView(copyBtn)
-    local closeBtn = Button(service); closeBtn.setText("❌ إغلاق"); styleButton(closeBtn, "danger"); closeBtn.setOnClickListener(function() if resultWindow then pcall(function()wm.removeView(resultWindow)end); resultWindow=nil; globalResultContentTextView=nil end end); local btnP = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,LinearLayout.LayoutParams.WRAP_CONTENT); resultWindow.addView(closeBtn,btnP)
+    local copyBtn = Button(service); copyBtn.setText("📋 نسخ النص"); styleButton(copyBtn, "secondary"); copyBtn.setContentDescription("نسخ النص المعروض إلى الحافظة"); copyBtn.setOnClickListener(function() local cb=service.getSystemService(Context.CLIPBOARD_SERVICE); local cl=ClipData.newPlainText(titleTextStr,globalResultContentTextView.getText().toString()); cb.setPrimaryClip(cl); service.asyncSpeak(getFeedbackString("copy_general_text", currentDictLangDetails.code)) end); resultWindow.addView(copyBtn)
+    local closeBtn = Button(service); closeBtn.setText("❌ إغلاق"); styleButton(closeBtn, "danger"); closeBtn.setContentDescription("إغلاق نافذة النتائج"); closeBtn.setOnClickListener(function() if resultWindow then pcall(function()wm.removeView(resultWindow)end); resultWindow=nil; globalResultContentTextView=nil end end); local btnP = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,LinearLayout.LayoutParams.WRAP_CONTENT); resultWindow.addView(closeBtn,btnP)
     local winP = WindowManager.LayoutParams(); winP.width=WindowManager.LayoutParams.MATCH_PARENT; winP.height=WindowManager.LayoutParams.WRAP_CONTENT; winP.type=WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY; winP.flags=WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL; winP.format=PixelFormat.TRANSLUCENT; winP.gravity=Gravity.CENTER; winP.horizontalMargin=0.1; winP.verticalMargin=0.1
     pcall(function() wm.addView(resultWindow, winP) end)
 end
@@ -1753,7 +1758,7 @@ function showUniversalFilePicker(title, startPath, filterFunc, onFileSelected)
         end
         shownCount = finish
         if shownCount < #filteredItems then
-            local moreBtn = Button(service); moreBtn.setTag("show_more_btn"); moreBtn.setText("➕ عرض المزيد (" .. (#filteredItems - shownCount) .. " ملف متبقي)")
+            local moreBtn = Button(service); moreBtn.setTag("show_more_btn"); moreBtn.setText("➕ عرض المزيد (" .. (#filteredItems - shownCount) .. " ملف متبقي)"); moreBtn.setContentDescription("عرض المزيد من الملفات في هذا المجلد");
             styleButton(moreBtn, "secondary"); moreBtn.setOnClickListener(function() addMoreItems() end)
             local lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
             lp.setMargins(20, 20, 20, 40); listL.addView(moreBtn, lp)
@@ -1815,8 +1820,8 @@ function showUniversalFilePicker(title, startPath, filterFunc, onFileSelected)
     statusV = TextView(service); statusV.setTextColor(0xFF64B5F6); statusV.setGravity(Gravity.CENTER); statusV.setPadding(0, 10, 0, 10); statusV.setVisibility(View.GONE); fpWindow.addView(statusV)
 
     local topBtnsL = LinearLayout(service); topBtnsL.setOrientation(LinearLayout.HORIZONTAL); topBtnsL.setPadding(0, 15, 0, 15); fpWindow.addView(topBtnsL)
-    local storageBtn = Button(service); storageBtn.setText("🔀 تخزين"); styleButton(storageBtn, "secondary"); local lp1 = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0); lp1.rightMargin = 10; topBtnsL.addView(storageBtn, lp1)
-    backBtn = Button(service); backBtn.setText("📁 .. رجوع"); styleButton(backBtn, "secondary"); topBtnsL.addView(backBtn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0))
+    local storageBtn = Button(service); storageBtn.setText("🔀 تخزين"); styleButton(storageBtn, "secondary"); storageBtn.setContentDescription("تغيير وحدة التخزين (داخلية أو خارجية)"); local lp1 = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0); lp1.rightMargin = 10; topBtnsL.addView(storageBtn, lp1)
+    backBtn = Button(service); backBtn.setText("📁 .. رجوع"); styleButton(backBtn, "secondary"); backBtn.setContentDescription("العودة للمجلد السابق"); topBtnsL.addView(backBtn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0))
 
     local scrollV = ScrollView(service); listL = LinearLayout(service); listL.setOrientation(LinearLayout.VERTICAL); scrollV.addView(listL)
     fpWindow.addView(scrollV, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0))
@@ -1845,6 +1850,7 @@ function showUniversalFilePicker(title, startPath, filterFunc, onFileSelected)
     local closeBtn = Button(service)
     closeBtn.setText("❌ إغلاق")
     styleButton(closeBtn, "danger")
+    closeBtn.setContentDescription("إغلاق نافذة اختيار الملفات")
     closeBtn.setOnClickListener(function() pcall(function() wm.removeView(fpWindow) end) end)
     local btnP = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
     btnP.topMargin = 20
@@ -1900,7 +1906,7 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
     titleV.setText("📄 " .. titleText); titleV.setTextSize(18); titleV.setTextColor(0xFFFFFFFF); titleV.setTypeface(nil, Typeface.BOLD)
     headerL.addView(titleV, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0))
 
-    local fastCloseBtn = Button(service); fastCloseBtn.setText("❌"); styleButton(fastCloseBtn, "danger")
+    local fastCloseBtn = Button(service); fastCloseBtn.setText("❌"); styleButton(fastCloseBtn, "danger"); fastCloseBtn.setContentDescription("إغلاق سريع للنافذة");
     fastCloseBtn.setPadding(10,10,10,10)
     headerL.addView(fastCloseBtn, LinearLayout.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT))
     resultWindow.addView(headerL)
@@ -1925,7 +1931,7 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
         local e2 = EditText(service); e2.setInputType(2); e2.setText("5"); e2.setHint("5"); styleEditText(e2); local lp2 = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0); pageCtrlL.addView(e2, lp2)
         controlsL.addView(pageCtrlL)
 
-        local loadBtn = Button(service); loadBtn.setText("📂 تحميل الصفحات"); styleButton(loadBtn, "primary")
+        local loadBtn = Button(service); loadBtn.setText("📂 تحميل الصفحات"); styleButton(loadBtn, "primary"); loadBtn.setContentDescription("تحميل الصفحات المحددة من الملف");
         loadBtn.setOnClickListener(function()
             local sP, eP = e1.getText().toString(), e2.getText().toString()
             local nS, nE = tonumber(sP), tonumber(eP)
@@ -1936,10 +1942,10 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
     end
 
     local playbackL = LinearLayout(service); playbackL.setOrientation(LinearLayout.HORIZONTAL); playbackL.setGravity(Gravity.CENTER); playbackL.setPadding(0,10,0,10)
-    local prevSkipBtn = Button(service); prevSkipBtn.setText("⏪"); styleButton(prevSkipBtn, "secondary")
-    local playBtn = Button(service); playBtn.setText("▶️"); styleButton(playBtn, "primary")
-    local nextSkipBtn = Button(service); nextSkipBtn.setText("⏩"); styleButton(nextSkipBtn, "secondary")
-    local ttsSetBtn = Button(service); ttsSetBtn.setText("⚙️"); styleButton(ttsSetBtn, "secondary")
+    local prevSkipBtn = Button(service); prevSkipBtn.setText("⏪"); styleButton(prevSkipBtn, "secondary"); prevSkipBtn.setContentDescription("الجملة السابقة");
+    local playBtn = Button(service); playBtn.setText("▶️"); styleButton(playBtn, "primary"); playBtn.setContentDescription("بدء أو إيقاف القراءة الصوتية");
+    local nextSkipBtn = Button(service); nextSkipBtn.setText("⏩"); styleButton(nextSkipBtn, "secondary"); nextSkipBtn.setContentDescription("الجملة التالية");
+    local ttsSetBtn = Button(service); ttsSetBtn.setText("⚙️"); styleButton(ttsSetBtn, "secondary"); ttsSetBtn.setContentDescription("إعدادات صوت القراءة");
 
     local btnParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0); btnParams.setMargins(5,0,5,0)
     playbackL.addView(prevSkipBtn, btnParams); playbackL.addView(playBtn, btnParams); playbackL.addView(nextSkipBtn, btnParams); playbackL.addView(ttsSetBtn, LinearLayout.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT))
@@ -1977,8 +1983,8 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
     local qnaHistoryLayout = LinearLayout(service); qnaHistoryLayout.setOrientation(LinearLayout.VERTICAL); qnaScroll.addView(qnaHistoryLayout); footerL.addView(qnaScroll)
 
     local footerBtnsL = LinearLayout(service); footerBtnsL.setOrientation(LinearLayout.HORIZONTAL)
-    local voiceQBtn = Button(service); voiceQBtn.setText("🎤 سؤال"); styleButton(voiceQBtn, "primary")
-    local closeBtn = Button(service); closeBtn.setText("❌ إغلاق"); styleButton(closeBtn, "danger")
+    local voiceQBtn = Button(service); voiceQBtn.setText("🎤 سؤال"); styleButton(voiceQBtn, "primary"); voiceQBtn.setContentDescription("سؤال المساعد صوتياً حول محتوى المستند");
+    local closeBtn = Button(service); closeBtn.setText("❌ إغلاق"); styleButton(closeBtn, "danger"); closeBtn.setContentDescription("إغلاق نافذة عارض المستندات");
 
     local lpBtn = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0)
     lpBtn.setMargins(10, 5, 10, 5)
@@ -2042,7 +2048,7 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
         encSpinner.setAdapter(encAdapter)
         encL.addView(encSpinner, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0))
 
-        local reloadBtn = Button(service); reloadBtn.setText("🔄 إعادة تحميل"); styleButton(reloadBtn, "secondary")
+        local reloadBtn = Button(service); reloadBtn.setText("🔄 إعادة تحميل"); styleButton(reloadBtn, "secondary"); reloadBtn.setContentDescription("إعادة تحميل الملف بالترميز المختار");
         encL.addView(reloadBtn)
         controlsL.addView(encL)
 
@@ -2971,7 +2977,7 @@ function openMainWindow()
         end
     end
 
-    local closeBtn = Button(service); closeBtn.setText("❌ إغلاق"); styleButton(closeBtn, "danger")
+    local closeBtn = Button(service); closeBtn.setText("❌ إغلاق"); styleButton(closeBtn, "danger"); closeBtn.setContentDescription("إغلاق نافذة عارض المستندات");
     closeBtn.setOnClickListener(hideMainWindow)
     local closeParams = LinearLayout.LayoutParams(-1, -2); closeParams.topMargin = 40
     contentL.addView(closeBtn, closeParams)
@@ -3095,7 +3101,7 @@ function openSettings()
     grSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener { onItemSelected = function(parent, view, position, id) selectedGroqModelId = grIds[position + 1] end })
     modelCard.addView(grSpinner)
 
-    local grFetchBtn = Button(service); grFetchBtn.setText("🔄 تحديث قائمة Groq"); styleButton(grFetchBtn, "secondary")
+    local grFetchBtn = Button(service); grFetchBtn.setText("🔄 تحديث قائمة Groq"); styleButton(grFetchBtn, "secondary"); grFetchBtn.setContentDescription("تحديث قائمة موديلات Groq من الإنترنت");
     grFetchBtn.setOnClickListener(function() fetchGroqModels(function() hideSettings(); openMainWindow() end) end)
     modelCard.addView(grFetchBtn)
 
@@ -3324,7 +3330,7 @@ function openSettings()
     createSettingRow("الزر العائم", switchFloat, uiCard)
 
     local btnL = LinearLayout(service); btnL.setOrientation(LinearLayout.VERTICAL); btnL.setGravity(Gravity.CENTER); btnL.setPadding(0,40,0,10)
-    local saveBtn = Button(service); saveBtn.setText("💾 حفظ وإغلاق"); styleButton(saveBtn, "primary");
+    local saveBtn = Button(service); saveBtn.setText("💾 حفظ وإغلاق"); styleButton(saveBtn, "primary"); saveBtn.setContentDescription("حفظ التغييرات وإغلاق الإعدادات");
     saveBtn.setOnClickListener(function()
         groqApiKey = groqApiKeyIn.getText().toString()
         geminiApiKey = gemApiKeyIn.getText().toString()
@@ -3332,9 +3338,9 @@ function openSettings()
         saveSettings()
     end)
     btnL.addView(saveBtn)
-    local closeBtn = Button(service); closeBtn.setText("❌ إلغاء"); styleButton(closeBtn, "danger"); closeBtn.setOnClickListener(hideSettings); local lpClose = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT); lpClose.topMargin=20; btnL.addView(closeBtn, lpClose)
+    local closeBtn = Button(service); closeBtn.setText("❌ إلغاء"); styleButton(closeBtn, "danger"); closeBtn.setContentDescription("إلغاء التغييرات والعودة"); closeBtn.setOnClickListener(hideSettings); local lpClose = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT); lpClose.topMargin=20; btnL.addView(closeBtn, lpClose)
     contentL.addView(btnL)
-    local backBtn = Button(service); backBtn.setText("⬅️ العودة للوحة التحكم"); styleButton(backBtn, "secondary");
+    local backBtn = Button(service); backBtn.setText("⬅️ العودة للوحة التحكم"); styleButton(backBtn, "secondary"); backBtn.setContentDescription("العودة إلى لوحة التحكم الرئيسية");
     backBtn.setOnClickListener(function() hideSettings(); openMainWindow() end);
     local lpBack = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT); lpBack.topMargin=20; btnL.addView(backBtn, lpBack)
 
@@ -3581,7 +3587,7 @@ function showPersonalAssistantWindow()
     local closeBtn = Button(service)
     closeBtn.setText("❌")
     styleButton(closeBtn, "secondary")
-    closeBtn.setPadding(10, 10, 10, 10)
+    closeBtn.setPadding(10, 10, 10, 10); closeBtn.setContentDescription("إغلاق نافذة المساعد الشخصي");
     closeBtn.setOnClickListener(function()
         if personalAssistantWindow then wm.removeView(personalAssistantWindow); personalAssistantWindow = nil end
     end)
@@ -3613,7 +3619,7 @@ function showPersonalAssistantWindow()
     inputL.addView(inputEt)
 
     local sendBtn = Button(service)
-    sendBtn.setText("🔎")
+    sendBtn.setText("🔎"); sendBtn.setContentDescription("إرسال السؤال أو بدء البحث");
     styleButton(sendBtn, "primary")
     local btnLp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
     btnLp.leftMargin = 15
