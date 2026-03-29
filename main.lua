@@ -3073,6 +3073,9 @@ function openAiSettingsWindow()
     local swCont = Switch(service); swCont.setChecked(continuousDictationEnabled); swCont.setOnCheckedChangeListener(function(_, c) continuousDictationEnabled=c end)
     createSettingRow("الإملاء المستمر", swCont, dictationCard)
 
+    local swSpace = Switch(service); swSpace.setChecked(autoSpaceEnabled); swSpace.setOnCheckedChangeListener(function(_, c) autoSpaceEnabled=c end)
+    createSettingRow("إضافة مسافة تلقائية", swSpace, dictationCard)
+
     local swPunc = Switch(service); swPunc.setChecked(prefs.getBoolean("autoPunctuation", true)); swPunc.setOnCheckedChangeListener(function(_, c) autoPunctuationEnabled=c end)
     createSettingRow("علامات الترقيم الذكية", swPunc, dictationCard)
 
@@ -3093,6 +3096,17 @@ function openAiSettingsWindow()
 
     local swSpc = Switch(service); swSpc.setChecked(cleanExtraSpacesEnabled); swSpc.setOnCheckedChangeListener(function(_, c) cleanExtraSpacesEnabled=c end)
     createSettingRow("تنظيف المسافات الزائدة", swSpc, dictationCard)
+
+    dictationCard.addView(createLabel("وضع معالجة النص (مثل المصري أو الفصحى) 🎭:"))
+    local dmNames = ArrayList(); local dmIds = {}
+    for _, m in ipairs(dictationModes) do dmNames.add(m.name); table.insert(dmIds, m.id) end
+    local dmAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, dmNames)
+    dmAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+    local dmSpinner = Spinner(service); dmSpinner.setAdapter(dmAdapter)
+    local currDmIdx = 0; for i, id in ipairs(dmIds) do if id == selectedDictationMode then currDmIdx = i-1 break end end
+    dmSpinner.setSelection(currDmIdx)
+    dmSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener { onItemSelected = function(parent, view, position, id) selectedDictationMode = dmIds[position + 1] end })
+    dictationCard.addView(dmSpinner)
 
     local aiCard = createCard(contentL)
     addSectionHeader("إعدادات الذكاء المتقدمة 🤖", aiCard)
@@ -3123,6 +3137,7 @@ function openAiSettingsWindow()
     local btnL = LinearLayout(service); btnL.setOrientation(LinearLayout.VERTICAL); btnL.setGravity(Gravity.CENTER); btnL.setPadding(0, 40, 0, 10)
     local saveBtn = Button(service); saveBtn.setText("💾 حفظ التغييرات"); styleButton(saveBtn, "primary")
     saveBtn.setOnClickListener(function()
+        selectedDictationMode = dmIds[dmSpinner.getSelectedItemPosition() + 1]
         tashkeelEnabled = swTash.isChecked()
         profanityFilterEnabled = swProf.isChecked()
         newLinePerSentenceEnabled = swLine.isChecked()
@@ -3132,6 +3147,7 @@ function openAiSettingsWindow()
         autoCommaEnabled = swComma.isChecked()
         geminiCorrectionEnabled = swCorr.isChecked()
         continuousDictationEnabled = swCont.isChecked()
+        autoSpaceEnabled = swSpace.isChecked()
         saveSettings()
         if aiSettingsDialog then pcall(function() wm.removeView(aiSettingsDialog) end); aiSettingsDialog = nil end
         service.asyncSpeak("تم حفظ إعدادات الإملاء والذكاء الاصطناعي بنجاح.")
@@ -3371,9 +3387,18 @@ function openSettings()
 
     -- SECTION: Voice & Language
     local voiceCard = createCard(contentL)
-    addSectionHeader("إعدادات الصوت", voiceCard)
+    addSectionHeader("إعدادات الصوت والإملاء", voiceCard)
     
-    local switchCont = Switch(service); switchCont.setChecked(continuousDictationEnabled); switchCont.setOnCheckedChangeListener(function(_, c) continuousDictationEnabled=c end)
+    local voiceDesc = TextView(service)
+    voiceDesc.setText("جميع خيارات الإملاء المتطورة (مثل الوضع المصري، الفصحى، التشكيل، والإملاء المستمر) تم نقلها إلى نافذة إعدادات الذكاء الاصطناعي.")
+    voiceDesc.setTextSize(14)
+    voiceDesc.setTextColor(0xFFB0B0B0)
+    voiceDesc.setPadding(10, 0, 10, 20)
+    voiceCard.addView(voiceDesc)
+
+    local goToAiBtn = Button(service); goToAiBtn.setText("⚙️ فتح إعدادات الإملاء والذكاء"); styleButton(goToAiBtn, "secondary")
+    goToAiBtn.setOnClickListener(function() openAiSettingsWindow() end)
+    voiceCard.addView(goToAiBtn)
     local aiCard = createCard(contentL)
     addSectionHeader("الأدوات والذكاء الاصطناعي 🛠️", aiCard)
 
