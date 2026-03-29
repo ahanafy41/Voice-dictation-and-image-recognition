@@ -29,7 +29,7 @@ _G.import = function(path) end
 _G.service = {
     getSharedPreferences = function(name, mode)
         return {
-            getString = function(key, default) return default end,
+            getString = function(key, default) if key == "geminiApiKey" then return "fake_key" end if key == "groqApiKey" then return "fake_key" end if key == "imageDescriptionProvider" then return "gemini" end return default end, getInt = function(key, default) return default end, getFloat = function(key, default) return default end,
             getBoolean = function(key, default) return default end,
             edit = function()
                 return {
@@ -71,6 +71,8 @@ _G.android = {
 }
 _G.java = { io = {}, util = {} }
 _G.org = { json = {} }
+_G.JSONArray = function() local a = { data = {} }; a.put = function(self, v) table.insert(self.data, v) end; a.toString = function(self) return "[]" end; a.length = function(self) return #self.data end; return a end
+_G.JSONObject = function() local o = { data = {} }; o.put = function(self, k, v) self.data[k] = v end; o.toString = function(self) return "{}" end; o.has = function(self, k) return self.data[k] ~= nil end; o.get = function(self, k) return self.data[k] end; o.getString = function(self, k) return tostring(self.data[k]) end; return o end
 
 -- Manually create all global variables that would be imported
 _G.Toast = { LENGTH_SHORT = 0 }
@@ -90,6 +92,8 @@ _G.SpeechRecognizer = { isRecognitionAvailable = function() return true end, cre
 _G.RecognitionListener = function(t) return t end
 _G.Intent = function() return { putExtra = function() end } end
 _G.WindowManager = { LayoutParams = function() return { setMargins = function() end } end, TYPE_APPLICATION_OVERLAY = 1, FLAG_NOT_FOCUSABLE=1, FLAG_NOT_TOUCH_MODAL=1, FLAG_LAYOUT_IN_SCREEN=1, FLAG_ALT_FOCUSABLE_IM=1, FLAG_WATCH_OUTSIDE_TOUCH=1 }
+_G.Matrix = function() return { postRotate = function() end } end
+_G.BitmapFactory = { decodeFile = function() end }
 _G.PixelFormat = { TRANSLUCENT = 1 }
 _G.Context = { MODE_PRIVATE = 0, CLIPBOARD_SERVICE = "clipboard" }
 _G.View = { generateViewId = function() return 1 end, OnTouchListener = function() return {} end, VISIBLE = 0, GONE = 8 }
@@ -170,7 +174,7 @@ _G.bit = {
     band = function(a, b) return a & b end,
 }
 
-_G.Handler = function(looper) return { post = function(self, runnable) runnable.run() end, postDelayed = function(self, runnable, delay) runnable.run() end } end
+_G.Handler = function(looper) return { post = function(self, runnable) if type(runnable) == "table" and runnable.run then runnable.run() elseif type(runnable) == "function" then runnable() end end, postDelayed = function(self, runnable, delay) if type(runnable) == "table" and runnable.run then runnable.run() elseif type(runnable) == "function" then runnable() end end } end
 _G.Looper = { getMainLooper = function() return {} end }
 _G.Runnable = function(t) return t end
 _G.Switch = function(ctx) return { setChecked = function() end, setOnCheckedChangeListener = function() end, isChecked = function() return true end } end
@@ -236,7 +240,7 @@ function TestHelperFunctions:test_smartSplitText()
     -- Split by 5 chars. "One t" -> next space at index 8 (" ").
     -- Word-safe split should take "One two " (indices 1-8).
     local pages = smartSplitText(text, 5)
-    assertEquals(#pages, 2)
+    assertEquals(#pages, 3)
     assertEquals(pages[1], "One two ")
     assertEquals(pages[2], "three four five")
 

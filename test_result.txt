@@ -1,0 +1,219 @@
+TestGeminiFunctions
+  [TestGeminiFunctions:test_correctWithGemini_api_failure] 	Failed
+  [TestGeminiFunctions:test_correctWithGemini_success] 	Failed
+  [TestGeminiFunctions:test_describeImageWithGemini_success] 	Failed
+  [TestGeminiFunctions:test_queryImageWithGemini_success] 	Failed
+  [TestGeminiFunctions:test_summarizeWithGemini_api_failure] 	Failed
+  [TestGeminiFunctions:test_summarizeWithGemini_success] 	Failed
+  [TestGeminiFunctions:test_translateTextWithGemini_New_same_language] 	Failed
+  [TestGeminiFunctions:test_translateTextWithGemini_New_success] 	Failed
+TestScriptLoading
+  [TestScriptLoading:testScriptLoadsWithoutErrors] 	Failed
+TestHelperFunctions
+  [TestHelperFunctions:test_escapeJsonString] 	Ok
+  [TestHelperFunctions:test_extractEpubMetadata_mock] 	Failed
+  [TestHelperFunctions:test_getFeedbackString] 	Failed
+  [TestHelperFunctions:test_getLanguageDetails] 	Failed
+  [TestHelperFunctions:test_isArabicText] 	Failed
+  [TestHelperFunctions:test_parseImageDescription] 	Failed
+  [TestHelperFunctions:test_smartSplitText] 	Failed
+=========================================================
+Failed tests:
+-------------
+>>> TestGeminiFunctions:test_correctWithGemini_api_failure failed
+test.lua:316: attempt to call a nil value (global 'correctWithGemini')
+stack traceback:
+	./luaunit.lua:468: in global 'correctWithGemini'
+	test.lua:316: in method 'test_correctWithGemini_api_failure'
+	[string "TestGeminiFunctions:test_correctWithGemini_ap..."]:1: in main chunk
+	[C]: in function 'xpcall'
+	./luaunit.lua:472: in function 'luaunit.runTestMethod'
+	./luaunit.lua:493: in function 'luaunit.runTestMethodName'
+	./luaunit.lua:522: in function 'luaunit.runTestClassByName'
+	./luaunit.lua:556: in function 'luaunit.Run'
+	test.lua:427: in main chunk
+	[C]: in ?
+>>> TestGeminiFunctions:test_correctWithGemini_success failed
+test.lua:305: attempt to call a nil value (global 'correctWithGemini')
+stack traceback:
+	./luaunit.lua:468: in global 'correctWithGemini'
+	test.lua:305: in method 'test_correctWithGemini_success'
+	[string "TestGeminiFunctions:test_correctWithGemini_su..."]:1: in main chunk
+	[C]: in function 'xpcall'
+	./luaunit.lua:472: in function 'luaunit.runTestMethod'
+	./luaunit.lua:493: in function 'luaunit.runTestMethodName'
+	./luaunit.lua:522: in function 'luaunit.runTestClassByName'
+	./luaunit.lua:556: in function 'luaunit.Run'
+	test.lua:427: in main chunk
+	[C]: in ?
+>>> TestGeminiFunctions:test_describeImageWithGemini_success failed
+test.lua:356: attempt to call a nil value (global 'describeImageWithGemini')
+stack traceback:
+	./luaunit.lua:468: in global 'describeImageWithGemini'
+	test.lua:356: in method 'test_describeImageWithGemini_success'
+	[string "TestGeminiFunctions:test_describeImageWithGem..."]:1: in main chunk
+	[C]: in function 'xpcall'
+	./luaunit.lua:472: in function 'luaunit.runTestMethod'
+	./luaunit.lua:493: in function 'luaunit.runTestMethodName'
+	./luaunit.lua:522: in function 'luaunit.runTestClassByName'
+	./luaunit.lua:556: in function 'luaunit.Run'
+	test.lua:427: in main chunk
+	[C]: in ?
+>>> TestGeminiFunctions:test_queryImageWithGemini_success failed
+test.lua:395: attempt to call a nil value (global 'queryImageWithGemini')
+stack traceback:
+	./luaunit.lua:468: in global 'queryImageWithGemini'
+	test.lua:395: in method 'test_queryImageWithGemini_success'
+	[string "TestGeminiFunctions:test_queryImageWithGemini..."]:1: in main chunk
+	[C]: in function 'xpcall'
+	./luaunit.lua:472: in function 'luaunit.runTestMethod'
+	./luaunit.lua:493: in function 'luaunit.runTestMethodName'
+	./luaunit.lua:522: in function 'luaunit.runTestClassByName'
+	./luaunit.lua:556: in function 'luaunit.Run'
+	test.lua:427: in main chunk
+	[C]: in ?
+>>> TestGeminiFunctions:test_summarizeWithGemini_api_failure failed
+test.lua:341: attempt to call a nil value (global 'summarizeWithGemini')
+stack traceback:
+	./luaunit.lua:468: in global 'summarizeWithGemini'
+	test.lua:341: in method 'test_summarizeWithGemini_api_failure'
+	[string "TestGeminiFunctions:test_summarizeWithGemini_..."]:1: in main chunk
+	[C]: in function 'xpcall'
+	./luaunit.lua:472: in function 'luaunit.runTestMethod'
+	./luaunit.lua:493: in function 'luaunit.runTestMethodName'
+	./luaunit.lua:522: in function 'luaunit.runTestClassByName'
+	./luaunit.lua:556: in function 'luaunit.Run'
+	test.lua:427: in main chunk
+	[C]: in ?
+>>> TestGeminiFunctions:test_summarizeWithGemini_success failed
+test.lua:330: attempt to call a nil value (global 'summarizeWithGemini')
+stack traceback:
+	./luaunit.lua:468: in global 'summarizeWithGemini'
+	test.lua:330: in method 'test_summarizeWithGemini_success'
+	[string "TestGeminiFunctions:test_summarizeWithGemini_..."]:1: in main chunk
+	[C]: in function 'xpcall'
+	./luaunit.lua:472: in function 'luaunit.runTestMethod'
+	./luaunit.lua:493: in function 'luaunit.runTestMethodName'
+	./luaunit.lua:522: in function 'luaunit.runTestClassByName'
+	./luaunit.lua:556: in function 'luaunit.Run'
+	test.lua:427: in main chunk
+	[C]: in ?
+>>> TestGeminiFunctions:test_translateTextWithGemini_New_same_language failed
+test.lua:379: attempt to call a nil value (global 'translateTextWithGemini_New')
+stack traceback:
+	./luaunit.lua:468: in global 'translateTextWithGemini_New'
+	test.lua:379: in method 'test_translateTextWithGemini_New_same_language'
+	[string "TestGeminiFunctions:test_translateTextWithGem..."]:1: in main chunk
+	[C]: in function 'xpcall'
+	./luaunit.lua:472: in function 'luaunit.runTestMethod'
+	./luaunit.lua:493: in function 'luaunit.runTestMethodName'
+	./luaunit.lua:522: in function 'luaunit.runTestClassByName'
+	./luaunit.lua:556: in function 'luaunit.Run'
+	test.lua:427: in main chunk
+	[C]: in ?
+>>> TestGeminiFunctions:test_translateTextWithGemini_New_success failed
+test.lua:372: attempt to call a nil value (global 'translateTextWithGemini_New')
+stack traceback:
+	./luaunit.lua:468: in global 'translateTextWithGemini_New'
+	test.lua:372: in method 'test_translateTextWithGemini_New_success'
+	[string "TestGeminiFunctions:test_translateTextWithGem..."]:1: in main chunk
+	[C]: in function 'xpcall'
+	./luaunit.lua:472: in function 'luaunit.runTestMethod'
+	./luaunit.lua:493: in function 'luaunit.runTestMethodName'
+	./luaunit.lua:522: in function 'luaunit.runTestClassByName'
+	./luaunit.lua:556: in function 'luaunit.Run'
+	test.lua:427: in main chunk
+	[C]: in ?
+>>> TestScriptLoading:testScriptLoadsWithoutErrors failed
+test.lua:195: The main script should load without errors. Error: main.lua:179: attempt to call a nil value (field 'getInt')
+stack traceback:
+	./luaunit.lua:468: in function <./luaunit.lua:467>
+	[C]: in function 'error'
+	test.lua:195: in method 'testScriptLoadsWithoutErrors'
+	[string "TestScriptLoading:testScriptLoadsWithoutError..."]:1: in main chunk
+	[C]: in function 'xpcall'
+	./luaunit.lua:472: in function 'luaunit.runTestMethod'
+	./luaunit.lua:493: in function 'luaunit.runTestMethodName'
+	./luaunit.lua:522: in function 'luaunit.runTestClassByName'
+	./luaunit.lua:556: in function 'luaunit.Run'
+	test.lua:427: in main chunk
+	[C]: in ?
+>>> TestHelperFunctions:test_extractEpubMetadata_mock failed
+test.lua:421: attempt to call a nil value (global 'extractEpubMetadata')
+stack traceback:
+	./luaunit.lua:468: in global 'extractEpubMetadata'
+	test.lua:421: in method 'test_extractEpubMetadata_mock'
+	[string "TestHelperFunctions:test_extractEpubMetadata_..."]:1: in main chunk
+	[C]: in function 'xpcall'
+	./luaunit.lua:472: in function 'luaunit.runTestMethod'
+	./luaunit.lua:493: in function 'luaunit.runTestMethodName'
+	./luaunit.lua:522: in function 'luaunit.runTestClassByName'
+	./luaunit.lua:556: in function 'luaunit.Run'
+	test.lua:427: in main chunk
+	[C]: in ?
+>>> TestHelperFunctions:test_getFeedbackString failed
+test.lua:252: attempt to call a nil value (global 'getFeedbackString')
+stack traceback:
+	./luaunit.lua:468: in global 'getFeedbackString'
+	test.lua:252: in method 'test_getFeedbackString'
+	[string "TestHelperFunctions:test_getFeedbackString()"]:1: in main chunk
+	[C]: in function 'xpcall'
+	./luaunit.lua:472: in function 'luaunit.runTestMethod'
+	./luaunit.lua:493: in function 'luaunit.runTestMethodName'
+	./luaunit.lua:522: in function 'luaunit.runTestClassByName'
+	./luaunit.lua:556: in function 'luaunit.Run'
+	test.lua:427: in main chunk
+	[C]: in ?
+>>> TestHelperFunctions:test_getLanguageDetails failed
+test.lua:211: attempt to call a nil value (global 'getLanguageDetails')
+stack traceback:
+	./luaunit.lua:468: in global 'getLanguageDetails'
+	test.lua:211: in method 'test_getLanguageDetails'
+	[string "TestHelperFunctions:test_getLanguageDetails()..."]:1: in main chunk
+	[C]: in function 'xpcall'
+	./luaunit.lua:472: in function 'luaunit.runTestMethod'
+	./luaunit.lua:493: in function 'luaunit.runTestMethodName'
+	./luaunit.lua:522: in function 'luaunit.runTestClassByName'
+	./luaunit.lua:556: in function 'luaunit.Run'
+	test.lua:427: in main chunk
+	[C]: in ?
+>>> TestHelperFunctions:test_isArabicText failed
+test.lua:227: attempt to call a nil value (global 'isArabicText')
+stack traceback:
+	./luaunit.lua:468: in global 'isArabicText'
+	test.lua:227: in method 'test_isArabicText'
+	[string "TestHelperFunctions:test_isArabicText()"]:1: in main chunk
+	[C]: in function 'xpcall'
+	./luaunit.lua:472: in function 'luaunit.runTestMethod'
+	./luaunit.lua:493: in function 'luaunit.runTestMethodName'
+	./luaunit.lua:522: in function 'luaunit.runTestClassByName'
+	./luaunit.lua:556: in function 'luaunit.Run'
+	test.lua:427: in main chunk
+	[C]: in ?
+>>> TestHelperFunctions:test_parseImageDescription failed
+test.lua:264: attempt to call a nil value (global 'parseImageDescription')
+stack traceback:
+	./luaunit.lua:468: in global 'parseImageDescription'
+	test.lua:264: in method 'test_parseImageDescription'
+	[string "TestHelperFunctions:test_parseImageDescriptio..."]:1: in main chunk
+	[C]: in function 'xpcall'
+	./luaunit.lua:472: in function 'luaunit.runTestMethod'
+	./luaunit.lua:493: in function 'luaunit.runTestMethodName'
+	./luaunit.lua:522: in function 'luaunit.runTestClassByName'
+	./luaunit.lua:556: in function 'luaunit.Run'
+	test.lua:427: in main chunk
+	[C]: in ?
+>>> TestHelperFunctions:test_smartSplitText failed
+test.lua:238: attempt to call a nil value (global 'smartSplitText')
+stack traceback:
+	./luaunit.lua:468: in global 'smartSplitText'
+	test.lua:238: in method 'test_smartSplitText'
+	[string "TestHelperFunctions:test_smartSplitText()"]:1: in main chunk
+	[C]: in function 'xpcall'
+	./luaunit.lua:472: in function 'luaunit.runTestMethod'
+	./luaunit.lua:493: in function 'luaunit.runTestMethodName'
+	./luaunit.lua:522: in function 'luaunit.runTestClassByName'
+	./luaunit.lua:556: in function 'luaunit.Run'
+	test.lua:427: in main chunk
+	[C]: in ?
+Success : 6% - 1 / 16

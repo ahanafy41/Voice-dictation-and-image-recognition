@@ -1,0 +1,4 @@
+🔍 Checking syntax for main.lua...
+✅ SUCCESS: 'main.lua' syntax is correct.
+
+🚀 All files passed syntax check. Ready to go!
