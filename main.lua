@@ -129,6 +129,7 @@ local defaultGeminiModelId = "gemini-3.1-flash-lite-preview"
 local groqModels = {
     { name = "Llama 3.3 70B (الأكثر استقراراً)", id = "llama-3.3-70b-versatile" },
     { name = "Llama 4 Scout 17B (الأحدث 2026)", id = "meta-llama/llama-4-scout-17b-16e-instruct" },
+    { name = "Llama 4 Maverick 17B (ذكاء فائق)", id = "meta-llama/llama-4-maverick-17b-128e-instruct" },
     { name = "Qwen 3 32B (قوة في التفكير)", id = "qwen/qwen3-32b" },
     { name = "Llama 3.1 8B (سريع جداً)", id = "llama-3.1-8b-instant" },
     { name = "Gemma 2 9B IT", id = "gemma2-9b-it" },
@@ -144,15 +145,6 @@ local dictationModes = {
     { id = "dialect_to_fusha", name = "تحويل اللهجة إلى فصحى", prompt = "Translate any Arabic dialect in the input into clear and formal Modern Standard Arabic. Remove filler words and add punctuation. Return ONLY the translation:" },
     { id = "creative", name = "وضع الإبداع والتحسين", prompt = "Improve the style and flow of the text to make it more engaging and creative. Remove filler words and add punctuation. Return ONLY the improved text:" }
 }
-local defaultDictationMode = "none"
--- **Groq Vision Models**
-local groqVisionModels = {
-    { name = "Llama 3.2 11B Vision (أداء مذهل)", id = "llama-3.2-11b-vision-preview" },
-    { name = "Llama 3.2 90B Vision (أدق وأكثر ذكاءً)", id = "llama-3.2-90b-vision-preview" }
-}
-local defaultGroqVisionModelId = "llama-3.2-11b-vision-preview"
-local defaultImageDescriptionProvider = "gemini"
-local defaultGroqModelId = "llama-3.1-8b-instant" 
 
 -- **Audio Models (Whisper & Gemini)**
 local audioModels = {
@@ -214,6 +206,7 @@ screenshotMode = prefs.getString("screenshotMode", "full") -- "full" or "focus"
 showFloatingSettingsButtonEnabled = prefs.getBoolean("showFloatingSettingsButton", false)
 newTranslationFeatureEnabled = prefs.getBoolean("newTranslationFeatureEnabled", false)
 translateToLanguage = prefs.getString("translateToLanguage", defaultTranslateTo)
+autoPunctuationEnabled = prefs.getBoolean("autoPunctuation", true)
 
 -- PDF TTS Settings
 pdfTtsEngine = prefs.getString("pdfTtsEngine", "")
@@ -788,14 +781,13 @@ end
 -- ### UNIFIED AI REQUEST FUNCTION (Supports Gemini & Groq) ###
 function makeAiRequest(prompt, systemInstruction, imageBase64, modelIdOverride, callback, tempOverride)
     local useGroq = true -- Default to Groq for text
-    if imageBase64 then useGroq = false end -- Images use Gemini
+    if imageBase64 then useGroq = false end -- Images ALWAYS use Gemini
     if modelIdOverride then
         if string.match(modelIdOverride:lower(), "gemini") then useGroq = false else useGroq = true end
     end
 
     local apiKey = useGroq and groqApiKey or geminiApiKey
     local model = modelIdOverride or (useGroq and selectedGroqModelId or selectedGeminiModelId)
-
     if apiKey == "" then
         callback("Error: API Key is missing for " .. (useGroq and "Groq" or "Gemini"))
         return
@@ -1394,25 +1386,25 @@ function fetchGroqModels(callback)
             local s, j = pcall(function() return JSONObject(body) end)
             if s and j and j.has("data") then
                 local data = j.getJSONArray("data")
-                groqModels = {} 
+                local newModels = {}
                 for i = 0, data.length() - 1 do
                     local item = data.getJSONObject(i)
                     local id = item.getString("id")
                     if not id:match("whisper") then
-                        table.insert(groqModels, {name = id, id = id})
+                        table.insert(newModels, {name = id, id = id})
                     end
                 end
+                if #newModels > 0 then groqModels = newModels end
                 service.asyncSpeak("تم تحديث القائمة: " .. #groqModels .. " موديل.")
                 if callback then callback() end
             else
                 service.asyncSpeak("فشل تحليل بيانات Groq.")
             end
         else
-            service.asyncSpeak("فشل الاتصال بـ Groq. كود: " .. code)
+            service.asyncSpeak("فشل جلب موديلات Groq. كود الخطأ: " .. code)
         end
     end)
 end
-
 -- ### UI Window Functions ###
 
 function showImageDescriptionWindow(initialDescription, initialOcrText, base64Image)
@@ -2814,11 +2806,9 @@ function runImageDescription()
     end
 
     local currentDictLangDetails = getLanguageDetails(selectedLanguage)
-    local visionProviderName = (imageDescriptionProvider == "groq") and "Groq" or "Gemini"
-    local keyToUse = (imageDescriptionProvider == "groq") and groqApiKey or geminiApiKey
 
     if not keyToUse or keyToUse == "" then
-        service.asyncSpeak(getFeedbackString("api_key_missing_for_feature", currentDictLangDetails.code, "Image Description (" .. visionProviderName .. ")"))
+                        service.asyncSpeak(getFeedbackString("api_key_missing_for_feature", currentDictLangDetails.code, "Image Description (Gemini)"))
         return
     end
 
@@ -2878,6 +2868,7 @@ editor.putString("dashboardOrder", dashboardOrder or "assistant,dictation,reader
     editor.putBoolean("summarizeEnabled", summarizeEnabled)
     editor.putBoolean("imageDescriptionEnabled", imageDescriptionEnabled)
     editor.putString("screenshotMode", screenshotMode or "full")
+    editor.putBoolean("autoPunctuation", autoPunctuationEnabled)
     editor.putBoolean("showFloatingSettingsButton", showFloatingSettingsButtonEnabled)
     editor.putBoolean("newTranslationFeatureEnabled", newTranslationFeatureEnabled)
     editor.putString("translateToLanguage", translateToLanguage or defaultTranslateTo)
@@ -3067,8 +3058,6 @@ function openAiSettingsWindow()
     local swTash = Switch(service); swTash.setChecked(tashkeelEnabled); swTash.setOnCheckedChangeListener(function(_, c) tashkeelEnabled=c end)
     createSettingRow("التشكيل بالحركات", swTash, dictationCard)
 
-    local swCopy = Switch(service); swCopy.setChecked(prefs.getBoolean("autoCopyEnabled", true)); swCopy.setOnCheckedChangeListener(function(_, c) autoCopyEnabled=c end)
-    createSettingRow("النسخ واللصق التلقائي", swCopy, dictationCard)
 
     local swCont = Switch(service); swCont.setChecked(continuousDictationEnabled); swCont.setOnCheckedChangeListener(function(_, c) continuousDictationEnabled=c end)
     createSettingRow("الإملاء المستمر", swCont, dictationCard)
@@ -3076,7 +3065,7 @@ function openAiSettingsWindow()
     local swSpace = Switch(service); swSpace.setChecked(autoSpaceEnabled); swSpace.setOnCheckedChangeListener(function(_, c) autoSpaceEnabled=c end)
     createSettingRow("إضافة مسافة تلقائية", swSpace, dictationCard)
 
-    local swPunc = Switch(service); swPunc.setChecked(prefs.getBoolean("autoPunctuation", true)); swPunc.setOnCheckedChangeListener(function(_, c) autoPunctuationEnabled=c end)
+    local swPunc = Switch(service); swPunc.setChecked(autoPunctuationEnabled); swPunc.setOnCheckedChangeListener(function(_, c) autoPunctuationEnabled=c end)
     createSettingRow("علامات الترقيم الذكية", swPunc, dictationCard)
 
     local swDot = Switch(service); swDot.setChecked(forceDotAtEndEnabled); swDot.setOnCheckedChangeListener(function(_, c) forceDotAtEndEnabled=c end)
@@ -3388,6 +3377,15 @@ function openSettings()
     -- SECTION: Voice & Language
     local voiceCard = createCard(contentL)
     addSectionHeader("إعدادات الصوت والإملاء", voiceCard)
+    voiceCard.addView(createLabel("لغة الإملاء الأساسية:"))
+    local langNames = ArrayList(); local langIds = {}
+    for _, l in ipairs(supportedLanguages) do langNames.add(l.name); table.insert(langIds, l.code) end
+    local langAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, langNames); langAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+    local langSpinner = Spinner(service); langSpinner.setAdapter(langAdapter)
+    local currLangIdx = 0; for i, id in ipairs(langIds) do if id == selectedLanguage then currLangIdx = i-1 break end end
+    langSpinner.setSelection(currLangIdx)
+    langSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener { onItemSelected = function(parent, view, position, id) selectedLanguage = langIds[position + 1] end })
+    voiceCard.addView(langSpinner)
     
     local voiceDesc = TextView(service)
     voiceDesc.setText("جميع خيارات الإملاء المتطورة (مثل الوضع المصري، الفصحى، التشكيل، والإملاء المستمر) تم نقلها إلى نافذة إعدادات الذكاء الاصطناعي.")
@@ -3404,6 +3402,15 @@ function openSettings()
 
     local swTrans = Switch(service); swTrans.setChecked(newTranslationFeatureEnabled); swTrans.setOnCheckedChangeListener(function(_, c) newTranslationFeatureEnabled=c end)
     createSettingRow("الترجمة التلقائية والشاملة", swTrans, aiCard)
+    aiCard.addView(createLabel("اللغة المترجم إليها (الهدف):"))
+    local trLangNames = ArrayList(); local trLangIds = {}
+    for _, l in ipairs(supportedLanguages) do trLangNames.add(l.name); table.insert(trLangIds, l.code) end
+    local trLangAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, trLangNames); trLangAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+    local trLangSpinner = Spinner(service); trLangSpinner.setAdapter(trLangAdapter)
+    local currTrLangIdx = 0; for i, id in ipairs(trLangIds) do if id == translateToLanguage then currTrLangIdx = i-1 break end end
+    trLangSpinner.setSelection(currTrLangIdx)
+    trLangSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener { onItemSelected = function(parent, view, position, id) translateToLanguage = trLangIds[position + 1] end })
+    aiCard.addView(trLangSpinner)
 
     local swSum = Switch(service); swSum.setChecked(summarizeEnabled); swSum.setOnCheckedChangeListener(function(_, c) summarizeEnabled=c end)
     createSettingRow("تلخيص النصوص التلقائي", swSum, aiCard)
@@ -3433,53 +3440,13 @@ function openSettings()
     })
     screenModeContainer.addView(smSpinner)
     aiCard.addView(screenModeContainer)
-    local providerContainer = LinearLayout(service)
-    providerContainer.setPadding(60, 0, 40, 10)
-    providerContainer.addView(createLabel("مزود خدمة وصف الصور:"))
-    local provNames = ArrayList(); local provIds = {"gemini", "groq"}
-    provNames.add("Google Gemini"); provNames.add("Groq Cloud (مجاني)")
-    local provAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, provNames); provAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-    local toolsCard = aiCard
-    local provSpinner = Spinner(service); provSpinner.setAdapter(provAdapter)
-    local currProvIdx = 0; if imageDescriptionProvider == "groq" then currProvIdx = 1 end
-    provSpinner.setSelection(currProvIdx)
-    providerContainer.addView(provSpinner)
-
-    local groqVisionModelContainer = LinearLayout(service)
-    groqVisionModelContainer.setOrientation(LinearLayout.VERTICAL)
-    groqVisionModelContainer.setPadding(60, 0, 40, 10)
-    groqVisionModelContainer.addView(createLabel("موديل Groq للصور:"))
-    local grvNames = ArrayList(); local grvIds = {}
-    for _, m in ipairs(groqVisionModels) do grvNames.add(m.name); table.insert(grvIds, m.id) end
-    local grvAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, grvNames); grvAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-    local grvSpinner = Spinner(service); grvSpinner.setAdapter(grvAdapter)
-    local currGrvIdx = 0; for i, id in ipairs(grvIds) do if id == selectedGroqVisionModelId then currGrvIdx = i-1 break end end
-    grvSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener { onItemSelected = function(parent, view, position, id) selectedGroqVisionModelId = grvIds[position + 1] end })
-    groqVisionModelContainer.addView(grvSpinner)
-    aiCard.addView(groqVisionModelContainer)
-
     local function updateVisionVisibility(enabled)
         if enabled then
-            providerContainer.setVisibility(View.VISIBLE)
             screenModeContainer.setVisibility(View.VISIBLE)
-            if imageDescriptionProvider == "groq" then
-                groqVisionModelContainer.setVisibility(View.VISIBLE)
-            else
-                groqVisionModelContainer.setVisibility(View.GONE)
-            end
         else
-            providerContainer.setVisibility(View.GONE)
             screenModeContainer.setVisibility(View.GONE)
-            groqVisionModelContainer.setVisibility(View.GONE)
         end
     end
-
-    provSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener {
-        onItemSelected = function(parent, view, position, id)
-            imageDescriptionProvider = provIds[position + 1]
-            updateVisionVisibility(imageDescriptionEnabled)
-        end
-    })
 
     updateVisionVisibility(imageDescriptionEnabled)
 
@@ -3604,10 +3571,8 @@ function startVoiceRecognition(fromDashboard)
                         if shouldContinue then startListening() end; return
                     end
                     isDescribingImage=true
-                    local visionApiKey = (imageDescriptionProvider == "groq") and groqApiKey or geminiApiKey
-                    local visionProviderName = (imageDescriptionProvider == "groq") and "Groq Cloud" or "Gemini"
-                    if visionApiKey == "" then
-                        service.asyncSpeak(getFeedbackString("api_key_missing_for_feature", currentDictLangDetails.code, "Image Description (" .. visionProviderName .. ")"))
+                    if geminiApiKey == "" then
+                        service.asyncSpeak(getFeedbackString("api_key_missing_for_feature", currentDictLangDetails.code, "Image Description (Gemini)"))
                         isDescribingImage=false; if shouldContinue then startListening() else cleanupResources() end; return
                     end
 
