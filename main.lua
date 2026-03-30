@@ -96,7 +96,7 @@ function toJavaJSON(t)
     if type_t == "table" then
         local isArray = false
         if #t > 0 then isArray = true end
-        
+
         if isArray then
             local ja = JSONArray()
             for _, v in ipairs(t) do
@@ -196,7 +196,7 @@ selectedGeminiModelId = isValidModel and loadedModelId or defaultGeminiModelId
 
 selectedGroqModelId = prefs.getString("groqModelId", defaultGroqModelId)
 selectedSearchModelId = prefs.getString("searchModelId", "compound-beta")
-dashboardOrder = prefs.getString("dashboardOrder", "assistant,dictation,reader,image,transcription,healthCheck,settings")
+dashboardOrder = prefs.getString("dashboardOrder", "assistant,dictation,reader,image,transcription,settings")
 selectedDictationMode = prefs.getString("selectedDictationMode", defaultDictationMode)
 selectedAudioModelId = prefs.getString("audioModelId", defaultAudioModelId)
 
@@ -291,14 +291,14 @@ function createSettingRow(text, control, parent)
     row.setOrientation(LinearLayout.HORIZONTAL)
     row.setGravity(Gravity.CENTER_VERTICAL)
     row.setPadding(0, 20, 0, 20)
-    
+
     local txt = TextView(service)
     txt.setText(text)
     txt.setTextSize(16)
     txt.setTextColor(0xFFE0E0E0)
     local lp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0)
     row.addView(txt, lp)
-    
+
     row.addView(control)
     parent.addView(row)
 end
@@ -309,16 +309,16 @@ function createChatBubble(text, isUser)
     local params = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
     params.setMargins(10, 15, 10, 15)
     msgContainer.setLayoutParams(params)
-    
+
     local tv = TextView(service)
     tv.setText(text)
     tv.setTextIsSelectable(true)
     tv.setTextSize(16)
     tv.setPadding(35, 25, 35, 25)
-    
+
     local bgShape = GradientDrawable()
     bgShape.setCornerRadius(25)
-    
+
     local tvParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
     if isUser then
         tv.setTextColor(0xFFFFFFFF)
@@ -334,7 +334,7 @@ function createChatBubble(text, isUser)
     end
     tv.setBackgroundDrawable(bgShape)
     tv.setLayoutParams(tvParams)
-    
+
     msgContainer.addView(tv)
     return msgContainer
 end
@@ -513,7 +513,7 @@ function createAndShowFloatingButton()
          return
     end
     floatingSettingsBtn = Button(service)
-    floatingSettingsBtn.setText("⚙️") 
+    floatingSettingsBtn.setText("⚙️")
     floatingSettingsBtn.setContentDescription(getFeedbackString("command_settings", selectedLanguage))
     local bg = GradientDrawable()
     bg.setCornerRadius(100)
@@ -793,7 +793,7 @@ function makeAiRequest(prompt, systemInstruction, imageBase64, modelIdOverride, 
         return
     end
 
-    local fastSystemInstruction = "Return ONLY the direct result. No explanations, no markdown." 
+    local fastSystemInstruction = "Return ONLY the direct result. No explanations, no markdown."
     local combinedSystemInstruction = systemInstruction or fastSystemInstruction
     if modelIdOverride and modelIdOverride:match("compound") then
         combinedSystemInstruction = systemInstruction or "You are a helpful AI assistant with search capabilities."
@@ -826,9 +826,9 @@ function makeAiRequest(prompt, systemInstruction, imageBase64, modelIdOverride, 
         root.put("model", model)
         root.put("messages", jsonMessages)
         root.put("temperature", 0.3)
-        root.put("max_tokens", 1024) 
+        root.put("max_tokens", 1024)
         requestBody = root.toString()
-        
+
     else
         url = "https://generativelanguage.googleapis.com/v1beta/models/" .. model .. ":generateContent?key=" .. apiKey
         headers = {["Content-Type"] = "application/json"}
@@ -840,16 +840,16 @@ function makeAiRequest(prompt, systemInstruction, imageBase64, modelIdOverride, 
         if imageBase64 then
             table.insert(parts, { inline_data = { mime_type = "image/png", data = imageBase64 } })
         end
-        
+
         local partsArray = toJavaJSON(parts)
         local contentObj = JSONObject()
         contentObj.put("parts", partsArray)
         local contentsArray = JSONArray()
         contentsArray.put(contentObj)
-        
+
         local root = JSONObject()
         root.put("contents", contentsArray)
-        
+
         local genConfig = JSONObject()
         genConfig.put("temperature", 0.3)
         genConfig.put("candidateCount", 1)
@@ -954,69 +954,6 @@ function querySummaryWithGemini(summary, history, userQuery, callback)
     makeAiRequest(prompt, "Answer about summary. Concise.", nil, nil, callback)
 end
 
-
--- ### REAL SYSTEM HEALTH CHECK (TESTING IN REALITY) ###
-function runSystemHealthCheck()
-    local results = {}
-    local totalTests = 3
-    local completedTests = 0
-    service.asyncSpeak("بدء فحص سلامة النظام...")
-    showResultWindow("فحص النظام", "⏳ جاري بدء الاختبارات الحقيقية...")
-
-    local function finalizeHealthCheck()
-        completedTests = completedTests + 1
-        if completedTests == totalTests then
-            local finalSummary = "\n--- تقرير الفحص النهائي ---\n"
-            local finalSpeak = "اكتمل الفحص. "
-            for _, res in ipairs(results) do
-                finalSummary = finalSummary .. (res.success and "✅ " or "❌ ") .. res.name .. ": " .. res.msg .. "\n"
-                finalSpeak = finalSpeak .. res.name .. (res.success and " يعمل بنجاح. " or " فيه مشكلة. ")
-            end
-            showResultWindow("تقرير فحص النظام", finalSummary)
-            service.asyncSpeak(finalSpeak)
-        end
-    end
-
-    -- 1. Internet & Basic connectivity
-    Http.get("https://www.google.com", nil, "UTF-8", nil, function(status, resp)
-        if status == 200 then
-            table.insert(results, {name = "الإنترنت", success = true, msg = "متصل وشغال."})
-        else
-            table.insert(results, {name = "الإنترنت", success = false, msg = "لا يوجد اتصال أو جوجل محجوب."})
-        end
-        finalizeHealthCheck()
-    end)
-
-    -- 2. Gemini API Reality Test
-    if geminiApiKey == "" then
-        table.insert(results, {name = "Gemini API", success = false, msg = "المفتاح مفقود."})
-        finalizeHealthCheck()
-    else
-        makeAiRequest("Say 'OK'", "Test", nil, "gemini", function(res)
-            if res and not res:match("^Error") and not res:match("^خطأ") then
-                table.insert(results, {name = "Gemini API", success = true, msg = "المفتاح سليم والموديل يستجيب."})
-            else
-                table.insert(results, {name = "Gemini API", success = false, msg = "خطأ في الاستجابة: " .. tostring(res)})
-            end
-            finalizeHealthCheck()
-        end)
-    end
-
-    -- 3. Groq API Reality Test (if enabled)
-    if groqApiKey == "" then
-        table.insert(results, {name = "Groq API", success = false, msg = "المفتاح مفقود."})
-        finalizeHealthCheck()
-    else
-        makeAiRequest("Say 'OK'", "Test", nil, "groq", function(res)
-            if res and not res:match("^Error") and not res:match("^خطأ") then
-                table.insert(results, {name = "Groq API", success = true, msg = "المفتاح سليم والموديل يستجيب."})
-            else
-                table.insert(results, {name = "Groq API", success = false, msg = "خطأ في الاستجابة: " .. tostring(res)})
-            end
-            finalizeHealthCheck()
-        end)
-    end
-end
 function waitForGeminiFileActive(fileUri, apiKey, callback)
     local url = fileUri .. "?key=" .. apiKey
     Http.get(url, nil, "UTF-8", nil, function(status, response)
@@ -1061,7 +998,7 @@ function uploadFileToGemini(filePath, mimeType, apiKey, callback)
     local t = Thread(Runnable{
         run = function()
             local success, err = pcall(function()
-                local file = File(filePath)
+                local file = luajava.bindClass("java.io.File")(tostring(filePath))
                 local fileName = file.getName()
                 local fileSize = file.length()
                 local fileSizeStr = string.format("%.0f", fileSize)
@@ -1158,6 +1095,293 @@ function uploadFileToGemini(filePath, mimeType, apiKey, callback)
     t.start()
 end
 
+function transcribeWithGroq(filePath, callback, modelId)
+    local apiKey = groqApiKey
+    if not apiKey or apiKey == "" then
+        callback("Error: Groq API Key is missing", true)
+        return
+    end
+
+    local modId = modelId or "whisper-large-v3"
+
+    import "java.lang.Thread"
+    import "java.lang.Runnable"
+    import "java.net.URL"
+    import "java.io.File"
+    import "java.io.FileInputStream"
+    import "java.io.DataOutputStream"
+    import "java.io.InputStreamReader"
+    import "java.io.BufferedReader"
+    import "java.lang.System"
+    import "android.os.Handler"
+    import "android.os.Looper"
+    import "org.json.JSONObject"
+
+    local t = Thread(Runnable{
+        run = function()
+            local success, err = pcall(function()
+                local file = luajava.bindClass("java.io.File")(tostring(filePath))
+                if not file.exists() then error("File not found: " .. filePath) end
+
+                local apiUrl = "https://api.groq.com/openai/v1/audio/transcriptions"
+                local urlObj = luajava.bindClass("java.net.URL")(tostring(apiUrl))
+                local conn = urlObj.openConnection()
+
+                conn.setChunkedStreamingMode(8192)
+                local boundary = "*****" .. tostring(System.currentTimeMillis()) .. "*****"
+                conn.setDoInput(true)
+                conn.setDoOutput(true)
+                conn.setUseCaches(false)
+                conn.setRequestMethod("POST")
+                conn.setRequestProperty("Connection", "Keep-Alive")
+                conn.setRequestProperty("Authorization", "Bearer " .. apiKey)
+                conn.setRequestProperty("Content-Type", "multipart/form-data;boundary=" .. boundary)
+
+                local dos = DataOutputStream(conn.getOutputStream())
+
+                -- Add model part
+                dos.writeBytes("--" .. boundary .. "\r\n")
+                dos.writeBytes("Content-Disposition: form-data; name=\"model\"\r\n\r\n")
+                dos.writeBytes(tostring(modId) .. "\r\n")
+
+                -- Add file part
+                dos.writeBytes("--" .. boundary .. "\r\n")
+                dos.writeBytes("Content-Disposition: form-data; name=\"file\"; filename=\"" .. file.getName() .. "\"\r\n")
+                dos.writeBytes("Content-Type: application/octet-stream\r\n\r\n")
+
+                local fileInputStream = FileInputStream(file)
+                local bufferSize = 4096
+                local Byte = luajava.bindClass("java.lang.Byte")
+                local buffer = luajava.newArray(Byte.TYPE, bufferSize)
+                local bytesRead = fileInputStream.read(buffer)
+                while bytesRead > 0 do
+                    dos.write(buffer, 0, bytesRead)
+                    bytesRead = fileInputStream.read(buffer)
+                end
+                fileInputStream.close()
+
+                dos.writeBytes("\r\n")
+                dos.writeBytes("--" .. boundary .. "--\r\n")
+                dos.flush()
+                dos.close()
+
+                local responseCode = conn.getResponseCode()
+                local is = (responseCode == 200) and conn.getInputStream() or conn.getErrorStream()
+                local br = BufferedReader(InputStreamReader(is))
+                local response = ""
+                local line = br.readLine()
+                while line ~= nil do
+                    response = response .. line
+                    line = br.readLine()
+                end
+                br.close()
+
+                mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                    run = function()
+                        if responseCode == 200 then
+                            local s, j = pcall(function() return JSONObject(response) end)
+                            if s and j.has("text") then
+                                callback(j.getString("text"), true)
+                            else
+                                callback("Error Parsing Groq: " .. response, true)
+                            end
+                        else
+                            callback("Error Groq: " .. responseCode .. " - " .. response, true)
+                        end
+                    end
+                }))
+            end)
+            if not success then
+                mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                    run = function() callback("Error Exception Groq: " .. tostring(err), true) end
+                }))
+            end
+        end
+    })
+    t.start()
+end
+
+function transcribeWithGemini(filePath, callback, modelId)
+    local apiKey = geminiApiKey
+    if not apiKey or apiKey == "" then
+        callback("Error: Gemini API Key is missing", true)
+        return
+    end
+
+    local modId = modelId or "gemini-2.5-flash"
+    local ext = filePath:match("%.([^%.]+)$") or "mp3"
+    local mime = "audio/" .. ext
+    if ext == "mp3" then mime = "audio/mpeg" end
+    if ext == "m4a" then mime = "audio/mp4" end
+
+    uploadFileToGemini(filePath, mime, apiKey, function(fileUriOrError)
+        if fileUriOrError:match("^Error:") then
+            callback(fileUriOrError, true)
+            return
+        end
+
+        local prompt = "قم بتفريغ هذا الملف الصوتي بدقة. اكتب النص المستخرج فقط."
+        local url = "https://generativelanguage.googleapis.com/v1beta/models/" .. modId .. ":generateContent?key=" .. apiKey
+        local headers = {["Content-Type"] = "application/json"}
+
+        local root = JSONObject()
+        local contentObj = JSONObject()
+        local partsArray = JSONArray()
+
+        local filePart = JSONObject()
+        local fileData = JSONObject()
+        fileData.put("mime_type", mime)
+        fileData.put("file_uri", fileUriOrError)
+        filePart.put("file_data", fileData)
+        partsArray.put(filePart)
+
+        local textPart = JSONObject()
+        textPart.put("text", prompt)
+        partsArray.put(textPart)
+
+        contentObj.put("parts", partsArray)
+        local contentsArray = JSONArray()
+        contentsArray.put(contentObj)
+        root.put("contents", contentsArray)
+
+        Http.post(url, root.toString(), headers, function(status, response)
+            if status == 200 then
+                local s, j = pcall(function() return JSONObject(response) end)
+                if s and j.has("candidates") then
+                    local cands = j.getJSONArray("candidates")
+                    if cands.length() > 0 then
+                        local parts = cands.getJSONObject(0).getJSONObject("content").getJSONArray("parts")
+                        if parts.length() > 0 and parts.getJSONObject(0).has("text") then
+                            callback(parts.getJSONObject(0).getString("text"), true)
+                            return
+                        end
+                    end
+                end
+            end
+            callback("Error Gemini Response: " .. status .. " - " .. tostring(response), true)
+        end)
+    end)
+end
+
+function transcribeWithWitAI(filePath, callback)
+    local apiKey = witApiKey
+    if not apiKey or apiKey == "" then
+        callback("Error: Wit.ai API Key is missing", true)
+        return
+    end
+
+    import "java.lang.Thread"
+    import "java.lang.Runnable"
+    import "java.net.URL"
+    import "java.io.File"
+    import "java.io.FileInputStream"
+    import "java.io.DataOutputStream"
+    import "java.io.InputStreamReader"
+    import "java.io.BufferedReader"
+    import "java.lang.System"
+    import "android.os.Handler"
+    import "android.os.Looper"
+    import "org.json.JSONObject"
+
+    local t = Thread(Runnable{
+        run = function()
+            local success, err = pcall(function()
+                local ext = filePath:match("%.([^%.]+)$") or ""
+                ext = ext:lower()
+                local mime = "audio/wav"
+                if ext == "mp3" then mime = "audio/mpeg"
+                elseif ext == "ogg" then mime = "audio/ogg"
+                elseif ext == "m4a" or ext == "aac" then mime = "audio/aac"
+                elseif ext == "raw" then mime = "audio/raw" end
+
+                local apiUrl = "https://api.wit.ai/dictation?v=20240304"
+                local urlObj = luajava.bindClass("java.net.URL")(tostring(apiUrl))
+                local conn = urlObj.openConnection()
+
+                conn.setConnectTimeout(60000)
+                conn.setReadTimeout(300000)
+                conn.setDoInput(true)
+                conn.setDoOutput(true)
+                conn.setUseCaches(false)
+                conn.setRequestMethod("POST")
+                conn.setRequestProperty("Authorization", "Bearer " .. apiKey)
+                conn.setRequestProperty("Content-Type", mime)
+                conn.setChunkedStreamingMode(8192)
+
+                local dos = DataOutputStream(conn.getOutputStream())
+                local file = luajava.bindClass("java.io.File")(tostring(filePath))
+                local fileInputStream = FileInputStream(file)
+                local bufferSize = 8192
+                local Byte = luajava.bindClass("java.lang.Byte")
+                local buffer = luajava.newArray(Byte.TYPE, bufferSize)
+                local bytesRead = fileInputStream.read(buffer)
+                while bytesRead > 0 do
+                    dos.write(buffer, 0, bytesRead)
+                    bytesRead = fileInputStream.read(buffer)
+                end
+                fileInputStream.close()
+                dos.close()
+
+                local responseCode = conn.getResponseCode()
+                local is = (responseCode == 200) and conn.getInputStream() or conn.getErrorStream()
+                local br = BufferedReader(InputStreamReader(is))
+                local accumulatedFinals = ""
+                local lastText = ""
+
+                local line = br.readLine()
+                local jsonBuffer = ""
+                while line ~= nil do
+                    jsonBuffer = jsonBuffer .. line .. "\n"
+                    if line:match("}") then
+                        local s, j = pcall(function() return JSONObject(jsonBuffer) end)
+                        if s then
+                            if j.has("text") then
+                                local currentText = j.getString("text")
+                                lastText = currentText
+                                local isFinal = j.has("is_final") and j.getBoolean("is_final")
+
+                                local displayStr = accumulatedFinals
+                                if isFinal then
+                                    accumulatedFinals = accumulatedFinals .. (accumulatedFinals == "" and "" or " ") .. currentText
+                                    displayStr = accumulatedFinals
+                                else
+                                    displayStr = accumulatedFinals .. (accumulatedFinals == "" and "" or " ") .. currentText
+                                end
+
+                                mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                                    run = function() callback(displayStr, false) end
+                                }))
+                            end
+                            jsonBuffer = ""
+                        end
+                    end
+                    line = br.readLine()
+                end
+                br.close()
+
+                mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                    run = function()
+                        if responseCode == 200 then
+                            if accumulatedFinals == "" and lastText ~= "" then accumulatedFinals = lastText end
+                            if accumulatedFinals == "" then accumulatedFinals = "تم الانتهاء ولم يتم التعرف على أي نص." end
+                            callback(accumulatedFinals, true)
+                        else
+                            local errMsg = "Error Wit: " .. responseCode .. " - " .. (responseCode == 408 and "Timeout" or "Fail")
+                            callback(errMsg, true)
+                        end
+                    end
+                }))
+            end)
+            if not success then
+                mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                    run = function() callback("Error Exception Wit: " .. tostring(err), true) end
+                }))
+            end
+        end
+    })
+    t.start()
+end
+
 function transcribeAudio(filePath, callback)
     local provider = "groq"
     local modId = "whisper-large-v3"
@@ -1187,235 +1411,14 @@ function transcribeAudio(filePath, callback)
 
     service.asyncSpeak("استخدام مزود: " .. providerName .. ". موديل: " .. modId)
 
-    import "java.lang.Thread"
-    import "java.lang.Runnable"
-    import "java.net.URL"
-    import "java.io.File"
-    import "java.io.FileInputStream"
-    import "java.io.DataOutputStream"
-    import "java.io.InputStreamReader"
-    import "java.io.BufferedReader"
-    import "java.lang.System"
-    import "android.os.Handler"
-    import "android.os.Looper"
-    import "java.io.ByteArrayOutputStream"
-    import "android.util.Base64"
-
     if provider == "groq" then
-        if groqApiKey == "" then callback("Error: Groq API Key is missing", true); return end
-        local t = Thread(Runnable{
-            run = function()
-                local success, err = pcall(function()
-                    local file = File(filePath)
-                    local url = URL(tostring("https://api.groq.com/openai/v1/audio/transcriptions"))
-                    local conn = url:openConnection()
-                    conn:setChunkedStreamingMode(8192)
-                    local boundary = "*****" .. tostring(System.currentTimeMillis()) .. "*****"
-                    conn:setDoInput(true)
-                    conn:setDoOutput(true)
-                    conn:setUseCaches(false)
-                    conn:setRequestMethod("POST")
-                    conn:setRequestProperty("Connection", "Keep-Alive")
-                    conn:setRequestProperty("Authorization", "Bearer " .. groqApiKey)
-                    conn:setRequestProperty("Content-Type", "multipart/form-data;boundary=" .. boundary)
-                    local dos = DataOutputStream(conn:getOutputStream())
-                    dos:writeBytes("--" .. boundary .. "\r\n")
-                    dos:writeBytes("Content-Disposition: form-data; name=\"model\"\r\n\r\n")
-                    dos:writeBytes(tostring(modId) .. "\r\n")
-                    dos:writeBytes("--" .. boundary .. "\r\n")
-                    dos:writeBytes("Content-Disposition: form-data; name=\"file\"; filename=\"" .. file:getName() .. "\"\r\n")
-                    dos:writeBytes("Content-Type: application/octet-stream\r\n\r\n")
-                    local fileInputStream = FileInputStream(file)
-                    local bufferSize = 4096
-                    local buffer = luajava.newArray(luajava.bindClass("java.lang.Byte").TYPE, bufferSize)
-                    local bytesRead = fileInputStream:read(buffer)
-                    while bytesRead > 0 do
-                        dos:write(buffer, 0, bytesRead)
-                        bytesRead = fileInputStream:read(buffer)
-                    end
-                    fileInputStream:close()
-                    dos:writeBytes("\r\n")
-                    dos:writeBytes("--" .. boundary .. "--\r\n")
-                    dos:flush()
-                    dos:close()
-                    local responseCode = conn:getResponseCode()
-                    local is = (responseCode == 200) and conn:getInputStream() or conn:getErrorStream()
-                    local br = BufferedReader(InputStreamReader(is))
-                    local response = ""
-                    local line = br:readLine()
-                    while line ~= nil do response = response .. line; line = br:readLine() end
-                    br:close()
-                    mainHandler.post(luajava.createProxy("java.lang.Runnable", {
-                        run = function()
-                            if responseCode == 200 then
-                                local s, j = pcall(function() return JSONObject(response) end)
-                                if s and j:has("text") then callback(j:getString("text"), true) else callback("Error: " .. response, true) end
-                            else callback("Error: " .. responseCode .. " - " .. response, true) end
-                        end
-                    }))
-                end)
-                if not success then
-                    mainHandler.post(luajava.createProxy("java.lang.Runnable", {
-                        run = function() callback("Error Exception: " .. tostring(err), true) end
-                    }))
-                end
-            end
-        })
-        t.start()
+        transcribeWithGroq(filePath, callback, modId)
     elseif provider == "gemini" then
-        if geminiApiKey == "" then callback("Error: Gemini API Key is missing", true); return end
-        local ext = filePath:match("%.([^%.]+)$") or "mp3"
-        local mime = "audio/" .. ext
-        if ext == "m4a" then mime = "audio/mp4" end
-
-        uploadFileToGemini(filePath, mime, geminiApiKey, function(fileUriOrError)
-            if fileUriOrError:match("^Error:") then
-                callback(fileUriOrError, true)
-                return
-            end
-
-            local prompt = "قم بتفريغ هذا الملف الصوتي بدقة. اكتب النص المستخرج فقط."
-            local url = "https://generativelanguage.googleapis.com/v1beta/models/" .. modId .. ":generateContent?key=" .. geminiApiKey
-            local headers = {["Content-Type"] = "application/json"}
-
-            local root = JSONObject()
-            local contentObj = JSONObject()
-            local partsArray = JSONArray()
-
-            local filePart = JSONObject()
-            local fileData = JSONObject()
-            fileData.put("mime_type", mime)
-            fileData.put("file_uri", fileUriOrError)
-            filePart.put("file_data", fileData)
-            partsArray.put(filePart)
-
-            local textPart = JSONObject()
-            textPart.put("text", prompt)
-            partsArray.put(textPart)
-
-            contentObj.put("parts", partsArray)
-            local contentsArray = JSONArray()
-            contentsArray.put(contentObj)
-            root.put("contents", contentsArray)
-
-            Http.post(url, root.toString(), headers, function(status, response)
-                if status == 200 then
-                    local s, j = pcall(function() return JSONObject(response) end)
-                    if s and j.has("candidates") then
-                        local cands = j.getJSONArray("candidates")
-                        if cands.length() > 0 then
-                            local parts = cands.getJSONObject(0).getJSONObject("content").getJSONArray("parts")
-                            if parts.length() > 0 and parts.getJSONObject(0).has("text") then
-                                callback(parts.getJSONObject(0).getString("text"), true)
-                                return
-                            end
-                        end
-                    end
-                end
-                callback("Error Gemini: " .. status .. " - " .. tostring(response), true)
-            end)
-        end)
+        transcribeWithGemini(filePath, callback, modId)
     elseif provider == "wit" then
-        if witApiKey == "" then callback("Error: Wit.ai API Key is missing", true); return end
-        local t = Thread(Runnable{
-            run = function()
-                local success, err = pcall(function()
-                    local ext = filePath:match("%.([^%.]+)$") or ""
-                    ext = ext:lower()
-                    local mime = "audio/wav"
-                    if ext == "mp3" then mime = "audio/mpeg" 
-                    elseif ext == "ogg" then mime = "audio/ogg"
-                    elseif ext == "m4a" or ext == "aac" then mime = "audio/aac"
-                    elseif ext == "raw" then mime = "audio/raw" end
-                    
-                    local url = URL(tostring("https://api.wit.ai/dictation?v=20240304"))
-                    local conn = url:openConnection()
-                    conn:setConnectTimeout(60000)
-                    conn:setReadTimeout(300000)
-                    conn:setDoInput(true)
-                    conn:setDoOutput(true)
-                    conn:setUseCaches(false)
-                    conn:setRequestMethod("POST")
-                    conn:setRequestProperty("Authorization", "Bearer " .. witApiKey)
-                    conn:setRequestProperty("Content-Type", mime)
-                    
-                    conn:setChunkedStreamingMode(8192)
-                    
-                    local dos = DataOutputStream(conn:getOutputStream())
-                    local file = File(filePath)
-                    local fileInputStream = FileInputStream(file)
-                    local bufferSize = 8192
-                    local buffer = luajava.newArray(luajava.bindClass("java.lang.Byte").TYPE, bufferSize)
-                    local bytesRead = fileInputStream:read(buffer)
-                    while bytesRead > 0 do
-                        dos:write(buffer, 0, bytesRead)
-                        dos:flush()
-                        bytesRead = fileInputStream:read(buffer)
-                    end
-                    fileInputStream:close()
-                    dos:close()
-                    
-                    local responseCode = conn:getResponseCode()
-                    local is = (responseCode == 200) and conn:getInputStream() or conn:getErrorStream()
-                    local br = BufferedReader(InputStreamReader(is))
-                    local accumulatedFinals = ""
-                    local lastText = ""
-                    
-                    local line = br:readLine()
-                    local jsonBuffer = ""
-                    while line ~= nil do 
-                        jsonBuffer = jsonBuffer .. line .. "\n"
-                        if line:match("}") then
-                            local s, j = pcall(function() return JSONObject(jsonBuffer) end)
-                            if s then
-                                if j:has("text") then
-                                    local currentText = j:getString("text")
-                                    lastText = currentText
-                                    local isFinal = j:has("is_final") and j:getBoolean("is_final")
-                                    
-                                    local displayStr = accumulatedFinals
-                                    if isFinal then
-                                        accumulatedFinals = accumulatedFinals .. (accumulatedFinals == "" and "" or " ") .. currentText
-                                        displayStr = accumulatedFinals
-                                    else
-                                        displayStr = accumulatedFinals .. (accumulatedFinals == "" and "" or " ") .. currentText
-                                    end
-                                    
-                                    mainHandler.post(luajava.createProxy("java.lang.Runnable", {
-                                        run = function()
-                                            callback(displayStr, false)
-                                        end
-                                    }))
-                                end
-                                jsonBuffer = ""
-                            end
-                        end
-                        line = br.readLine() 
-                    end
-                    br.close()
-                    
-                    mainHandler.post(luajava.createProxy("java.lang.Runnable", {
-                        run = function()
-                            if responseCode == 200 then
-                                if accumulatedFinals == "" and lastText ~= "" then accumulatedFinals = lastText end
-                                if accumulatedFinals == "" then accumulatedFinals = "تم الانتهاء ولم يتم التعرف على أي نص." end
-                                callback(accumulatedFinals, true)
-                            else 
-                                local errMsg = "Error: " .. responseCode
-                                if responseCode == 408 or responseCode == 413 then errMsg = "خطأ: الملف كبير جداً (Timeout). تم استخدام البث المباشر بنجاح لكن سيرفر فيسبوك رفض طول الملف." end
-                                callback(errMsg, true) 
-                            end
-                        end
-                    }))
-                end)
-                if not success then
-                    mainHandler.post(luajava.createProxy("java.lang.Runnable", {
-                        run = function() callback("Error Exception: " .. tostring(err), true) end
-                    }))
-                end
-            end
-        })
-        t.start()
+        transcribeWithWitAI(filePath, callback)
+    else
+        callback("Error: Unknown provider " .. tostring(provider), true)
     end
 end
 
@@ -1443,7 +1446,7 @@ function fetchGroqModels(callback)
     service.asyncSpeak("جاري جلب قائمة موديلات Groq...")
     local url = "https://api.groq.com/openai/v1/models"
     local headers = {["Authorization"] = "Bearer " .. groqApiKey}
-    
+
     Http.get(url, nil, "UTF-8", headers, function(code, body)
         if code == 200 then
             local s, j = pcall(function() return JSONObject(body) end)
@@ -1476,32 +1479,32 @@ function showImageDescriptionWindow(initialDescription, initialOcrText, base64Im
     local currentDictLangDetails = getLanguageDetails(selectedLanguage)
 
     local accumulatedQnAForImage = "الوصف الأولي للصورة: " .. initialDescription .. "\nالنص المستخرج مبدئيًا من الصورة: " .. initialOcrText .. "\n\n"
-    
+
     resultWindow = LinearLayout(service); resultWindow.setOrientation(LinearLayout.VERTICAL); resultWindow.setBackgroundColor(0xFF121212); resultWindow.setPadding(30,30,30,30)
-    
+
     local titleV = TextView(service); titleV.setText("تحليل الصورة والاستعلام عنها"); titleV.setTextSize(22); titleV.setTextColor(0xFFFFFFFF); titleV.setTypeface(nil, Typeface.BOLD); titleV.setGravity(Gravity.CENTER); titleV.setPadding(0,0,0,20); resultWindow.addView(titleV)
     local scrollV = ScrollView(service); local contentL = LinearLayout(service); contentL.setOrientation(LinearLayout.VERTICAL); contentL.setPadding(10,10,10,10)
-    
+
     local descLbl = TextView(service); descLbl.setText("وصف الصورة:"); descLbl.setTextSize(18); descLbl.setTypeface(nil, Typeface.BOLD); descLbl.setTextColor(0xFF64B5F6); contentL.addView(descLbl)
     local descTxtV = TextView(service); descTxtV.setText(initialDescription); descTxtV.setTextIsSelectable(true); descTxtV.setTextSize(16); descTxtV.setTextColor(0xFFE0E0E0); descTxtV.setPadding(0,10,0,20); contentL.addView(descTxtV)
-    
+
     local copyDescBtn = Button(service); copyDescBtn.setText("📋 نسخ الوصف"); styleButton(copyDescBtn, "secondary"); copyDescBtn.setContentDescription("نسخ وصف الصورة المكتوب");
-    copyDescBtn.setOnClickListener(function() local cb=service.getSystemService(Context.CLIPBOARD_SERVICE); local cl=ClipData.newPlainText("Image Description",descTxtV.getText().toString());cb.setPrimaryClip(cl);service.asyncSpeak(getFeedbackString("copy_desc", currentDictLangDetails.code)) end); 
+    copyDescBtn.setOnClickListener(function() local cb=service.getSystemService(Context.CLIPBOARD_SERVICE); local cl=ClipData.newPlainText("Image Description",descTxtV.getText().toString());cb.setPrimaryClip(cl);service.asyncSpeak(getFeedbackString("copy_desc", currentDictLangDetails.code)) end);
     contentL.addView(copyDescBtn)
-    
+
     local ocrLbl = TextView(service); ocrLbl.setText("النص المستخرج:"); ocrLbl.setTextSize(18); ocrLbl.setTypeface(nil, Typeface.BOLD); ocrLbl.setTextColor(0xFF64B5F6); ocrLbl.setPadding(0,20,0,0); contentL.addView(ocrLbl)
     local ocrTxtV = TextView(service); ocrTxtV.setText(initialOcrText); ocrTxtV.setTextIsSelectable(true); ocrTxtV.setTextSize(16); ocrTxtV.setTextColor(0xFFE0E0E0); ocrTxtV.setPadding(0,10,0,20); contentL.addView(ocrTxtV)
-    
+
     local copyOcrBtn = Button(service); copyOcrBtn.setText("📋 نسخ النص المستخرج"); styleButton(copyOcrBtn, "secondary"); copyOcrBtn.setContentDescription("نسخ النص الذي تم استخراجه من الصورة");
-    copyOcrBtn.setOnClickListener(function() local cb=service.getSystemService(Context.CLIPBOARD_SERVICE); local cl=ClipData.newPlainText("Extracted Text",ocrTxtV.getText().toString());cb.setPrimaryClip(cl);service.asyncSpeak(getFeedbackString("copy_ocr", currentDictLangDetails.code)) end); 
+    copyOcrBtn.setOnClickListener(function() local cb=service.getSystemService(Context.CLIPBOARD_SERVICE); local cl=ClipData.newPlainText("Extracted Text",ocrTxtV.getText().toString());cb.setPrimaryClip(cl);service.asyncSpeak(getFeedbackString("copy_ocr", currentDictLangDetails.code)) end);
     contentL.addView(copyOcrBtn)
-    
+
     local qnaLbl = TextView(service); qnaLbl.setText("المحادثة حول الصورة:"); qnaLbl.setTextSize(18); qnaLbl.setTypeface(nil, Typeface.BOLD); qnaLbl.setTextColor(0xFF64B5F6); qnaLbl.setPadding(0,30,0,10); contentL.addView(qnaLbl)
-    
+
     local qnaHistoryLayout = LinearLayout(service)
     qnaHistoryLayout.setOrientation(LinearLayout.VERTICAL)
     contentL.addView(qnaHistoryLayout)
-    
+
     local voiceQBtn = Button(service); voiceQBtn.setText("🎤 التحدث للسؤال عن الصورة"); styleButton(voiceQBtn, "primary"); voiceQBtn.setContentDescription("بدء التحدث لسؤال المساعد حول محتوى الصورة");
     voiceQBtn.setOnClickListener(function()
         if not base64Image then service.asyncSpeak(getFeedbackString("image_query_no_data", currentDictLangDetails.code)); return end
@@ -1509,7 +1512,7 @@ function showImageDescriptionWindow(initialDescription, initialOcrText, base64Im
         if not SpeechRecognizer.isRecognitionAvailable(service) then service.asyncSpeak(getFeedbackString("error_speech_unavailable", currentDictLangDetails.code)); return end
 
         voiceQBtn.setText("⏳ جارٍ الاستماع..."); voiceQBtn.setEnabled(false);
-        
+
         imageQueryRecognizer = SpeechRecognizer.createSpeechRecognizer(service)
         local qIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH); qIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM); qIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, selectedLanguage or "ar"); qIntent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false); qIntent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
         imageQueryRecognizer.setRecognitionListener(RecognitionListener{
@@ -1522,10 +1525,10 @@ function showImageDescriptionWindow(initialDescription, initialOcrText, base64Im
                     if uQ and uQ~="" then
                         local userBubble = createChatBubble(uQ, true)
                         qnaHistoryLayout.addView(userBubble)
-                        
+
                         local aiBubble = createChatBubble("جاري البحث...", false)
                         qnaHistoryLayout.addView(aiBubble)
-                        
+
                         pcall(function() scrollV.fullScroll(ScrollView.FOCUS_DOWN) end)
 
                         queryImageWithGemini(base64Image, uQ, accumulatedQnAForImage, function(aiR)
@@ -1546,18 +1549,18 @@ function showImageDescriptionWindow(initialDescription, initialOcrText, base64Im
             onPartialResults=function()end, onEvent=function()end
         }); pcall(function() imageQueryRecognizer.startListening(qIntent) end)
     end)
-    
+
     local btnParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
     btnParams.setMargins(0,30,0,10)
     voiceQBtn.setLayoutParams(btnParams)
     if base64Image then contentL.addView(voiceQBtn) end
-    
+
     scrollV.addView(contentL); local scrP = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,0,1.0); resultWindow.addView(scrollV,scrP)
-    
+
     local closeBtn = Button(service); closeBtn.setText("❌ إغلاق"); styleButton(closeBtn, "danger"); closeBtn.setContentDescription("إغلاق نافذة عارض المستندات");
     closeBtn.setOnClickListener(function() if resultWindow then pcall(function()wm.removeView(resultWindow)end); resultWindow=nil end; if imageQueryRecognizer then pcall(function()imageQueryRecognizer.destroy()end); imageQueryRecognizer=nil end end)
     local btnP = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,LinearLayout.LayoutParams.WRAP_CONTENT); btnP.topMargin=20; resultWindow.addView(closeBtn,btnP)
-    
+
     local winP = WindowManager.LayoutParams(); winP.width=WindowManager.LayoutParams.MATCH_PARENT; winP.height=math.floor(service.getResources().getDisplayMetrics().heightPixels*0.85); winP.type=WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY; winP.flags=WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL|WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN; winP.format=PixelFormat.TRANSLUCENT; winP.gravity=Gravity.CENTER; winP.horizontalMargin=0.05; winP.verticalMargin=0.05
     pcall(function() wm.addView(resultWindow, winP) end)
 
@@ -1576,35 +1579,35 @@ function showSummaryWindow(summary)
     if summaryWindow then pcall(function() wm.removeView(summaryWindow) end); summaryWindow = nil end
     if summaryQueryRecognizer then pcall(function() summaryQueryRecognizer.destroy() end); summaryQueryRecognizer = nil end
     local currentDictLangDetails = getLanguageDetails(selectedLanguage)
-    
+
     local summaryAccumulatedHistory = ""
-    
+
     summaryWindow = LinearLayout(service); summaryWindow.setOrientation(LinearLayout.VERTICAL); summaryWindow.setBackgroundColor(0xFF121212); summaryWindow.setPadding(30,30,30,30)
     local titleV = TextView(service); titleV.setText("ملخص النص والمحادثة"); titleV.setTextSize(22); titleV.setTextColor(0xFFFFFFFF); titleV.setTypeface(nil, Typeface.BOLD); titleV.setGravity(Gravity.CENTER); titleV.setPadding(0,0,0,20); summaryWindow.addView(titleV)
-    
+
     local scrollV = ScrollView(service)
     local contentL = LinearLayout(service); contentL.setOrientation(LinearLayout.VERTICAL); contentL.setPadding(10,10,10,10)
-    
+
     local sumLbl = TextView(service); sumLbl.setText("الملخص:"); sumLbl.setTextSize(18); sumLbl.setTypeface(nil, Typeface.BOLD); sumLbl.setTextColor(0xFF64B5F6); contentL.addView(sumLbl)
     local sumTxtV = TextView(service); sumTxtV.setText(summary); sumTxtV.setTextIsSelectable(true); sumTxtV.setTextSize(16); sumTxtV.setTextColor(0xFFE0E0E0); sumTxtV.setPadding(0,10,0,20); contentL.addView(sumTxtV)
-    
+
     local copySumBtn = Button(service); copySumBtn.setText("📋 نسخ الملخص"); styleButton(copySumBtn, "secondary"); copySumBtn.setContentDescription("نسخ نص الملخص إلى الحافظة");
-    copySumBtn.setOnClickListener(function() local cb=service.getSystemService(Context.CLIPBOARD_SERVICE); local cl=ClipData.newPlainText("Summary",sumTxtV.getText().toString());cb.setPrimaryClip(cl);service.asyncSpeak(getFeedbackString("copy_general_text", currentDictLangDetails.code)) end); 
+    copySumBtn.setOnClickListener(function() local cb=service.getSystemService(Context.CLIPBOARD_SERVICE); local cl=ClipData.newPlainText("Summary",sumTxtV.getText().toString());cb.setPrimaryClip(cl);service.asyncSpeak(getFeedbackString("copy_general_text", currentDictLangDetails.code)) end);
     contentL.addView(copySumBtn)
-    
+
     local qnaLbl = TextView(service); qnaLbl.setText("المحادثة والأسئلة:"); qnaLbl.setTextSize(18); qnaLbl.setTypeface(nil, Typeface.BOLD); qnaLbl.setTextColor(0xFF64B5F6); qnaLbl.setPadding(0,30,0,10); contentL.addView(qnaLbl)
-    
+
     local qnaHistoryLayout = LinearLayout(service)
     qnaHistoryLayout.setOrientation(LinearLayout.VERTICAL)
     contentL.addView(qnaHistoryLayout)
-    
+
     local askQBtn = Button(service); askQBtn.setText("🎤 التحدث للسؤال عن الملخص"); styleButton(askQBtn, "primary"); askQBtn.setContentDescription("بدء التحدث لسؤال المساعد حول هذا الملخص");
     askQBtn.setOnClickListener(function()
         if summaryQueryRecognizer then service.asyncSpeak(getFeedbackString("image_query_pending", currentDictLangDetails.code)); return end
         if groqApiKey=="" then service.asyncSpeak(getFeedbackString("api_key_missing_for_feature", currentDictLangDetails.code, "Summary Query")); return end
         if not SpeechRecognizer.isRecognitionAvailable(service) then service.asyncSpeak(getFeedbackString("error_speech_unavailable", currentDictLangDetails.code)); return end
         askQBtn.setText("⏳ جارٍ الاستماع..."); askQBtn.setEnabled(false)
-        service.asyncSpeak("ما هو سؤالك عن الملخص؟") 
+        service.asyncSpeak("ما هو سؤالك عن الملخص؟")
         summaryQueryRecognizer = SpeechRecognizer.createSpeechRecognizer(service)
         local qIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH); qIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM); qIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, selectedLanguage or "ar"); qIntent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false); qIntent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
         summaryQueryRecognizer.setRecognitionListener(RecognitionListener{
@@ -1617,21 +1620,21 @@ function showSummaryWindow(summary)
                 if m and m.size()>0 then
                     local uQ=m.get(0)
                     if uQ and uQ~="" then
-                        local newHistory = summaryAccumulatedHistory .. (summaryAccumulatedHistory == "" and "" or "\n") .. "المستخدم: " .. uQ 
-                        
+                        local newHistory = summaryAccumulatedHistory .. (summaryAccumulatedHistory == "" and "" or "\n") .. "المستخدم: " .. uQ
+
                         local userBubble = createChatBubble(uQ, true)
                         qnaHistoryLayout.addView(userBubble)
-                        
+
                         local aiBubble = createChatBubble("جاري البحث...", false)
                         qnaHistoryLayout.addView(aiBubble)
-                        
+
                         pcall(function() scrollV.fullScroll(ScrollView.FOCUS_DOWN) end)
 
                         querySummaryWithGemini(summary, summaryAccumulatedHistory, uQ, function(aiR)
                             if aiR and not aiR:match("^Error:") and not aiR:match("^خطأ:") then
-                                summaryAccumulatedHistory = newHistory .. "\nالمساعد: " .. aiR 
+                                summaryAccumulatedHistory = newHistory .. "\nالمساعد: " .. aiR
                                 aiBubble.getChildAt(0).setText(aiR)
-                                speakAIResponseViaCustomTTS(aiR, "ar") 
+                                speakAIResponseViaCustomTTS(aiR, "ar")
                                 pcall(function() scrollV.fullScroll(ScrollView.FOCUS_DOWN) end)
                             else
                                 local errorMsg = aiR or "خطأ في المعالجة."
@@ -1652,25 +1655,25 @@ function showSummaryWindow(summary)
         })
         pcall(function() summaryQueryRecognizer.startListening(qIntent) end)
     end)
-    
+
     local btnParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
     btnParams.setMargins(0,30,0,10)
     askQBtn.setLayoutParams(btnParams)
     contentL.addView(askQBtn)
-    
+
     scrollV.addView(contentL)
     local scrP = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,0,1.0)
     summaryWindow.addView(scrollV,scrP)
-    
+
     local closeBtn = Button(service); closeBtn.setText("❌ إغلاق"); styleButton(closeBtn, "danger"); closeBtn.setContentDescription("إغلاق نافذة عارض المستندات");
     closeBtn.setOnClickListener(function() if summaryWindow then pcall(function()wm.removeView(summaryWindow)end); summaryWindow=nil end; if summaryQueryRecognizer then pcall(function()summaryQueryRecognizer.destroy()end); summaryQueryRecognizer=nil end end)
     local btnP = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,LinearLayout.LayoutParams.WRAP_CONTENT); btnP.topMargin=20; summaryWindow.addView(closeBtn,btnP)
-    
+
     local winP = WindowManager.LayoutParams(); winP.width=WindowManager.LayoutParams.MATCH_PARENT; winP.height=math.floor(service.getResources().getDisplayMetrics().heightPixels*0.85); winP.type=WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY; winP.flags=WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL|WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN; winP.format=PixelFormat.TRANSLUCENT; winP.gravity=Gravity.CENTER; winP.horizontalMargin=0.05; winP.verticalMargin=0.05
     pcall(function() wm.addView(summaryWindow, winP) end)
 
     if summary and not summary:match("^Error:") and not summary:match("^خطأ:") and summary ~= "" then
-        speakAIResponseViaCustomTTS(summary, "ar") 
+        speakAIResponseViaCustomTTS(summary, "ar")
     end
 end
 
@@ -1783,16 +1786,16 @@ function showVideoAnalysisWindow(initialSummary, fileUri, filePath)
 end
 
 function showResultWindow(titleTextStr, contentTextStr)
-    if resultWindow and globalResultContentTextView then 
+    if resultWindow and globalResultContentTextView then
         globalResultContentTextView.setText(contentTextStr)
-        return 
+        return
     end
     if resultWindow then pcall(function() wm.removeView(resultWindow) end); resultWindow = nil; globalResultContentTextView = nil end
     local currentDictLangDetails = getLanguageDetails(selectedLanguage)
     resultWindow = LinearLayout(service); resultWindow.setOrientation(LinearLayout.VERTICAL); resultWindow.setBackgroundColor(0xFF1E1E1E); resultWindow.setPadding(35,35,35,35)
     local titleV = TextView(service); titleV.setText(titleTextStr); titleV.setTextSize(20); titleV.setTextColor(0xFFFFFFFF); titleV.setTypeface(nil, Typeface.BOLD); titleV.setGravity(Gravity.CENTER); resultWindow.addView(titleV)
-    local scrollV = ScrollView(service); 
-    globalResultContentTextView = TextView(service); 
+    local scrollV = ScrollView(service);
+    globalResultContentTextView = TextView(service);
     globalResultContentTextView.setText(contentTextStr); globalResultContentTextView.setTextIsSelectable(true); globalResultContentTextView.setTextSize(18); globalResultContentTextView.setTextColor(0xFFE0E0E0); globalResultContentTextView.setPadding(10,20,10,20); scrollV.addView(globalResultContentTextView); resultWindow.addView(scrollV, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,0,1.0))
     local copyBtn = Button(service); copyBtn.setText("📋 نسخ النص"); styleButton(copyBtn, "secondary"); copyBtn.setContentDescription("نسخ النص المعروض إلى الحافظة"); copyBtn.setOnClickListener(function() local cb=service.getSystemService(Context.CLIPBOARD_SERVICE); local cl=ClipData.newPlainText(titleTextStr,globalResultContentTextView.getText().toString()); cb.setPrimaryClip(cl); service.asyncSpeak(getFeedbackString("copy_general_text", currentDictLangDetails.code)) end); resultWindow.addView(copyBtn)
     local closeBtn = Button(service); closeBtn.setText("❌ إغلاق"); styleButton(closeBtn, "danger"); closeBtn.setContentDescription("إغلاق نافذة النتائج"); closeBtn.setOnClickListener(function() if resultWindow then pcall(function()wm.removeView(resultWindow)end); resultWindow=nil; globalResultContentTextView=nil end end); local btnP = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,LinearLayout.LayoutParams.WRAP_CONTENT); resultWindow.addView(closeBtn,btnP)
@@ -1965,9 +1968,9 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
     local isTxt = filePath:lower():match("%.txt$") ~= nil
     local isEpub = filePath:lower():match("%.epub$") ~= nil
     local accumulatedQnA = (isTxt and "ملف نصي محمل محلياً.\n\n") or (isWordLocal and "ملف Word محمل محلياً.\n\n") or (isEpub and "ملف EPUB محمل محلياً.\n\n") or "ملف PDF محمل.\n\n"
-    
+
     resultWindow = LinearLayout(service); resultWindow.setOrientation(LinearLayout.VERTICAL); resultWindow.setBackgroundColor(0xFF121212); resultWindow.setPadding(20,20,20,20)
-    
+
     local headerL = LinearLayout(service); headerL.setOrientation(LinearLayout.HORIZONTAL); headerL.setGravity(Gravity.CENTER_VERTICAL); headerL.setPadding(0,0,0,10)
     local titleV = TextView(service);
     local titleText = "عارض المستند"
@@ -1982,7 +1985,7 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
     fastCloseBtn.setPadding(10,10,10,10)
     headerL.addView(fastCloseBtn, LinearLayout.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT))
     resultWindow.addView(headerL)
-    
+
     local pagesCache = {}
     local currentCacheIdx = 1
     local sentencesList = {}
@@ -2307,7 +2310,7 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
         local url = "https://generativelanguage.googleapis.com/v1beta/models/" .. selectedGeminiModelId .. ":generateContent?key=" .. geminiApiKey
         local headers = {["Content-Type"] = "application/json"}
         local root = JSONObject(); local contentObj = JSONObject(); local partsArray = JSONArray()
-        
+
         if isWordLocal or isTxt or isEpub then
             local sysPart = JSONObject(); sysPart.put("text", "System: You are an assistant answering questions about the following document content.\n\nContent:\n" .. (initialText or ""))
             partsArray.put(sysPart)
@@ -2316,10 +2319,10 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
             fileData.put("mime_type", "application/pdf"); fileData.put("file_uri", fileUri)
             filePart.put("file_data", fileData); partsArray.put(filePart)
         end
-        
+
         local textPart = JSONObject(); textPart.put("text", promptText); partsArray.put(textPart)
         contentObj.put("parts", partsArray); local contentsArray = JSONArray(); contentsArray.put(contentObj); root.put("contents", contentsArray)
-        
+
         Http.post(url, root.toString(), headers, function(status, response)
             local resultTxt = "Error: " .. status
             if status == 200 then
@@ -2334,8 +2337,8 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
             else resultTxt = resultTxt .. " - " .. tostring(response) end
             mainHandler.post(luajava.createProxy("java.lang.Runnable", {
                 run = function()
-                    if aiBubble then 
-                        aiBubble.getChildAt(0).setText(resultTxt) 
+                    if aiBubble then
+                        aiBubble.getChildAt(0).setText(resultTxt)
                         speakAIResponseViaCustomTTS(resultTxt, "ar")
                         accumulatedQnA = accumulatedQnA .. "AI: " .. resultTxt .. "\n\n"
                         pcall(function() qnaScroll.fullScroll(ScrollView.FOCUS_DOWN) end)
@@ -2344,7 +2347,7 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
             }))
         end)
     end
-    
+
     playBtn.setOnClickListener(function() if isPlaying then stopReading() else readCurrentSentence() end end)
 
     prevSkipBtn.setOnClickListener(function()
@@ -2405,7 +2408,7 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
             end
         }); pcall(function() localRec.startListening(qIntent) end)
     end)
-    
+
     local closeAction = function()
         stopReading()
         if docTts then pcall(function() docTts.shutdown() end) end
@@ -2418,7 +2421,7 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
 
     local winP = WindowManager.LayoutParams(); winP.width=WindowManager.LayoutParams.MATCH_PARENT; winP.height=math.floor(service.getResources().getDisplayMetrics().heightPixels*0.85); winP.type=WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY; winP.flags=WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL; winP.format=PixelFormat.TRANSLUCENT; winP.gravity=Gravity.CENTER; winP.horizontalMargin=0.05; winP.verticalMargin=0.05
     pcall(function() wm.addView(resultWindow, winP) end)
-    
+
     if (isWordLocal or isTxt or isEpub) and initialText then
         pagesCache = {initialText}
         currentCacheIdx = 1
@@ -2792,7 +2795,7 @@ function loadPdfAndShowViewer(filePath)
     end
     service.asyncSpeak("جاري تحميل وقراءة الملف...")
     showResultWindow("تحميل PDF", "⏳ جاري قراءة الملف وتجهيزه...")
-    
+
     uploadFileToGemini(filePath, "application/pdf", geminiApiKey, function(fileUriOrError)
         if fileUriOrError:match("^Error:") then
             service.asyncSpeak("خطأ في تحميل الملف.")
@@ -2917,7 +2920,7 @@ function saveSettings()
     editor.putBoolean("continuousDictation", continuousDictationEnabled)
     editor.putBoolean("autoSpaceEnabled", autoSpaceEnabled)
     editor.putBoolean("geminiCorrectionEnabled", geminiCorrectionEnabled)
-    
+
     editor.putString("geminiApiKey", geminiApiKey or "")
     editor.putString("groqApiKey", groqApiKey or "")
     editor.putString("witApiKey", witApiKey or "")
@@ -2925,7 +2928,7 @@ function saveSettings()
     editor.putString("groqModelId", selectedGroqModelId or defaultGroqModelId)
     editor.putString("audioModelId", selectedAudioModelId or defaultAudioModelId)
     editor.putString("searchModelId", selectedSearchModelId or "compound-beta")
-editor.putString("dashboardOrder", dashboardOrder or "assistant,dictation,reader,image,transcription,healthCheck,settings")
+editor.putString("dashboardOrder", dashboardOrder or "assistant,dictation,reader,image,transcription,settings")
     editor.putString("selectedDictationMode", selectedDictationMode or defaultDictationMode)
 
     editor.putBoolean("summarizeEnabled", summarizeEnabled)
@@ -3037,14 +3040,6 @@ function openMainWindow()
             end)
             return btn
         end,
-
-        healthCheck = function()
-            local btn = Button(service); btn.setText("🔍 فحص سلامة النظام")
-            btn.setContentDescription("إجراء اختبارات حقيقية للإنترنت والـ APIs")
-            styleButton(btn, "tertiary")
-            btn.setOnClickListener(function() hideMainWindow(); runSystemHealthCheck() end)
-            return btn
-        end,
         settings = function()
             local btn = Button(service); btn.setText("⚙️ الإعدادات المتقدمة")
             btn.setContentDescription("تخصيص مفاتيح الربط واللغات والموديلات")
@@ -3054,7 +3049,7 @@ function openMainWindow()
         end
     }
 
-    local orderStr = dashboardOrder or "assistant,dictation,reader,image,transcription,healthCheck,settings"
+    local orderStr = dashboardOrder or "assistant,dictation,reader,image,transcription,settings"
     for k in orderStr:gmatch("([^,]+)") do
         local key = k:gsub("^%s+", ""):gsub("%s+$", "")
         if buttons[key] then
@@ -3297,7 +3292,7 @@ function openSettings()
     -- SECTION: API Keys
     local apiCard = createCard(contentL)
     addSectionHeader("مفاتيح الربط (API Keys)", apiCard)
-    
+
     apiCard.addView(createLabel("مفتاح Groq API:"))
     local groqApiKeyIn = EditText(service)
     groqApiKeyIn.setText(groqApiKey or "")
@@ -3351,13 +3346,6 @@ function openSettings()
     local grFetchBtn = Button(service); grFetchBtn.setText("🔄 تحديث قائمة Groq"); styleButton(grFetchBtn, "secondary"); grFetchBtn.setContentDescription("تحديث قائمة موديلات Groq من الإنترنت");
     grFetchBtn.setOnClickListener(function() fetchGroqModels(function() hideSettings(); openMainWindow() end) end)
     modelCard.addView(grFetchBtn)
-    local diagCard = createCard(contentL)
-    addSectionHeader("أدوات التشخيص (Diagnostics)", diagCard)
-    local testBtn = Button(service); testBtn.setText("🧪 تشغيل فحص النظام الشامل")
-    styleButton(testBtn, "tertiary")
-    testBtn.setOnClickListener(function() hideSettings(); runSystemHealthCheck() end)
-    diagCard.addView(testBtn)
-
 
     modelCard.addView(createLabel("اختر موديل Gemini (Vision/PDF):"))
     local gemNames = ArrayList(); local gemIds = {}
@@ -3394,7 +3382,7 @@ function openSettings()
     local function refreshSortUI()
         sortContainer.removeAllViews()
         local keys = {}
-        if not dashboardOrder then dashboardOrder = "assistant,dictation,reader,image,transcription,healthCheck,settings" end
+        if not dashboardOrder then dashboardOrder = "assistant,dictation,reader,image,transcription,settings" end
         for k in dashboardOrder:gmatch("([^,]+)") do
             keys[#keys + 1] = k:gsub("^%%s+", ""):gsub("%%s+$", "")
         end
@@ -3464,7 +3452,7 @@ function openSettings()
     langSpinner.setSelection(currLangIdx)
     langSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener { onItemSelected = function(parent, view, position, id) selectedLanguage = langIds[position + 1] end })
     voiceCard.addView(langSpinner)
-    
+
     local voiceDesc = TextView(service)
     voiceDesc.setText("جميع خيارات الإملاء المتطورة (مثل الوضع المصري، الفصحى، التشكيل، والإملاء المستمر) تم نقلها إلى نافذة إعدادات الذكاء الاصطناعي.")
     voiceDesc.setTextSize(14)
@@ -3603,7 +3591,7 @@ function startVoiceRecognition(fromDashboard)
 
                 if lowerRecognizedText == "stop" or recognizedText == "توقف" or lowerRecognizedText == "arrêter" then
                     service.asyncSpeak(getFeedbackString("command_stop", currentDictLangDetails.code)); stopDictation=true; cleanupResources(); return
-                
+
                 elseif recognizedText == "المساعد الشخصي" or lowerRecognizedText == "assistant" or lowerRecognizedText == "personal assistant" then
                     service.asyncSpeak("فتح المساعد الشخصي");
                     stopDictation = true
@@ -3613,11 +3601,11 @@ function startVoiceRecognition(fromDashboard)
 
                 elseif lowerRecognizedText == "settings" or recognizedText == "الضبط" or recognizedText == "ضبط" or recognizedText == "الإعدادات" or lowerRecognizedText == "paramètres" or lowerRecognizedText == "réglages" then
                     service.asyncSpeak("فتح لوحة التحكم");
-                    stopDictation = true 
+                    stopDictation = true
                     if recognizer then recognizer.destroy(); recognizer = nil end
                     openMainWindow()
-                    return 
-                
+                    return
+
                 elseif (lowerRecognizedText == "summarize text" or recognizedText == "لخص النص" or lowerRecognizedText == "résumer le texte") and summarizeEnabled then
                     commandProcessed=true
                     if groqApiKey == "" then
