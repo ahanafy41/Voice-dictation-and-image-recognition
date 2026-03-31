@@ -185,6 +185,7 @@ emojiMode = prefs.getString("emojiMode", "none")
 continuousDictationEnabled = prefs.getBoolean("continuousDictation", false)
 autoSpaceEnabled = prefs.getBoolean("autoSpaceEnabled", true)
 geminiCorrectionEnabled = prefs.getBoolean("geminiCorrectionEnabled", false)
+geminiLiveSearchEnabled = prefs.getBoolean("geminiLiveSearchEnabled", true)
 
 -- Provider Settings
 geminiApiKey = prefs.getString("geminiApiKey", "")
@@ -2920,6 +2921,7 @@ function saveSettings()
     continuousDictationEnabled = continuousDictationEnabled or false
     autoSpaceEnabled = autoSpaceEnabled or true
     geminiCorrectionEnabled = geminiCorrectionEnabled or false
+    if geminiLiveSearchEnabled == nil then geminiLiveSearchEnabled = true end
     summarizeEnabled = summarizeEnabled or false
     imageDescriptionEnabled = imageDescriptionEnabled or false
     newTranslationFeatureEnabled = newTranslationFeatureEnabled or false
@@ -2929,6 +2931,7 @@ function saveSettings()
     editor.putBoolean("continuousDictation", continuousDictationEnabled)
     editor.putBoolean("autoSpaceEnabled", autoSpaceEnabled)
     editor.putBoolean("geminiCorrectionEnabled", geminiCorrectionEnabled)
+    editor.putBoolean("geminiLiveSearchEnabled", geminiLiveSearchEnabled or false)
 
     editor.putString("geminiApiKey", geminiApiKey or "")
     editor.putString("groqApiKey", groqApiKey or "")
@@ -3386,6 +3389,7 @@ function openSettings()
     styleEditText(liveSysIn)
     liveSysIn.addTextChangedListener{onTextChanged=function(s) geminiLiveSystemInstruction=s and s.toString() or "" end}
     liveSysIn.setOnTouchListener(View.OnTouchListener{ onTouch = function(v, event) if event.getAction() == MotionEvent.ACTION_UP then v.requestFocus(); local imm = service.getSystemService(Context.INPUT_METHOD_SERVICE); if imm then imm.showSoftInput(v, 1) end end return false end })
+    local swLiveSearch = Switch(service); swLiveSearch.setText("تفعيل البحث الذكي عبر المساعد الشخصي"); swLiveSearch.setTextColor(0xFFFFFFFF); swLiveSearch.setChecked(geminiLiveSearchEnabled); swLiveSearch.setOnCheckedChangeListener(function(_, c) geminiLiveSearchEnabled=c end); liveCard.addView(swLiveSearch)
     liveCard.addView(liveSysIn)
 
 
@@ -3901,7 +3905,6 @@ function showGeminiLiveWindow()
     layout.setOrientation(LinearLayout.VERTICAL)
     layout.setBackgroundColor(0xFF000000)
 
-    -- Header with Close Button
     local header = LinearLayout(service)
     header.setOrientation(LinearLayout.HORIZONTAL)
     header.setPadding(20, 20, 20, 20)
@@ -3912,17 +3915,13 @@ function showGeminiLiveWindow()
     title.setTextColor(0xFF00FFCC)
     title.setTextSize(18)
     title.setTypeface(nil, Typeface.BOLD)
-    local titleLp = LinearLayout.LayoutParams(0, -2, 1.0)
-    header.addView(title, titleLp)
+    header.addView(title, LinearLayout.LayoutParams(0, -2, 1.0))
 
     local closeBtn = Button(service)
     closeBtn.setText("❌")
     styleButton(closeBtn, "secondary")
     closeBtn.setOnClickListener(function()
-        if geminiLiveWindow then
-            wm.removeView(geminiLiveWindow)
-            geminiLiveWindow = nil
-        end
+        if geminiLiveWindow then wm.removeView(geminiLiveWindow); geminiLiveWindow = nil end
     end)
     header.addView(closeBtn)
     layout.addView(header)
@@ -3933,45 +3932,65 @@ function showGeminiLiveWindow()
     settings.setDomStorageEnabled(true)
     settings.setMediaPlaybackRequiresUserGesture(false)
 
-    local webChromeClient = luajava.override(WebChromeClient, {
-        onPermissionRequest = function(super, request)
-            request.grant(request.getResources())
-        end,
+    local sysInstr = (geminiLiveSystemInstruction or "أنت مساعد صوتي ذكي. مهمتك الرد المباشر بصوتك فقط.")
+    if geminiLiveSearchEnabled then
+        sysInstr = sysInstr .. " لديك أداة تسمى query_personal_assistant. استخدمها للبحث عن أي معلومة عامة أو حديثة."
+    end
+
+    local toolsConfig = "null"
+    if geminiLiveSearchEnabled then
+        toolsConfig = '[{ "function_declarations": [{ "name": "query_personal_assistant", "description": "يستخدم للبحث عن معلومات عبر المساعد الشخصي.", "parameters": { "type": "OBJECT", "properties": { "query": { "type": "STRING", "description": "نص السؤال" } }, "required": ["query"] } }] }]'
+    end
+
+    local escapedSysInstr = escapeJsonString(sysInstr)
+    local escapedGeminiKey = escapeJsonString(geminiApiKey or "")
+    local escapedGroqKey = escapeJsonString(groqApiKey or "")
+
+    webview.setWebChromeClient(luajava.override(WebChromeClient, {
+        onPermissionRequest = function(super, request) request.grant(request.getResources()) end,
         onConsoleMessage = function(super, consoleMessage)
-            print("JS Console: " .. consoleMessage.message())
+            local msg = consoleMessage.message()
+            if msg:find("SAVE_KEYS:") == 1 then
+                local g, q = msg:match("SAVE_KEYS:([^:]*):([^:]*)")
+                if g then geminiApiKey = g end
+                if q then groqApiKey = q end
+                mainHandler.post(function() saveSettings() end)
+            elseif msg:find("CMD_QUERY:") == 1 then
+                local id, q = msg:match("CMD_QUERY:([^:]+):(.*)")
+                mainHandler.post(function()
+                    makeAiRequest(q, "You are a professional search assistant.", nil, selectedSearchModelId or "compound-beta", function(res)
+                        local esc = escapeJsonString(res)
+                        webview.post(function()
+                            webview.evaluateJavascript("if(window.sendToolResponse) window.sendToolResponse('" .. id .. "', '" .. esc .. "')", nil)
+                        end)
+                    end)
+                end)
+            end
             return true
         end
-    })
-    webview.setWebChromeClient(webChromeClient)
-
-    local webViewClient = luajava.override(WebViewClient, {
-        onReceivedSslError = function(super, view, handler, error)
-            handler.proceed()
-        end
-    })
-    webview.setWebViewClient(webViewClient)
+    }))
 
     layout.addView(webview, LinearLayout.LayoutParams(-1, -1))
 
-    -- Prepare Tools Configuration
-
-
-    local sysInstr = geminiLiveSystemInstruction or "أنت مساعد صوتي ذكي. مهمتك الرد المباشر بصوتك فقط."
-
-    sysInstr = escapeJsonString(sysInstr)
-
-    local html = [[
+    local html = [===[
 <!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
     body { font-family: sans-serif; text-align: center; background: #000; color: #fff; padding: 10px; margin: 0; display: flex; flex-direction: column; height: 100vh; }
-    #status { font-size: 20px; color: #00ffcc; font-weight: bold; margin-top: 20px; }
-    .controls { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 20px; }
-    #startBtn, #stopBtn { padding: 20px 50px; font-size: 22px; border-radius: 40px; border: none; font-weight: bold; cursor: pointer; transition: 0.3s; }
-    #startBtn { background: #00ffcc; color: #000; box-shadow: 0 0 30px rgba(0, 255, 204, 0.5); }
-    #stopBtn { background: #ff4444; color: #fff; box-shadow: 0 0 30px rgba(255, 68, 68, 0.5); display: none; }
-    #log { font-size: 12px; color: #aaa; text-align: left; height: 150px; overflow-y: auto; background: #0a0a0a; padding: 15px; border-radius: 10px; border: 1px solid #222; direction: ltr; font-family: monospace; margin: 10px; }
-    .sys { color: #00ffcc; } .err { color: #ff4444; }
+    #status { font-size: 18px; color: #00ffcc; font-weight: bold; margin-top: 10px; }
+    .controls { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 15px; }
+    #startBtn, #stopBtn { padding: 15px 40px; font-size: 20px; border-radius: 40px; border: none; font-weight: bold; cursor: pointer; }
+    #startBtn { background: #00ffcc; color: #000; }
+    #stopBtn { background: #ff4444; color: #fff; display: none; }
+    #log { font-size: 11px; color: #aaa; text-align: left; height: 120px; overflow-y: auto; background: #0a0a0a; padding: 10px; border-radius: 10px; border: 1px solid #222; margin-top: 10px; }
+    .key-section { background: #111; padding: 10px; border-radius: 10px; margin-bottom: 5px; text-align: right; }
+    .key-input { width: 100%; margin: 5px 0; padding: 8px; background: #222; color: #fff; border: 1px solid #444; border-radius: 5px; font-size: 12px; box-sizing: border-box; }
 </style></head><body>
+    <div class="key-section" id="keyPanel">
+        <div style="color:#00ffcc; font-size:13px;">🔑 إعدادات المكاتب (API Keys):</div>
+        <input id="geminiKey" class="key-input" type="password" placeholder="Gemini API Key">
+        <input id="groqKey" class="key-input" type="password" placeholder="Groq API Key">
+        <button id="saveKeysBtn" style="width:100%; padding:8px; background:#00ffcc; color:#000; border:none; border-radius:5px; font-weight:bold;">حفظ 💾</button>
+    </div>
     <div id="status">جاهز للبث 🚀</div>
     <div class="controls">
         <button id="startBtn">ابدأ المحادثة الآن</button>
@@ -3979,150 +3998,158 @@ function showGeminiLiveWindow()
     </div>
     <div id="log">Logs:</div>
     <script>
-        const statusText = document.getElementById('status');
-        const startBtn = document.getElementById('startBtn');
-        const stopBtn = document.getElementById('stopBtn');
-        const logBox = document.getElementById('log');
-        let audioCtx, nextStart = 0, ws = null, micStream = null;
-        let activeSources = [];
+        var GEMINI_KEY = "]===] .. escapedGeminiKey .. [===[";
+        var GROQ_KEY = "]===] .. escapedGroqKey .. [===[";
+        var SYS_INSTR = "]===] .. escapedSysInstr .. [===[";
+        var TOOLS_CONFIG = ]===] .. toolsConfig .. [===[;
 
-        function log(m, type="norm") {
-            let c = type === "sys" ? "#00ffcc" : type === "err" ? "#ff4444" : "#aaa";
-            logBox.innerHTML += `<div style="color:${c};">> ${m}</div>`;
-            logBox.scrollTop = logBox.scrollHeight;
+        document.getElementById("geminiKey").value = GEMINI_KEY;
+        document.getElementById("groqKey").value = GROQ_KEY;
+        document.getElementById("saveKeysBtn").onclick = function() {
+            var g = document.getElementById("geminiKey").value;
+            var q = document.getElementById("groqKey").value;
+            GEMINI_KEY = g; GROQ_KEY = q;
+            console.log("SAVE_KEYS:" + g + ":" + q);
+            alert("تم حفظ الإعدادات!");
+        };
+
+        var statusText = document.getElementById("status");
+        var startBtn = document.getElementById("startBtn");
+        var stopBtn = document.getElementById("stopBtn");
+        var logBox = document.getElementById("log");
+        var audioCtx, nextStart = 0, ws = null, micStream = null, activeSources = [];
+
+        function log(m, type) {
+            var color = (type === "sys") ? "#00ffcc" : (type === "err" ? "#ff4444" : "#aaa");
+            var d = document.createElement("div"); d.style.color = color; d.innerText = "> " + m;
+            logBox.appendChild(d); logBox.scrollTop = logBox.scrollHeight;
         }
 
         function stopAllAudio() {
-            activeSources.forEach(s => { try { s.stop(); } catch(e) {} });
-            activeSources = [];
-            if (audioCtx) nextStart = audioCtx.currentTime;
+            for (var i = 0; i < activeSources.length; i++) { try { activeSources[i].stop(); } catch(e) {} }
+            activeSources = []; if (audioCtx) nextStart = audioCtx.currentTime;
         }
 
         function playAudio(base64) {
             if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
             try {
-                const pcm16 = new Int16Array(Uint8Array.from(atob(base64), c => c.charCodeAt(0)).buffer);
-                const f32 = new Float32Array(pcm16.length);
-                for (let i = 0; i < pcm16.length; i++) f32[i] = pcm16[i] / 32768;
-                const buffer = audioCtx.createBuffer(1, f32.length, 24000);
+                var binary = atob(base64);
+                var pcm16 = new Int16Array(binary.length / 2);
+                for (var i = 0; i < pcm16.length; i++) {
+                    var low = binary.charCodeAt(i * 2); var high = binary.charCodeAt(i * 2 + 1);
+                    var val = low | (high << 8); if (val > 32767) val -= 65536; pcm16[i] = val;
+                }
+                var f32 = new Float32Array(pcm16.length);
+                for (var j = 0; j < pcm16.length; j++) f32[j] = pcm16[j] / 32768;
+                var buffer = audioCtx.createBuffer(1, f32.length, 24000);
                 buffer.getChannelData(0).set(f32);
-                const source = audioCtx.createBufferSource();
-                source.buffer = buffer;
-                source.connect(audioCtx.destination);
-
-                const now = audioCtx.currentTime;
-                if (nextStart < now) nextStart = now;
-                source.start(nextStart);
-                nextStart += buffer.duration;
-
-                activeSources.push(source);
-                source.onended = () => {
-                    const idx = activeSources.indexOf(source);
-                    if (idx > -1) activeSources.splice(idx, 1);
-                };
-            } catch (e) { log("خطأ صوت: " + e.message, "err"); }
+                var source = audioCtx.createBufferSource(); source.buffer = buffer; source.connect(audioCtx.destination);
+                var now = audioCtx.currentTime; if (nextStart < now) nextStart = now;
+                source.start(nextStart); nextStart += buffer.duration; activeSources.push(source);
+                source.onended = function() { var idx = activeSources.indexOf(source); if (idx > -1) activeSources.splice(idx, 1); };
+            } catch (e) { log("صوت: " + e.message, "err"); }
         }
 
-        async function startMic() {
-            try {
-                micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                const micCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-                const source = micCtx.createMediaStreamSource(micStream);
-                const processor = micCtx.createScriptProcessor(2048, 1, 1);
+        window.sendToolResponse = function(id, response) {
+            log("✅ تم استلام إجابة البحث", "sys");
+            var toolMsg = {
+                realtimeInput: {
+                    toolResponses: [{
+                        functionResponses: [{
+                            id: id,
+                            name: "query_personal_assistant",
+                            response: { output: { text: response } }
+                        }]
+                    }]
+                }
+            };
+            if (ws && ws.readyState === 1) ws.send(JSON.stringify(toolMsg));
+        };
+
+        function startMic() {
+            navigator.mediaDevices.getUserMedia({ audio: true }).then(function(stream) {
+                micStream = stream;
+                var micCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+                var source = micCtx.createMediaStreamSource(micStream);
+                var processor = micCtx.createScriptProcessor(2048, 1, 1);
                 source.connect(processor); processor.connect(micCtx.destination);
-                processor.onaudioprocess = (e) => {
-                    if (ws && ws.readyState === WebSocket.OPEN) {
-                        const input = e.inputBuffer.getChannelData(0);
-                        const pcm = new Int16Array(input.length);
-                        for (let i = 0; i < input.length; i++) pcm[i] = input[i] * 0x7FFF;
-                        const b64 = btoa(String.fromCharCode(...new Uint8Array(pcm.buffer)));
-                        ws.send(JSON.stringify({ realtimeInput: { audio: { data: b64, mimeType: "audio/pcm;rate=16000" } } }));
+                processor.onaudioprocess = function(e) {
+                    if (ws && ws.readyState === 1) {
+                        var input = e.inputBuffer.getChannelData(0);
+                        var pcm = new Int16Array(input.length);
+                        for (var i = 0; i < input.length; i++) pcm[i] = input[i] * 0x7FFF;
+                        var binary = ""; var bytes = new Uint8Array(pcm.buffer);
+                        for (var j = 0; j < bytes.length; j++) binary += String.fromCharCode(bytes[j]);
+                        ws.send(JSON.stringify({ realtimeInput: { audio: { data: btoa(binary), mimeType: "audio/pcm;rate=16000" } } }));
                     }
                 };
-                log("🎙️ المايك متصل وبدأ البث!", "sys");
-            } catch (err) { log("خطأ مايك: " + err.message, "err"); }
+                log("🎙️ المايك متصل!", "sys");
+            }).catch(function(err) { log("خطأ مايك: " + err.message, "err"); });
         }
 
-        function endSession() {
+        stopBtn.onclick = function() {
             if (ws) ws.close();
-            if (micStream) micStream.getTracks().forEach(t => t.stop());
-            stopAllAudio();
-            stopBtn.style.display = "none";
-            startBtn.style.display = "inline-block";
-            startBtn.disabled = false;
+            if (micStream) { var tracks = micStream.getTracks(); for (var i = 0; i < tracks.length; i++) tracks[i].stop(); }
+            stopAllAudio(); stopBtn.style.display = "none"; startBtn.style.display = "inline-block";
             statusText.innerText = "تم إنهاء الجلسة ⏹️";
-            log("تم إغلاق الاتصال يدوياً", "sys");
-        }
+            document.getElementById("keyPanel").style.display = "block";
+        };
 
-        stopBtn.onclick = endSession;
-
-        startBtn.onclick = () => {
-            const key = "]] .. (geminiApiKey or "") .. [[";
-            if (!key) { statusText.innerText = "❌ مفتاح API مفقود"; return; }
-            startBtn.disabled = true; statusText.innerText = "⏳ جاري الاتصال...";
-            const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${key}`;
-            ws = new WebSocket(wsUrl);
-            ws.onopen = () => {
-                log("تم الاتصال بالسيرفر ✅", "sys");
-                const tools = undefined;
-                const setupMsg = {
+        startBtn.onclick = function() {
+            if (!GEMINI_KEY) { alert("أدخل مفتاح Gemini أولاً"); return; }
+            startBtn.style.display = "none"; stopBtn.style.display = "inline-block";
+            document.getElementById("keyPanel").style.display = "none";
+            statusText.innerText = "جاري الاتصال...";
+            ws = new WebSocket("wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=" + GEMINI_KEY);
+            ws.onopen = function() {
+                log("✅ متصل بالسيرفر", "sys");
+                var setup = {
                     setup: {
                         model: "models/gemini-3.1-flash-live-preview",
-                        systemInstruction: { parts: [{ text: "]] .. sysInstr .. [[" }] },
-                        generationConfig: {
-                            responseModalities: ["AUDIO"],
-                            speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Puck" } } }
-                        }
+                        systemInstruction: { parts: [{ text: SYS_INSTR }] },
+                        generationConfig: { responseModalities: ["AUDIO"] }
                     }
                 };
-                if (tools) {
-                    setupMsg.setup.tools = tools;
-                    log("تم إرسال إعدادات البحث للسيرفر 🔍", "sys");
+                if (TOOLS_CONFIG && TOOLS_CONFIG !== "null") {
+                    setup.setup.tools = TOOLS_CONFIG;
+                    log("🛠️ تم تفعيل أداة البحث", "sys");
                 }
-                ws.send(JSON.stringify(setupMsg));
+                ws.send(JSON.stringify(setup));
             };
-            ws.onmessage = async (event) => {
-                try {
-                    let textData = event.data;
-                    if (event.data instanceof Blob) textData = await event.data.text();
-                    const msg = JSON.parse(textData);
-
-                    if (msg.setupComplete) {
-                        statusText.innerText = "🚀 البث مباشر الآن!";
-                        startBtn.style.display = "none";
-                        stopBtn.style.display = "inline-block";
-                        startMic();
+            ws.onmessage = function(event) {
+                function process(text) {
+                    var msg = JSON.parse(text);
+                    if (msg.setupComplete) { statusText.innerText = "🚀 بث مباشر!"; startMic(); }
+                    if (msg.serverContent) {
+                        var sc = msg.serverContent;
+                        if (sc.interrupted) stopAllAudio();
+                        if (sc.modelTurn) {
+                            var parts = sc.modelTurn.parts || [];
+                            for (var i = 0; i < parts.length; i++) {
+                                var p = parts[i];
+                                if (p.inlineData) playAudio(p.inlineData.data);
+                                if (p.functionCall) {
+                                    log("🔍 جاري البحث: " + p.functionCall.args.query, "sys");
+                                    console.log("CMD_QUERY:" + p.functionCall.id + ":" + p.functionCall.args.query);
+                                }
+                            }
+                        }
                     }
-
-                    if (msg.serverContent && msg.serverContent.interrupted) {
-                        log("تمت المقاطعة ⏹️", "sys");
-                        stopAllAudio();
-                    }
-
-                    if (msg.serverContent && msg.serverContent.modelTurn) {
-                        const parts = msg.serverContent.modelTurn.parts || [];
-                        parts.forEach(p => {
-                            if (p.inlineData && p.inlineData.data) playAudio(p.inlineData.data);
-
-                        });
-                    }
-
-                    if (msg.error) log("خطأ سيرفر: " + JSON.stringify(msg.error), "err");
-                } catch (e) { log("خطأ قراءة: " + e.message, "err"); }
+                    if (msg.error) log("خطأ: " + msg.error.message, "err");
+                }
+                if (event.data instanceof Blob) {
+                    var r = new FileReader(); r.onload = function() { process(r.result); }; r.readAsText(event.data);
+                } else process(event.data);
             };
-            ws.onclose = (e) => {
-                statusText.innerText = "❌ انقطع الاتصال";
-                log(`إغلاق: ${e.code} - ${e.reason}`, "err");
-                startBtn.disabled = false;
-                stopBtn.style.display = "none";
-                startBtn.style.display = "inline-block";
-                if (micStream) micStream.getTracks().forEach(t => t.stop());
-                stopAllAudio();
+            ws.onclose = function(e) {
+                statusText.innerText = "انقطع الاتصال";
+                log("إغلاق: " + e.code + " " + (e.reason || ""), "err");
+                stopBtn.click();
             };
         };
     </script>
 </body></html>
-    ]]
+    ]===]
 
     webview.loadDataWithBaseURL("https://localhost", html, "text/html", "UTF-8", nil)
 
