@@ -48,6 +48,9 @@ import "java.net.HttpURLConnection"
 import "java.io.InputStreamReader"
 import "java.io.BufferedReader"
 import "java.io.OutputStreamWriter"
+import "android.webkit.WebView"
+import "android.webkit.WebChromeClient"
+import "android.webkit.WebViewClient"
 import "android.graphics.BitmapFactory"
 import "android.graphics.Matrix"
 
@@ -158,6 +161,7 @@ local audioModels = {
 local defaultAudioModelId = "whisper-large-v3"
 
 -- **Supported Languages** (for dictation and translation)
+local geminiLiveWindow = nil
 local supportedLanguages = {
     { code = "ar", name = "العربية", human_readable_for_gemini = "Arabic" },
     { code = "en", name = "English", human_readable_for_gemini = "English" },
@@ -196,8 +200,11 @@ selectedGeminiModelId = isValidModel and loadedModelId or defaultGeminiModelId
 
 selectedGroqModelId = prefs.getString("groqModelId", defaultGroqModelId)
 selectedSearchModelId = prefs.getString("searchModelId", "compound-beta")
-dashboardOrder = prefs.getString("dashboardOrder", "assistant,dictation,reader,image,transcription,settings")
+dashboardOrder = prefs.getString("dashboardOrder", "assistant,dictation,geminiLive,reader,image,transcription,settings")
 selectedDictationMode = prefs.getString("selectedDictationMode", defaultDictationMode)
+if not dashboardOrder:match("geminiLive") then
+    dashboardOrder = dashboardOrder .. ",geminiLive"
+end
 selectedAudioModelId = prefs.getString("audioModelId", defaultAudioModelId)
 
 summarizeEnabled = prefs.getBoolean("summarizeEnabled", false)
@@ -207,6 +214,8 @@ showFloatingSettingsButtonEnabled = prefs.getBoolean("showFloatingSettingsButton
 newTranslationFeatureEnabled = prefs.getBoolean("newTranslationFeatureEnabled", false)
 translateToLanguage = prefs.getString("translateToLanguage", defaultTranslateTo)
 autoPunctuationEnabled = prefs.getBoolean("autoPunctuation", true)
+geminiLiveSystemInstruction = prefs.getString("geminiLiveSystemInstruction", "أنت مساعد صوتي ذكي. مهمتك الرد المباشر بصوتك فقط.")
+
 
 -- PDF TTS Settings
 pdfTtsEngine = prefs.getString("pdfTtsEngine", "")
@@ -2928,7 +2937,7 @@ function saveSettings()
     editor.putString("groqModelId", selectedGroqModelId or defaultGroqModelId)
     editor.putString("audioModelId", selectedAudioModelId or defaultAudioModelId)
     editor.putString("searchModelId", selectedSearchModelId or "compound-beta")
-editor.putString("dashboardOrder", dashboardOrder or "assistant,dictation,reader,image,transcription,settings")
+editor.putString("dashboardOrder", dashboardOrder or "assistant,dictation,geminiLive,reader,image,transcription,settings")
     editor.putString("selectedDictationMode", selectedDictationMode or defaultDictationMode)
 
     editor.putBoolean("summarizeEnabled", summarizeEnabled)
@@ -2943,6 +2952,8 @@ editor.putString("dashboardOrder", dashboardOrder or "assistant,dictation,reader
     editor.putBoolean("profanityFilterEnabled", profanityFilterEnabled or false)
     editor.putBoolean("newLinePerSentenceEnabled", newLinePerSentenceEnabled or false)
     editor.putBoolean("convertNumbersEnabled", convertNumbersEnabled or false)
+    editor.putString("geminiLiveSystemInstruction", geminiLiveSystemInstruction or "أنت مساعد صوتي ذكي. مهمتك الرد المباشر بصوتك فقط.")
+
     editor.putBoolean("cleanExtraSpacesEnabled", cleanExtraSpacesEnabled or false)
     editor.putBoolean("forceDotAtEndEnabled", forceDotAtEndEnabled or false)
     editor.putBoolean("autoCommaEnabled", autoCommaEnabled or false)
@@ -3006,6 +3017,13 @@ function openMainWindow()
             btn.setOnClickListener(function() hideMainWindow(); startVoiceRecognition(true) end)
             return btn
         end,
+        geminiLive = function()
+            local btn = Button(service); btn.setText("🎙️ البث المباشر (Gemini Live)")
+            btn.setContentDescription("بدء بث صوتي مباشر مع المساعد الذكي")
+            styleButton(btn, "primary")
+            btn.setOnClickListener(function() hideMainWindow(); showGeminiLiveWindow() end)
+            return btn
+        end,
         reader = function()
             local btn = Button(service); btn.setText("📄 قارئ المستندات والفيديو")
             btn.setContentDescription("فتح قارئ الملفات والمستندات والفيديو")
@@ -3049,7 +3067,7 @@ function openMainWindow()
         end
     }
 
-    local orderStr = dashboardOrder or "assistant,dictation,reader,image,transcription,settings"
+    local orderStr = dashboardOrder or "assistant,dictation,geminiLive,reader,image,transcription,settings"
     for k in orderStr:gmatch("([^,]+)") do
         local key = k:gsub("^%s+", ""):gsub("%s+$", "")
         if buttons[key] then
@@ -3358,6 +3376,19 @@ function openSettings()
     modelCard.addView(gemSpinner)
 
     modelCard.addView(createLabel("اختر محرك البحث (AI Search Model):"))
+    -- SECTION: Gemini Live Settings
+    local liveCard = createCard(contentL)
+    addSectionHeader("إعدادات البث المباشر (Gemini Live) 🎙️", liveCard)
+
+    liveCard.addView(createLabel("التعليمات المخصصة للبث (System Instruction):"))
+    local liveSysIn = EditText(service)
+    liveSysIn.setText(geminiLiveSystemInstruction or "")
+    styleEditText(liveSysIn)
+    liveSysIn.addTextChangedListener{onTextChanged=function(s) geminiLiveSystemInstruction=s and s.toString() or "" end}
+    liveSysIn.setOnTouchListener(View.OnTouchListener{ onTouch = function(v, event) if event.getAction() == MotionEvent.ACTION_UP then v.requestFocus(); local imm = service.getSystemService(Context.INPUT_METHOD_SERVICE); if imm then imm.showSoftInput(v, 1) end end return false end })
+    liveCard.addView(liveSysIn)
+
+
     local searchNames = ArrayList(); local searchIds = {}
     -- Only show compound models for search
     for _, m in ipairs(groqModels) do
@@ -3382,7 +3413,7 @@ function openSettings()
     local function refreshSortUI()
         sortContainer.removeAllViews()
         local keys = {}
-        if not dashboardOrder then dashboardOrder = "assistant,dictation,reader,image,transcription,settings" end
+        if not dashboardOrder then dashboardOrder = "assistant,dictation,geminiLive,reader,image,transcription,settings" end
         for k in dashboardOrder:gmatch("([^,]+)") do
             keys[#keys + 1] = k:gsub("^%%s+", ""):gsub("%%s+$", "")
         end
@@ -3393,7 +3424,7 @@ function openSettings()
             reader = "قارئ المستندات",
             image = "وصف الصور",
             transcription = "تفريغ الصوت",
-            settings = "الإعدادات"
+            settings = "الإعدادات", geminiLive = "البث المباشر (Gemini Live)"
         }
 
         for i, k in ipairs(keys) do
@@ -3748,7 +3779,6 @@ function onDestroy()
     cleanupResources()
 end
 
--- **Start the Service**
 mainHandler.post(luajava.createProxy("java.lang.Runnable", {
     run = function()
         createAndShowFloatingButton()
@@ -3863,3 +3893,247 @@ function showPersonalAssistantWindow()
     wm.addView(layout, params)
     personalAssistantWindow = layout
 end
+
+function showGeminiLiveWindow()
+    if geminiLiveWindow then return end
+
+    local layout = LinearLayout(service)
+    layout.setOrientation(LinearLayout.VERTICAL)
+    layout.setBackgroundColor(0xFF000000)
+
+    -- Header with Close Button
+    local header = LinearLayout(service)
+    header.setOrientation(LinearLayout.HORIZONTAL)
+    header.setPadding(20, 20, 20, 20)
+    header.setGravity(Gravity.CENTER_VERTICAL)
+
+    local title = TextView(service)
+    title.setText("🎙️ Gemini Live (Audio-to-Audio)")
+    title.setTextColor(0xFF00FFCC)
+    title.setTextSize(18)
+    title.setTypeface(nil, Typeface.BOLD)
+    local titleLp = LinearLayout.LayoutParams(0, -2, 1.0)
+    header.addView(title, titleLp)
+
+    local closeBtn = Button(service)
+    closeBtn.setText("❌")
+    styleButton(closeBtn, "secondary")
+    closeBtn.setOnClickListener(function()
+        if geminiLiveWindow then
+            wm.removeView(geminiLiveWindow)
+            geminiLiveWindow = nil
+        end
+    end)
+    header.addView(closeBtn)
+    layout.addView(header)
+
+    local webview = WebView(service)
+    local settings = webview.getSettings()
+    settings.setJavaScriptEnabled(true)
+    settings.setDomStorageEnabled(true)
+    settings.setMediaPlaybackRequiresUserGesture(false)
+
+    local webChromeClient = luajava.override(WebChromeClient, {
+        onPermissionRequest = function(super, request)
+            request.grant(request.getResources())
+        end,
+        onConsoleMessage = function(super, consoleMessage)
+            print("JS Console: " .. consoleMessage.message())
+            return true
+        end
+    })
+    webview.setWebChromeClient(webChromeClient)
+
+    local webViewClient = luajava.override(WebViewClient, {
+        onReceivedSslError = function(super, view, handler, error)
+            handler.proceed()
+        end
+    })
+    webview.setWebViewClient(webViewClient)
+
+    layout.addView(webview, LinearLayout.LayoutParams(-1, -1))
+
+    -- Prepare Tools Configuration
+
+
+    local sysInstr = geminiLiveSystemInstruction or "أنت مساعد صوتي ذكي. مهمتك الرد المباشر بصوتك فقط."
+
+    sysInstr = escapeJsonString(sysInstr)
+
+    local html = [[
+<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+    body { font-family: sans-serif; text-align: center; background: #000; color: #fff; padding: 10px; margin: 0; display: flex; flex-direction: column; height: 100vh; }
+    #status { font-size: 20px; color: #00ffcc; font-weight: bold; margin-top: 20px; }
+    .controls { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 20px; }
+    #startBtn, #stopBtn { padding: 20px 50px; font-size: 22px; border-radius: 40px; border: none; font-weight: bold; cursor: pointer; transition: 0.3s; }
+    #startBtn { background: #00ffcc; color: #000; box-shadow: 0 0 30px rgba(0, 255, 204, 0.5); }
+    #stopBtn { background: #ff4444; color: #fff; box-shadow: 0 0 30px rgba(255, 68, 68, 0.5); display: none; }
+    #log { font-size: 12px; color: #aaa; text-align: left; height: 150px; overflow-y: auto; background: #0a0a0a; padding: 15px; border-radius: 10px; border: 1px solid #222; direction: ltr; font-family: monospace; margin: 10px; }
+    .sys { color: #00ffcc; } .err { color: #ff4444; }
+</style></head><body>
+    <div id="status">جاهز للبث 🚀</div>
+    <div class="controls">
+        <button id="startBtn">ابدأ المحادثة الآن</button>
+        <button id="stopBtn">إنهاء المكالمة 🛑</button>
+    </div>
+    <div id="log">Logs:</div>
+    <script>
+        const statusText = document.getElementById('status');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const logBox = document.getElementById('log');
+        let audioCtx, nextStart = 0, ws = null, micStream = null;
+        let activeSources = [];
+
+        function log(m, type="norm") {
+            let c = type === "sys" ? "#00ffcc" : type === "err" ? "#ff4444" : "#aaa";
+            logBox.innerHTML += `<div style="color:${c};">> ${m}</div>`;
+            logBox.scrollTop = logBox.scrollHeight;
+        }
+
+        function stopAllAudio() {
+            activeSources.forEach(s => { try { s.stop(); } catch(e) {} });
+            activeSources = [];
+            if (audioCtx) nextStart = audioCtx.currentTime;
+        }
+
+        function playAudio(base64) {
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+            try {
+                const pcm16 = new Int16Array(Uint8Array.from(atob(base64), c => c.charCodeAt(0)).buffer);
+                const f32 = new Float32Array(pcm16.length);
+                for (let i = 0; i < pcm16.length; i++) f32[i] = pcm16[i] / 32768;
+                const buffer = audioCtx.createBuffer(1, f32.length, 24000);
+                buffer.getChannelData(0).set(f32);
+                const source = audioCtx.createBufferSource();
+                source.buffer = buffer;
+                source.connect(audioCtx.destination);
+
+                const now = audioCtx.currentTime;
+                if (nextStart < now) nextStart = now;
+                source.start(nextStart);
+                nextStart += buffer.duration;
+
+                activeSources.push(source);
+                source.onended = () => {
+                    const idx = activeSources.indexOf(source);
+                    if (idx > -1) activeSources.splice(idx, 1);
+                };
+            } catch (e) { log("خطأ صوت: " + e.message, "err"); }
+        }
+
+        async function startMic() {
+            try {
+                micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                const micCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+                const source = micCtx.createMediaStreamSource(micStream);
+                const processor = micCtx.createScriptProcessor(2048, 1, 1);
+                source.connect(processor); processor.connect(micCtx.destination);
+                processor.onaudioprocess = (e) => {
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        const input = e.inputBuffer.getChannelData(0);
+                        const pcm = new Int16Array(input.length);
+                        for (let i = 0; i < input.length; i++) pcm[i] = input[i] * 0x7FFF;
+                        const b64 = btoa(String.fromCharCode(...new Uint8Array(pcm.buffer)));
+                        ws.send(JSON.stringify({ realtimeInput: { audio: { data: b64, mimeType: "audio/pcm;rate=16000" } } }));
+                    }
+                };
+                log("🎙️ المايك متصل وبدأ البث!", "sys");
+            } catch (err) { log("خطأ مايك: " + err.message, "err"); }
+        }
+
+        function endSession() {
+            if (ws) ws.close();
+            if (micStream) micStream.getTracks().forEach(t => t.stop());
+            stopAllAudio();
+            stopBtn.style.display = "none";
+            startBtn.style.display = "inline-block";
+            startBtn.disabled = false;
+            statusText.innerText = "تم إنهاء الجلسة ⏹️";
+            log("تم إغلاق الاتصال يدوياً", "sys");
+        }
+
+        stopBtn.onclick = endSession;
+
+        startBtn.onclick = () => {
+            const key = "]] .. (geminiApiKey or "") .. [[";
+            if (!key) { statusText.innerText = "❌ مفتاح API مفقود"; return; }
+            startBtn.disabled = true; statusText.innerText = "⏳ جاري الاتصال...";
+            const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${key}`;
+            ws = new WebSocket(wsUrl);
+            ws.onopen = () => {
+                log("تم الاتصال بالسيرفر ✅", "sys");
+                const tools = undefined;
+                const setupMsg = {
+                    setup: {
+                        model: "models/gemini-3.1-flash-live-preview",
+                        systemInstruction: { parts: [{ text: "]] .. sysInstr .. [[" }] },
+                        generationConfig: {
+                            responseModalities: ["AUDIO"],
+                            speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Puck" } } }
+                        }
+                    }
+                };
+                if (tools) {
+                    setupMsg.setup.tools = tools;
+                    log("تم إرسال إعدادات البحث للسيرفر 🔍", "sys");
+                }
+                ws.send(JSON.stringify(setupMsg));
+            };
+            ws.onmessage = async (event) => {
+                try {
+                    let textData = event.data;
+                    if (event.data instanceof Blob) textData = await event.data.text();
+                    const msg = JSON.parse(textData);
+
+                    if (msg.setupComplete) {
+                        statusText.innerText = "🚀 البث مباشر الآن!";
+                        startBtn.style.display = "none";
+                        stopBtn.style.display = "inline-block";
+                        startMic();
+                    }
+
+                    if (msg.serverContent && msg.serverContent.interrupted) {
+                        log("تمت المقاطعة ⏹️", "sys");
+                        stopAllAudio();
+                    }
+
+                    if (msg.serverContent && msg.serverContent.modelTurn) {
+                        const parts = msg.serverContent.modelTurn.parts || [];
+                        parts.forEach(p => {
+                            if (p.inlineData && p.inlineData.data) playAudio(p.inlineData.data);
+
+                        });
+                    }
+
+                    if (msg.error) log("خطأ سيرفر: " + JSON.stringify(msg.error), "err");
+                } catch (e) { log("خطأ قراءة: " + e.message, "err"); }
+            };
+            ws.onclose = (e) => {
+                statusText.innerText = "❌ انقطع الاتصال";
+                log(`إغلاق: ${e.code} - ${e.reason}`, "err");
+                startBtn.disabled = false;
+                stopBtn.style.display = "none";
+                startBtn.style.display = "inline-block";
+                if (micStream) micStream.getTracks().forEach(t => t.stop());
+                stopAllAudio();
+            };
+        };
+    </script>
+</body></html>
+    ]]
+
+    webview.loadDataWithBaseURL("https://localhost", html, "text/html", "UTF-8", nil)
+
+    local params = WindowManager.LayoutParams(
+        WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
+        WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+        WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+        PixelFormat.TRANSLUCENT
+    )
+    wm.addView(layout, params)
+    geminiLiveWindow = layout
+end
+
+-- Integration of Gemini Live (Audio-to-Audio) Complete.
