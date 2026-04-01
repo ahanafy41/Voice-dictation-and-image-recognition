@@ -239,6 +239,7 @@ translateToLanguage = prefs.getString("translateToLanguage", defaultTranslateTo)
 autoPunctuationEnabled = prefs.getBoolean("autoPunctuation", true)
 geminiLiveSystemInstruction = prefs.getString("geminiLiveSystemInstruction", "أنت مساعد صوتي ذكي. مهمتك الرد المباشر بصوتك فقط.")
 geminiLiveVoiceName = prefs.getString("geminiLiveVoiceName", "Puck")
+geminiLiveSearchTool = prefs.getString("geminiLiveSearchTool", "groq") -- "groq" or "tavily"
 
 
 -- PDF TTS Settings
@@ -3022,6 +3023,7 @@ editor.putString("dashboardOrder", dashboardOrder or "assistant,dictation,gemini
     editor.putBoolean("convertNumbersEnabled", convertNumbersEnabled or false)
     editor.putString("geminiLiveSystemInstruction", geminiLiveSystemInstruction or "أنت مساعد صوتي ذكي. مهمتك الرد المباشر بصوتك فقط.")
     editor.putString("geminiLiveVoiceName", geminiLiveVoiceName or "Puck")
+    editor.putString("geminiLiveSearchTool", geminiLiveSearchTool or "groq")
 
     editor.putBoolean("cleanExtraSpacesEnabled", cleanExtraSpacesEnabled or false)
     editor.putBoolean("forceDotAtEndEnabled", forceDotAtEndEnabled or false)
@@ -3474,6 +3476,16 @@ function openSettings()
     if currGlvIdx ~= -1 then glvSpinner.setSelection(currGlvIdx) else glvSpinner.setSelection(0) end
     glvSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener { onItemSelected = function(parent, view, position, id) geminiLiveVoiceName = glvIds[position + 1] end })
     liveCard.addView(glvSpinner)
+
+    liveCard.addView(createLabel("أداة البحث للبث المباشر:"))
+    local searchToolNames = ArrayList(); local searchToolIds = {"groq", "tavily"}
+    searchToolNames.add("Groq Search (مجاني وقوي)"); searchToolNames.add("Tavily Search (مدفوع)")
+    local searchToolAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, searchToolNames); searchToolAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+    local searchToolSpinner = Spinner(service); searchToolSpinner.setAdapter(searchToolAdapter)
+    local currSearchToolIdx = 0; for i, id in ipairs(searchToolIds) do if id == geminiLiveSearchTool then currSearchToolIdx = i-1 break end end
+    searchToolSpinner.setSelection(currSearchToolIdx)
+    searchToolSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener { onItemSelected = function(parent, view, position, id) geminiLiveSearchTool = searchToolIds[position + 1] end })
+    liveCard.addView(searchToolSpinner)
 
 
     local searchNames = ArrayList(); local searchIds = {}
@@ -4077,42 +4089,54 @@ function showGeminiLiveWindow()
     layout.addView(webview, LinearLayout.LayoutParams(-1, -1))
 
     -- Prepare Tools Configuration
-    local toolsConfig = [[
-    [{
-        "functionDeclarations": [
-            {
-                "name": "tavily_search",
-                "description": "استخدم هذه الأداة للبحث في الإنترنت عن أحدث المعلومات، الأخبار، أو الإجابة على أسئلة المستخدم التي تتطلب معلومات محدثة. قم بتمرير استعلام البحث (query) المناسب. (أداة مدفوعة، استخدمها إذا لزم الأمر أو طلب المستخدم)",
-                "parameters": {
-                    "type": "OBJECT",
-                    "properties": {
-                        "query": {
-                            "type": "STRING",
-                            "description": "نص استعلام البحث الذي سيتم إرساله لمحرك البحث."
-                        }
-                    },
-                    "required": ["query"]
-                }
-            },
-            {
-                "name": "groq_ai_search",
-                "description": "أداة بحث ذكية ومجانية مدعومة من Groq. استخدم هذه الأداة كخيارك المفضل والأول للبحث عن المعلومات المحدثة أو الإجابة على الأسئلة العامة. مرر استعلام البحث (query).",
-                "parameters": {
-                    "type": "OBJECT",
-                    "properties": {
-                        "query": {
-                            "type": "STRING",
-                            "description": "نص استعلام البحث أو السؤال الموجه للذكاء الاصطناعي الخاص بالبحث."
-                        }
-                    },
-                    "required": ["query"]
-                }
-            }
-        ]
-    }]
-    ]]
+    local toolsConfig = ""
+    local sysInstr = (geminiLiveSystemInstruction or "أنت مساعد صوتي ذكي. مهمتك الرد المباشر بصوتك فقط.") .. " (لديك الآن القدرة على رؤية ما تعرضه الكاميرا في بث مباشر. ساعد المستخدم، وهو كفيف، في وصف البيئة أو قراءة النصوص أو التعرف على المنتجات عند سؤاله. ركز على الدقة والإيجاز في الوصف. "
 
-    local sysInstr = (geminiLiveSystemInstruction or "أنت مساعد صوتي ذكي. مهمتك الرد المباشر بصوتك فقط.") .. " (لديك الآن القدرة على رؤية ما تعرضه الكاميرا في بث مباشر. ساعد المستخدم، وهو كفيف، في وصف البيئة أو قراءة النصوص أو التعرف على المنتجات عند سؤاله. ركز على الدقة والإيجاز في الوصف. أيضاً لديك أداتا بحث في الإنترنت 'tavily_search' و 'groq_ai_search'. يُفضل استخدام 'groq_ai_search' كخيار مجاني وقوي متى احتجت لمعلومات محدثة أو بحث.)"
+    if geminiLiveSearchTool == "tavily" then
+        toolsConfig = [[
+        [{
+            "functionDeclarations": [
+                {
+                    "name": "tavily_search",
+                    "description": "استخدم هذه الأداة للبحث في الإنترنت عن أحدث المعلومات، الأخبار، أو الإجابة على أسئلة المستخدم التي تتطلب معلومات محدثة. قم بتمرير استعلام البحث (query) المناسب.",
+                    "parameters": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "query": {
+                                "type": "STRING",
+                                "description": "نص استعلام البحث الذي سيتم إرساله لمحرك البحث."
+                            }
+                        },
+                        "required": ["query"]
+                    }
+                }
+            ]
+        }]
+        ]]
+        sysInstr = sysInstr .. "أيضاً لديك أداة بحث في الإنترنت 'tavily_search' يمكنك استدعاؤها متى احتجت لمعلومات محدثة أو للبحث عن إجابة.)"
+    else
+        toolsConfig = [[
+        [{
+            "functionDeclarations": [
+                {
+                    "name": "groq_ai_search",
+                    "description": "أداة بحث ذكية ومجانية مدعومة من Groq. استخدم هذه الأداة للبحث عن المعلومات المحدثة أو الإجابة على الأسئلة العامة. مرر استعلام البحث (query).",
+                    "parameters": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "query": {
+                                "type": "STRING",
+                                "description": "نص استعلام البحث أو السؤال الموجه للذكاء الاصطناعي الخاص بالبحث."
+                            }
+                        },
+                        "required": ["query"]
+                    }
+                }
+            ]
+        }]
+        ]]
+        sysInstr = sysInstr .. "أيضاً لديك أداة بحث في الإنترنت 'groq_ai_search' يمكنك استدعاؤها متى احتجت لمعلومات محدثة أو للبحث عن إجابة.)"
+    end
 
     sysInstr = escapeJsonString(sysInstr)
 
