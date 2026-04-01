@@ -173,6 +173,16 @@ local supportedLanguages = {
 local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
+-- **Gemini Live Voices**
+local geminiLiveVoices = {
+    { id = "Puck", name = "Puck (رجالي - طبيعي)" },
+    { id = "Charon", name = "Charon (رجالي - عميق)" },
+    { id = "Fenrir", name = "Fenrir (رجالي - قوي)" },
+    { id = "Kore", name = "Kore (نسائي - هادئ)" },
+    { id = "Aoede", name = "Aoede (نسائي - دافئ)" },
+    { id = "Zephyr", name = "Zephyr (تلقائي/ديناميكي)" }
+}
+
 -- **Load Settings with Defaults**
 local prefs = service.getSharedPreferences("voice_settings", Context.MODE_PRIVATE)
 selectedLanguage = prefs.getString("language", defaultSelectedLanguage)
@@ -219,6 +229,7 @@ newTranslationFeatureEnabled = prefs.getBoolean("newTranslationFeatureEnabled", 
 translateToLanguage = prefs.getString("translateToLanguage", defaultTranslateTo)
 autoPunctuationEnabled = prefs.getBoolean("autoPunctuation", true)
 geminiLiveSystemInstruction = prefs.getString("geminiLiveSystemInstruction", "أنت مساعد صوتي ذكي. مهمتك الرد المباشر بصوتك فقط.")
+geminiLiveVoiceName = prefs.getString("geminiLiveVoiceName", "Puck")
 
 
 -- PDF TTS Settings
@@ -3001,6 +3012,7 @@ editor.putString("dashboardOrder", dashboardOrder or "assistant,dictation,gemini
     editor.putBoolean("newLinePerSentenceEnabled", newLinePerSentenceEnabled or false)
     editor.putBoolean("convertNumbersEnabled", convertNumbersEnabled or false)
     editor.putString("geminiLiveSystemInstruction", geminiLiveSystemInstruction or "أنت مساعد صوتي ذكي. مهمتك الرد المباشر بصوتك فقط.")
+    editor.putString("geminiLiveVoiceName", geminiLiveVoiceName or "Puck")
 
     editor.putBoolean("cleanExtraSpacesEnabled", cleanExtraSpacesEnabled or false)
     editor.putBoolean("forceDotAtEndEnabled", forceDotAtEndEnabled or false)
@@ -3443,6 +3455,16 @@ function openSettings()
     liveSysIn.addTextChangedListener{onTextChanged=function(s) geminiLiveSystemInstruction=s and s.toString() or "" end}
     liveSysIn.setOnTouchListener(View.OnTouchListener{ onTouch = function(v, event) if event.getAction() == MotionEvent.ACTION_UP then v.requestFocus(); local imm = service.getSystemService(Context.INPUT_METHOD_SERVICE); if imm then imm.showSoftInput(v, 1) end end return false end })
     liveCard.addView(liveSysIn)
+
+    liveCard.addView(createLabel("صوت المساعد (Voice):"))
+    local glvNames = ArrayList(); local glvIds = {}
+    for _, v in ipairs(geminiLiveVoices) do glvNames.add(v.name); table.insert(glvIds, v.id) end
+    local glvAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, glvNames); glvAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+    local glvSpinner = Spinner(service); glvSpinner.setAdapter(glvAdapter)
+    local currGlvIdx = -1; for i, id in ipairs(glvIds) do if id == geminiLiveVoiceName then currGlvIdx = i-1 break end end
+    if currGlvIdx ~= -1 then glvSpinner.setSelection(currGlvIdx) else glvSpinner.setSelection(0) end
+    glvSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener { onItemSelected = function(parent, view, position, id) geminiLiveVoiceName = glvIds[position + 1] end })
+    liveCard.addView(glvSpinner)
 
 
     local searchNames = ArrayList(); local searchIds = {}
@@ -4162,6 +4184,7 @@ function showGeminiLiveWindow()
             // 1. Stop current camera track to release hardware
             if (camStream) {
                 camStream.getTracks().forEach(t => t.stop());
+                camStream = null;
                 video.style.display = 'none';
                 if (videoInterval) clearInterval(videoInterval);
                 log('إيقاف الكاميرا مؤقتاً لتشغيل الفلاش...', 'sys');
@@ -4379,7 +4402,7 @@ function showGeminiLiveWindow()
                         systemInstruction: { parts: [{ text: "]] .. sysInstr .. [[" }] },
                         generationConfig: {
                             responseModalities: ["AUDIO"],
-                            speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Puck" } } }
+                            speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "]] .. (geminiLiveVoiceName or "Puck") .. [[" } } }
                         }
                     }
                 };
