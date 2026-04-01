@@ -11,6 +11,7 @@ import "android.content.Intent"
 import "android.view.WindowManager"
 import "android.graphics.PixelFormat"
 import "android.content.Context"
+import "android.hardware.camera2.CameraManager"
 import "android.view.View"
 import "android.content.SharedPreferences"
 import "android.net.Uri"
@@ -243,6 +244,7 @@ local imageQueryRecognizer = nil
 local floatingSettingsBtn = nil
 local summaryWindow = nil
 local summaryQueryRecognizer = nil
+local isNativeFlashOn = false
 
 -- **Set Audio Focus** (for asyncSpeak)
 if service and service.setAsyncAudioFocus then
@@ -349,6 +351,48 @@ function createChatBubble(text, isUser)
 
     msgContainer.addView(tv)
     return msgContainer
+end
+
+-- ### Native Flash Control Helper ###
+function toggleNativeFlashMode(enable, callback)
+    import "java.lang.Thread"
+    import "java.lang.Runnable"
+    local t = Thread(Runnable{
+        run = function()
+            local success, err = pcall(function()
+                local camManager = service.getSystemService(Context.CAMERA_SERVICE)
+                local camId = nil
+                local camList = camManager.getCameraIdList()
+                for i = 0, #camList - 1 do
+                    local characteristics = camManager.getCameraCharacteristics(camList[i])
+                    local facing = characteristics.get(luajava.bindClass("android.hardware.camera2.CameraCharacteristics").LENS_FACING)
+                    if facing == luajava.bindClass("android.hardware.camera2.CameraMetadata").LENS_FACING_BACK then
+                        local hasFlash = characteristics.get(luajava.bindClass("android.hardware.camera2.CameraCharacteristics").FLASH_INFO_AVAILABLE)
+                        if hasFlash then
+                            camId = camList[i]
+                            break
+                        end
+                    end
+                end
+
+                if camId then
+                    camManager.setTorchMode(camId, enable)
+                    isNativeFlashOn = enable
+                    if callback then
+                        mainHandler.post(luajava.createProxy("java.lang.Runnable", { run = function() callback(true, nil) end }))
+                    end
+                else
+                    if callback then
+                         mainHandler.post(luajava.createProxy("java.lang.Runnable", { run = function() callback(false, "لا يوجد فلاش في الكاميرا الخلفية") end }))
+                    end
+                end
+            end)
+            if not success and callback then
+                mainHandler.post(luajava.createProxy("java.lang.Runnable", { run = function() callback(false, tostring(err)) end }))
+            end
+        end
+    })
+    t.start()
 end
 
 -- ### Storage and Path Helpers
@@ -3953,6 +3997,41 @@ function showGeminiLiveWindow()
         onConsoleMessage = function(super, consoleMessage)
             print("JS Console: " .. consoleMessage.message())
             return true
+        end,
+        onJsPrompt = function(super, view, url, message, defaultValue, result)
+            if message == "TOGGLE_FLASH_NATIVE" then
+                local enable = defaultValue == "true"
+                -- Delay slightly to ensure WebRTC has released the camera hardware
+                mainHandler.postDelayed(luajava.createProxy("java.lang.Runnable", {
+                    run = function()
+                        toggleNativeFlashMode(enable, function(success, err)
+                            if success then
+                                view.evaluateJavascript("window.onFlashToggled(true);", nil)
+                            else
+                                print("Flash error: " .. tostring(err))
+                                service.asyncSpeak("خطأ في تشغيل الفلاش")
+                                view.evaluateJavascript("window.onFlashToggled(false);", nil)
+                            end
+                        end)
+                    end
+                }), 300)
+                result.confirm("Handled")
+                return true
+            elseif message == "TOGGLE_FLASH_NATIVE_SILENT" then
+                local enable = defaultValue == "true"
+                mainHandler.postDelayed(luajava.createProxy("java.lang.Runnable", {
+                    run = function()
+                        toggleNativeFlashMode(enable, function(success, err)
+                            if not success then
+                                print("Silent Flash error: " .. tostring(err))
+                            end
+                        end)
+                    end
+                }), 100)
+                result.confirm("Handled")
+                return true
+            end
+            return super.onJsPrompt(view, url, message, defaultValue, result)
         end
     })
     webview.setWebChromeClient(webChromeClient)
@@ -4019,6 +4098,7 @@ function showGeminiLiveWindow()
         <button id="startBtn">ابدأ المحادثة الآن</button>
         <button id="toggleCamBtn">📷 فتح الكاميرا</button>
         <button id="switchCamBtn">🔄 تبديل الكاميرا</button>
+        <button id="flashBtn" style="display: none; background: #FFD700; color: #000;">🔦 الفلاش</button>
         <button id="stopBtn">إنهاء المكالمة 🛑</button>
     </div>
     <div id="log">Logs:</div>
@@ -4028,7 +4108,10 @@ function showGeminiLiveWindow()
         const canvas = document.getElementById('canvasHelper');
         const toggleCamBtn = document.getElementById('toggleCamBtn');
         const switchCamBtn = document.getElementById('switchCamBtn');
+        const flashBtn = document.getElementById('flashBtn');
         let camStream = null, currentFacingMode = 'environment', videoInterval = null;
+        let isFlashActive = false;
+        let isFlashTransitioning = false;
 
         async function toggleCamera() {
             if (camStream) {
@@ -4052,6 +4135,17 @@ function showGeminiLiveWindow()
                 video.style.display = 'block';
                 video.className = currentFacingMode === 'user' ? '' : 'rear';
                 log('📷 تم تشغيل الكاميرا بنجاح', 'sys');
+
+                if (currentFacingMode === 'environment') {
+                    flashBtn.style.display = 'inline-block';
+                } else {
+                    flashBtn.style.display = 'none';
+                    if (isFlashActive) {
+                        isFlashActive = false;
+                        window.prompt("TOGGLE_FLASH_NATIVE_SILENT", "false"); // Turn off flash safely
+                    }
+                }
+
                 startVideoPusher();
                 return true;
             } catch (err) {
@@ -4059,6 +4153,40 @@ function showGeminiLiveWindow()
                 return false;
             }
         }
+
+        async function toggleFlash() {
+            if (isFlashTransitioning || currentFacingMode !== 'environment') return;
+            isFlashTransitioning = true;
+            const newState = !isFlashActive;
+
+            // 1. Stop current camera track to release hardware
+            if (camStream) {
+                camStream.getTracks().forEach(t => t.stop());
+                video.style.display = 'none';
+                if (videoInterval) clearInterval(videoInterval);
+                log('إيقاف الكاميرا مؤقتاً لتشغيل الفلاش...', 'sys');
+            }
+
+            // 2. Request Native Lua to toggle torch
+            window.prompt("TOGGLE_FLASH_NATIVE", newState.toString());
+        }
+
+        // 3. Callback from Lua when native torch is set
+        window.onFlashToggled = async function(success) {
+            if (success) {
+                isFlashActive = !isFlashActive;
+                log('الفلاش الآن: ' + (isFlashActive ? 'مضاء' : 'مطفأ'), 'sys');
+                flashBtn.innerText = isFlashActive ? '🔦 الفلاش (شغال)' : '🔦 الفلاش';
+            } else {
+                log('فشل في تشغيل الفلاش من النظام', 'err');
+            }
+
+            // 4. Restart Camera
+            await startCamera();
+            isFlashTransitioning = false;
+        };
+
+        flashBtn.onclick = toggleFlash;
 
         function stopCamera() {
             if (camStream) camStream.getTracks().forEach(t => t.stop());
@@ -4164,6 +4292,11 @@ function showGeminiLiveWindow()
             stopCamera();
             toggleCamBtn.style.display = "none";
             switchCamBtn.style.display = "none";
+            flashBtn.style.display = "none";
+            if (isFlashActive) {
+                isFlashActive = false;
+                window.prompt("TOGGLE_FLASH_NATIVE_SILENT", "false"); // Ensure flash turns off safely
+            }
             if (ws) ws.close();
             if (micStream) micStream.getTracks().forEach(t => t.stop());
             stopAllAudio();
