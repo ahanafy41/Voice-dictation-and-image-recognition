@@ -175,12 +175,21 @@ local defaultTranslateTo = "ar"
 
 -- **Gemini Live Voices**
 local geminiLiveVoices = {
-    { id = "Puck", name = "Puck (رجالي - طبيعي)" },
-    { id = "Charon", name = "Charon (رجالي - عميق)" },
-    { id = "Fenrir", name = "Fenrir (رجالي - قوي)" },
-    { id = "Kore", name = "Kore (نسائي - هادئ)" },
-    { id = "Aoede", name = "Aoede (نسائي - دافئ)" },
-    { id = "Zephyr", name = "Zephyr (تلقائي/ديناميكي)" }
+    { id = "Zephyr", name = "Zephyr (مشرق - Bright)" },
+    { id = "Puck", name = "Puck (مبتهج - Upbeat)" },
+    { id = "Charon", name = "Charon (معلوماتي - Informative)" },
+    { id = "Kore", name = "Kore (حازم - Firm)" },
+    { id = "Fenrir", name = "Fenrir (متحمس - Excitable)" },
+    { id = "Leda", name = "Leda (شاب - Youthful)" },
+    { id = "Orus", name = "Orus (حازم - Firm)" },
+    { id = "Aoede", name = "Aoede (منعش - Breezy)" },
+    { id = "Callirrhoe", name = "Callirrhoe (هادئ - Easy-going)" },
+    { id = "Autonoe", name = "Autonoe (مشرق - Bright)" },
+    { id = "Enceladus", name = "Enceladus (لاهث - Breathy)" },
+    { id = "Iapetus", name = "Iapetus (واضح - Clear)" },
+    { id = "Umbriel", name = "Umbriel (هادئ - Easy-going)" },
+    { id = "Algieba", name = "Algieba (سلس - Smooth)" },
+    { id = "Despina", name = "Despina (سلس - Smooth)" }
 }
 
 -- **Load Settings with Defaults**
