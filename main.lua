@@ -1,6 +1,8 @@
 require "import"
 if activity then activity.finish() end
 import "android.widget.*"
+import "android.Manifest"
+import "android.content.pm.PackageManager"
 import "android.speech.RecognizerIntent"
 import "android.speech.SpeechRecognizer"
 import "android.accessibilityservice.AccessibilityService"
@@ -3956,29 +3958,114 @@ function showGeminiLiveWindow()
     -- Prepare Tools Configuration
 
 
-    local sysInstr = geminiLiveSystemInstruction or "أنت مساعد صوتي ذكي. مهمتك الرد المباشر بصوتك فقط."
+    local sysInstr = (geminiLiveSystemInstruction or "أنت مساعد صوتي ذكي. مهمتك الرد المباشر بصوتك فقط.") .. " (لديك الآن القدرة على رؤية ما تعرضه الكاميرا في بث مباشر. ساعد المستخدم، وهو كفيف، في وصف البيئة أو قراءة النصوص أو التعرف على المنتجات عند سؤاله. ركز على الدقة والإيجاز في الوصف.)"
 
     sysInstr = escapeJsonString(sysInstr)
 
     local html = [[
 <!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
-    body { font-family: sans-serif; text-align: center; background: #000; color: #fff; padding: 10px; margin: 0; display: flex; flex-direction: column; height: 100vh; }
-    #status { font-size: 20px; color: #00ffcc; font-weight: bold; margin-top: 20px; }
-    .controls { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 20px; }
-    #startBtn, #stopBtn { padding: 20px 50px; font-size: 22px; border-radius: 40px; border: none; font-weight: bold; cursor: pointer; transition: 0.3s; }
-    #startBtn { background: #00ffcc; color: #000; box-shadow: 0 0 30px rgba(0, 255, 204, 0.5); }
-    #stopBtn { background: #ff4444; color: #fff; box-shadow: 0 0 30px rgba(255, 68, 68, 0.5); display: none; }
-    #log { font-size: 12px; color: #aaa; text-align: left; height: 150px; overflow-y: auto; background: #0a0a0a; padding: 15px; border-radius: 10px; border: 1px solid #222; direction: ltr; font-family: monospace; margin: 10px; }
+    body { font-family: sans-serif; text-align: center; background: #000; color: #fff; padding: 0; margin: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+    #status { font-size: 18px; color: #00ffcc; font-weight: bold; padding: 10px; background: rgba(0,0,0,0.6); position: absolute; top: 0; width: 100%; z-index: 10; }
+    .camera-container { flex: 1; position: relative; display: flex; justify-content: center; align-items: center; background: #111; overflow: hidden; }
+    #videoPreview { width: 100%; height: 100%; object-fit: cover; display: none; transform: scaleX(-1); } /* Mirror for front camera */
+    #videoPreview.rear { transform: scaleX(1); }
+    .controls { padding: 15px; display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; background: #000; }
+    button { padding: 12px 20px; font-size: 16px; border-radius: 25px; border: none; font-weight: bold; cursor: pointer; transition: 0.3s; }
+    #startBtn { background: #00ffcc; color: #000; box-shadow: 0 0 15px rgba(0, 255, 204, 0.4); }
+    #stopBtn { background: #ff4444; color: #fff; display: none; }
+    #toggleCamBtn { background: #444; color: #fff; display: none; }
+    #switchCamBtn { background: #444; color: #fff; display: none; }
+    #log { font-size: 10px; color: #aaa; text-align: left; height: 80px; overflow-y: auto; background: #0a0a0a; padding: 10px; border-top: 1px solid #222; direction: ltr; font-family: monospace; }
     .sys { color: #00ffcc; } .err { color: #ff4444; }
+    #canvasHelper { display: none; }
 </style></head><body>
     <div id="status">جاهز للبث 🚀</div>
+    <div class="camera-container">
+        <video id="videoPreview" autoplay playsinline></video>
+        <canvas id="canvasHelper"></canvas>
+    </div>
     <div class="controls">
         <button id="startBtn">ابدأ المحادثة الآن</button>
+        <button id="toggleCamBtn">📷 فتح الكاميرا</button>
+        <button id="switchCamBtn">🔄 تبديل الكاميرا</button>
         <button id="stopBtn">إنهاء المكالمة 🛑</button>
     </div>
     <div id="log">Logs:</div>
     <script>
+
+        const video = document.getElementById('videoPreview');
+        const canvas = document.getElementById('canvasHelper');
+        const toggleCamBtn = document.getElementById('toggleCamBtn');
+        const switchCamBtn = document.getElementById('switchCamBtn');
+        let camStream = null, currentFacingMode = 'environment', videoInterval = null;
+
+        async function toggleCamera() {
+            if (camStream) {
+                stopCamera();
+                toggleCamBtn.innerText = '📷 فتح الكاميرا';
+                toggleCamBtn.style.background = '#444';
+            } else {
+                const started = await startCamera();
+                if (started) {
+                    toggleCamBtn.innerText = '🚫 غلق الكاميرا';
+                    toggleCamBtn.style.background = '#ff8800';
+                }
+            }
+        }
+
+        async function startCamera() {
+            try {
+                const constraints = { video: { facingMode: currentFacingMode, width: { ideal: 640 }, height: { ideal: 480 } } };
+                camStream = await navigator.mediaDevices.getUserMedia(constraints);
+                video.srcObject = camStream;
+                video.style.display = 'block';
+                video.className = currentFacingMode === 'user' ? '' : 'rear';
+                log('📷 تم تشغيل الكاميرا بنجاح', 'sys');
+                startVideoPusher();
+                return true;
+            } catch (err) {
+                log('خطأ في الكاميرا: ' + err.message, 'err');
+                return false;
+            }
+        }
+
+        function stopCamera() {
+            if (camStream) camStream.getTracks().forEach(t => t.stop());
+            camStream = null;
+            video.style.display = 'none';
+            if (videoInterval) clearInterval(videoInterval);
+            log('🚫 تم إيقاف الكاميرا', 'sys');
+        }
+
+        async function switchCamera() {
+            currentFacingMode = (currentFacingMode === 'environment') ? 'user' : 'environment';
+            if (camStream) {
+                stopCamera();
+                await startCamera();
+            }
+        }
+
+        function startVideoPusher() {
+            if (videoInterval) clearInterval(videoInterval);
+            videoInterval = setInterval(() => {
+                if (ws && ws.readyState === WebSocket.OPEN && camStream) {
+                    captureAndSendFrame();
+                }
+            }, 1500);
+        }
+
+        function captureAndSendFrame() {
+            const context = canvas.getContext('2d');
+            canvas.width = video.videoWidth / 2; // Resize for efficiency
+            canvas.height = video.videoHeight / 2;
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const base64Image = canvas.toDataURL('image/jpeg', 0.6).split(',')[1];
+            ws.send(JSON.stringify({ realtimeInput: { video: { data: base64Image, mimeType: 'image/jpeg' } } }));
+        }
+
+        toggleCamBtn.onclick = toggleCamera;
+        switchCamBtn.onclick = switchCamera;
         const statusText = document.getElementById('status');
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
@@ -4044,6 +4131,9 @@ function showGeminiLiveWindow()
         }
 
         function endSession() {
+            stopCamera();
+            toggleCamBtn.style.display = "none";
+            switchCamBtn.style.display = "none";
             if (ws) ws.close();
             if (micStream) micStream.getTracks().forEach(t => t.stop());
             stopAllAudio();
@@ -4089,6 +4179,8 @@ function showGeminiLiveWindow()
 
                     if (msg.setupComplete) {
                         statusText.innerText = "🚀 البث مباشر الآن!";
+                        toggleCamBtn.style.display = "inline-block";
+                        switchCamBtn.style.display = "inline-block";
                         startBtn.style.display = "none";
                         stopBtn.style.display = "inline-block";
                         startMic();
