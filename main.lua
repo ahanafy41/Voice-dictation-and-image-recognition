@@ -192,6 +192,7 @@ geminiCorrectionEnabled = prefs.getBoolean("geminiCorrectionEnabled", false)
 geminiApiKey = prefs.getString("geminiApiKey", "")
 groqApiKey = prefs.getString("groqApiKey", "")
 witApiKey = prefs.getString("witApiKey", "")
+tavilyApiKey = prefs.getString("tavilyApiKey", "")
 
 local loadedModelId = prefs.getString("geminiModelId", defaultGeminiModelId)
 local isValidModel = false
@@ -2935,6 +2936,7 @@ function saveSettings()
     editor.putString("geminiApiKey", geminiApiKey or "")
     editor.putString("groqApiKey", groqApiKey or "")
     editor.putString("witApiKey", witApiKey or "")
+    editor.putString("tavilyApiKey", tavilyApiKey or "")
     editor.putString("geminiModelId", selectedGeminiModelId or defaultGeminiModelId)
     editor.putString("groqModelId", selectedGroqModelId or defaultGroqModelId)
     editor.putString("audioModelId", selectedAudioModelId or defaultAudioModelId)
@@ -3337,6 +3339,14 @@ function openSettings()
     witApiKeyIn.setOnTouchListener(View.OnTouchListener{ onTouch = function(v, event) if event.getAction() == MotionEvent.ACTION_UP then v.requestFocus(); local imm = service.getSystemService(Context.INPUT_METHOD_SERVICE); if imm then imm.showSoftInput(v, 1) end end return false end })
     apiCard.addView(witApiKeyIn)
 
+    apiCard.addView(createLabel("مفتاح Tavily Search API:"))
+    local tavilyApiKeyIn = EditText(service)
+    tavilyApiKeyIn.setText(tavilyApiKey or "")
+    styleEditText(tavilyApiKeyIn)
+    tavilyApiKeyIn.addTextChangedListener{onTextChanged=function(s) tavilyApiKey=s and s.toString() or "" end}
+    tavilyApiKeyIn.setOnTouchListener(View.OnTouchListener{ onTouch = function(v, event) if event.getAction() == MotionEvent.ACTION_UP then v.requestFocus(); local imm = service.getSystemService(Context.INPUT_METHOD_SERVICE); if imm then imm.showSoftInput(v, 1) end end return false end })
+    apiCard.addView(tavilyApiKeyIn)
+
     -- SECTION: Model Selection
     local modelCard = createCard(contentL)
     addSectionHeader("اختيار النماذج (Models)", modelCard)
@@ -3569,6 +3579,7 @@ function openSettings()
         groqApiKey = groqApiKeyIn.getText().toString()
         geminiApiKey = gemApiKeyIn.getText().toString()
         witApiKey = witApiKeyIn.getText().toString()
+        tavilyApiKey = tavilyApiKeyIn.getText().toString()
         saveSettings()
     end)
     btnL.addView(saveBtn)
@@ -3956,9 +3967,28 @@ function showGeminiLiveWindow()
     layout.addView(webview, LinearLayout.LayoutParams(-1, -1))
 
     -- Prepare Tools Configuration
+    local toolsConfig = [[
+    [{
+        "functionDeclarations": [
+            {
+                "name": "tavily_search",
+                "description": "استخدم هذه الأداة للبحث في الإنترنت عن أحدث المعلومات، الأخبار، أو الإجابة على أسئلة المستخدم التي تتطلب معلومات محدثة. قم بتمرير استعلام البحث (query) المناسب.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "query": {
+                            "type": "STRING",
+                            "description": "نص استعلام البحث الذي سيتم إرساله لمحرك البحث."
+                        }
+                    },
+                    "required": ["query"]
+                }
+            }
+        ]
+    }]
+    ]]
 
-
-    local sysInstr = (geminiLiveSystemInstruction or "أنت مساعد صوتي ذكي. مهمتك الرد المباشر بصوتك فقط.") .. " (لديك الآن القدرة على رؤية ما تعرضه الكاميرا في بث مباشر. ساعد المستخدم، وهو كفيف، في وصف البيئة أو قراءة النصوص أو التعرف على المنتجات عند سؤاله. ركز على الدقة والإيجاز في الوصف.)"
+    local sysInstr = (geminiLiveSystemInstruction or "أنت مساعد صوتي ذكي. مهمتك الرد المباشر بصوتك فقط.") .. " (لديك الآن القدرة على رؤية ما تعرضه الكاميرا في بث مباشر. ساعد المستخدم، وهو كفيف، في وصف البيئة أو قراءة النصوص أو التعرف على المنتجات عند سؤاله. ركز على الدقة والإيجاز في الوصف. أيضاً لديك أداة بحث في الإنترنت 'tavily_search' يمكنك استدعاؤها متى احتجت لمعلومات محدثة أو للبحث عن إجابة.)"
 
     sysInstr = escapeJsonString(sysInstr)
 
@@ -4146,6 +4176,67 @@ function showGeminiLiveWindow()
 
         stopBtn.onclick = endSession;
 
+        async function executeTavilySearch(functionName, callId, query) {
+            const tavilyKey = "]] .. (tavilyApiKey or "") .. [[";
+            if (!tavilyKey) {
+                log("❌ مفتاح Tavily API مفقود. إرسال خطأ للمساعد.", "err");
+                sendFunctionResponse(functionName, callId, { error: "Tavily API Key is missing. Tell the user to add it in settings." });
+                return;
+            }
+
+            try {
+                const response = await fetch("https://api.tavily.com/search", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        api_key: tavilyKey,
+                        query: query,
+                        include_answer: true,
+                        max_results: 3
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error("HTTP error " + response.status);
+                }
+
+                const data = await response.json();
+                let searchResult = data.answer || "";
+                if (data.results && data.results.length > 0) {
+                     searchResult += "\n\n" + data.results.map(r => r.content).join("\n");
+                }
+
+                log("✅ تم جلب نتائج البحث", "sys");
+                sendFunctionResponse(functionName, callId, { result: searchResult });
+
+            } catch (err) {
+                log("خطأ في بحث Tavily: " + err.message, "err");
+                sendFunctionResponse(functionName, callId, { error: "Search failed: " + err.message });
+            }
+        }
+
+        function sendFunctionResponse(name, id, responseObj) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                const msg = {
+                    clientContent: {
+                        turns: [{
+                            role: "user",
+                            parts: [{
+                                functionResponse: {
+                                    name: name,
+                                    id: id,
+                                    response: responseObj
+                                }
+                            }]
+                        }],
+                        turnComplete: true
+                    }
+                };
+                ws.send(JSON.stringify(msg));
+                log("تم إرسال نتيجة البحث للمساعد 📤", "sys");
+            }
+        }
+
         startBtn.onclick = () => {
             const key = "]] .. (geminiApiKey or "") .. [[";
             if (!key) { statusText.innerText = "❌ مفتاح API مفقود"; return; }
@@ -4154,7 +4245,7 @@ function showGeminiLiveWindow()
             ws = new WebSocket(wsUrl);
             ws.onopen = () => {
                 log("تم الاتصال بالسيرفر ✅", "sys");
-                const tools = undefined;
+                const tools = ]] .. toolsConfig .. [[;
                 const setupMsg = {
                     setup: {
                         model: "models/gemini-3.1-flash-live-preview",
@@ -4195,7 +4286,14 @@ function showGeminiLiveWindow()
                         const parts = msg.serverContent.modelTurn.parts || [];
                         parts.forEach(p => {
                             if (p.inlineData && p.inlineData.data) playAudio(p.inlineData.data);
-
+                            if (p.functionCall) {
+                                log("طلب المساعد بحثاً: " + p.functionCall.name, "sys");
+                                if (p.functionCall.name === "tavily_search") {
+                                    const query = p.functionCall.args.query;
+                                    log("جاري البحث عن: " + query, "sys");
+                                    executeTavilySearch(p.functionCall.name, p.functionCall.id || "", query);
+                                }
+                            }
                         });
                     }
 
