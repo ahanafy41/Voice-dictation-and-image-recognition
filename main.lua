@@ -4082,7 +4082,7 @@ function showGeminiLiveWindow()
         "functionDeclarations": [
             {
                 "name": "tavily_search",
-                "description": "استخدم هذه الأداة للبحث في الإنترنت عن أحدث المعلومات، الأخبار، أو الإجابة على أسئلة المستخدم التي تتطلب معلومات محدثة. قم بتمرير استعلام البحث (query) المناسب.",
+                "description": "استخدم هذه الأداة للبحث في الإنترنت عن أحدث المعلومات، الأخبار، أو الإجابة على أسئلة المستخدم التي تتطلب معلومات محدثة. قم بتمرير استعلام البحث (query) المناسب. (أداة مدفوعة، استخدمها إذا لزم الأمر أو طلب المستخدم)",
                 "parameters": {
                     "type": "OBJECT",
                     "properties": {
@@ -4093,12 +4093,26 @@ function showGeminiLiveWindow()
                     },
                     "required": ["query"]
                 }
+            },
+            {
+                "name": "groq_ai_search",
+                "description": "أداة بحث ذكية ومجانية مدعومة من Groq. استخدم هذه الأداة كخيارك المفضل والأول للبحث عن المعلومات المحدثة أو الإجابة على الأسئلة العامة. مرر استعلام البحث (query).",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "query": {
+                            "type": "STRING",
+                            "description": "نص استعلام البحث أو السؤال الموجه للذكاء الاصطناعي الخاص بالبحث."
+                        }
+                    },
+                    "required": ["query"]
+                }
             }
         ]
     }]
     ]]
 
-    local sysInstr = (geminiLiveSystemInstruction or "أنت مساعد صوتي ذكي. مهمتك الرد المباشر بصوتك فقط.") .. " (لديك الآن القدرة على رؤية ما تعرضه الكاميرا في بث مباشر. ساعد المستخدم، وهو كفيف، في وصف البيئة أو قراءة النصوص أو التعرف على المنتجات عند سؤاله. ركز على الدقة والإيجاز في الوصف. أيضاً لديك أداة بحث في الإنترنت 'tavily_search' يمكنك استدعاؤها متى احتجت لمعلومات محدثة أو للبحث عن إجابة.)"
+    local sysInstr = (geminiLiveSystemInstruction or "أنت مساعد صوتي ذكي. مهمتك الرد المباشر بصوتك فقط.") .. " (لديك الآن القدرة على رؤية ما تعرضه الكاميرا في بث مباشر. ساعد المستخدم، وهو كفيف، في وصف البيئة أو قراءة النصوص أو التعرف على المنتجات عند سؤاله. ركز على الدقة والإيجاز في الوصف. أيضاً لديك أداتا بحث في الإنترنت 'tavily_search' و 'groq_ai_search'. يُفضل استخدام 'groq_ai_search' كخيار مجاني وقوي متى احتجت لمعلومات محدثة أو بحث.)"
 
     sysInstr = escapeJsonString(sysInstr)
 
@@ -4341,6 +4355,54 @@ function showGeminiLiveWindow()
 
         stopBtn.onclick = endSession;
 
+        async function executeGroqSearch(functionName, callId, query) {
+            const groqKey = "]] .. (groqApiKey or "") .. [[";
+            const groqModelId = "]] .. (selectedSearchModelId or "compound-beta") .. [[";
+
+            if (!groqKey) {
+                log("❌ مفتاح Groq API مفقود. أداة البحث تحتاج لمفتاح Groq.", "err");
+                sendFunctionResponse(functionName, callId, { error: "Groq API Key is missing. Tell the user to add it in settings." });
+                return;
+            }
+
+            try {
+                log("🔍 جاري البحث باستخدام Groq Search...", "sys");
+                const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": `Bearer ${groqKey}`
+                    },
+                    body: JSON.stringify({
+                        model: groqModelId,
+                        messages: [
+                            { role: "system", content: "You are a helpful AI search assistant. Provide accurate, updated information for the user's query." },
+                            { role: "user", content: query }
+                        ],
+                        temperature: 0.3,
+                        max_tokens: 1024
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error("HTTP error " + response.status);
+                }
+
+                const data = await response.json();
+                let searchResult = "لا توجد نتيجة";
+                if (data.choices && data.choices.length > 0 && data.choices[0].message) {
+                    searchResult = data.choices[0].message.content;
+                }
+
+                log("✅ اكتمل بحث Groq", "sys");
+                sendFunctionResponse(functionName, callId, { result: searchResult });
+
+            } catch (err) {
+                log("خطأ في بحث Groq: " + err.message, "err");
+                sendFunctionResponse(functionName, callId, { error: "Search failed: " + err.message });
+            }
+        }
+
         async function executeTavilySearch(functionName, callId, query) {
             const tavilyKey = "]] .. (tavilyApiKey or "") .. [[";
             if (!tavilyKey) {
@@ -4450,11 +4512,15 @@ function showGeminiLiveWindow()
 
                     if (msg.toolCall && msg.toolCall.functionCalls) {
                         msg.toolCall.functionCalls.forEach(fc => {
-                            log("طلب المساعد بحثاً: " + fc.name, "sys");
+                            log("طلب المساعد بحثاً عبر الأداة: " + fc.name, "sys");
                             if (fc.name === "tavily_search") {
                                 const query = fc.args.query;
-                                log("جاري البحث عن: " + query, "sys");
+                                log("جاري البحث في Tavily عن: " + query, "sys");
                                 executeTavilySearch(fc.name, fc.id || "", query);
+                            } else if (fc.name === "groq_ai_search") {
+                                const query = fc.args.query;
+                                log("جاري البحث في Groq عن: " + query, "sys");
+                                executeGroqSearch(fc.name, fc.id || "", query);
                             }
                         });
                     }
