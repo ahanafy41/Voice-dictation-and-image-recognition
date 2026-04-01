@@ -11,6 +11,7 @@ import "android.content.Intent"
 import "android.view.WindowManager"
 import "android.graphics.PixelFormat"
 import "android.content.Context"
+import "android.hardware.camera2.CameraManager"
 import "android.view.View"
 import "android.content.SharedPreferences"
 import "android.net.Uri"
@@ -172,6 +173,25 @@ local supportedLanguages = {
 local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
+-- **Gemini Live Voices**
+local geminiLiveVoices = {
+    { id = "Zephyr", name = "Zephyr (مشرق - Bright)" },
+    { id = "Puck", name = "Puck (مبتهج - Upbeat)" },
+    { id = "Charon", name = "Charon (معلوماتي - Informative)" },
+    { id = "Kore", name = "Kore (حازم - Firm)" },
+    { id = "Fenrir", name = "Fenrir (متحمس - Excitable)" },
+    { id = "Leda", name = "Leda (شاب - Youthful)" },
+    { id = "Orus", name = "Orus (حازم - Firm)" },
+    { id = "Aoede", name = "Aoede (منعش - Breezy)" },
+    { id = "Callirrhoe", name = "Callirrhoe (هادئ - Easy-going)" },
+    { id = "Autonoe", name = "Autonoe (مشرق - Bright)" },
+    { id = "Enceladus", name = "Enceladus (لاهث - Breathy)" },
+    { id = "Iapetus", name = "Iapetus (واضح - Clear)" },
+    { id = "Umbriel", name = "Umbriel (هادئ - Easy-going)" },
+    { id = "Algieba", name = "Algieba (سلس - Smooth)" },
+    { id = "Despina", name = "Despina (سلس - Smooth)" }
+}
+
 -- **Load Settings with Defaults**
 local prefs = service.getSharedPreferences("voice_settings", Context.MODE_PRIVATE)
 selectedLanguage = prefs.getString("language", defaultSelectedLanguage)
@@ -192,6 +212,7 @@ geminiCorrectionEnabled = prefs.getBoolean("geminiCorrectionEnabled", false)
 geminiApiKey = prefs.getString("geminiApiKey", "")
 groqApiKey = prefs.getString("groqApiKey", "")
 witApiKey = prefs.getString("witApiKey", "")
+tavilyApiKey = prefs.getString("tavilyApiKey", "")
 
 local loadedModelId = prefs.getString("geminiModelId", defaultGeminiModelId)
 local isValidModel = false
@@ -217,6 +238,7 @@ newTranslationFeatureEnabled = prefs.getBoolean("newTranslationFeatureEnabled", 
 translateToLanguage = prefs.getString("translateToLanguage", defaultTranslateTo)
 autoPunctuationEnabled = prefs.getBoolean("autoPunctuation", true)
 geminiLiveSystemInstruction = prefs.getString("geminiLiveSystemInstruction", "أنت مساعد صوتي ذكي. مهمتك الرد المباشر بصوتك فقط.")
+geminiLiveVoiceName = prefs.getString("geminiLiveVoiceName", "Puck")
 
 
 -- PDF TTS Settings
@@ -242,6 +264,7 @@ local imageQueryRecognizer = nil
 local floatingSettingsBtn = nil
 local summaryWindow = nil
 local summaryQueryRecognizer = nil
+local isNativeFlashOn = false
 
 -- **Set Audio Focus** (for asyncSpeak)
 if service and service.setAsyncAudioFocus then
@@ -348,6 +371,48 @@ function createChatBubble(text, isUser)
 
     msgContainer.addView(tv)
     return msgContainer
+end
+
+-- ### Native Flash Control Helper ###
+function toggleNativeFlashMode(enable, callback)
+    import "java.lang.Thread"
+    import "java.lang.Runnable"
+    local t = Thread(Runnable{
+        run = function()
+            local success, err = pcall(function()
+                local camManager = service.getSystemService(Context.CAMERA_SERVICE)
+                local camId = nil
+                local camList = camManager.getCameraIdList()
+                for i = 0, #camList - 1 do
+                    local characteristics = camManager.getCameraCharacteristics(camList[i])
+                    local facing = characteristics.get(luajava.bindClass("android.hardware.camera2.CameraCharacteristics").LENS_FACING)
+                    if facing == luajava.bindClass("android.hardware.camera2.CameraMetadata").LENS_FACING_BACK then
+                        local hasFlash = characteristics.get(luajava.bindClass("android.hardware.camera2.CameraCharacteristics").FLASH_INFO_AVAILABLE)
+                        if hasFlash then
+                            camId = camList[i]
+                            break
+                        end
+                    end
+                end
+
+                if camId then
+                    camManager.setTorchMode(camId, enable)
+                    isNativeFlashOn = enable
+                    if callback then
+                        mainHandler.post(luajava.createProxy("java.lang.Runnable", { run = function() callback(true, nil) end }))
+                    end
+                else
+                    if callback then
+                         mainHandler.post(luajava.createProxy("java.lang.Runnable", { run = function() callback(false, "لا يوجد فلاش في الكاميرا الخلفية") end }))
+                    end
+                end
+            end)
+            if not success and callback then
+                mainHandler.post(luajava.createProxy("java.lang.Runnable", { run = function() callback(false, tostring(err)) end }))
+            end
+        end
+    })
+    t.start()
 end
 
 -- ### Storage and Path Helpers
@@ -2935,6 +3000,7 @@ function saveSettings()
     editor.putString("geminiApiKey", geminiApiKey or "")
     editor.putString("groqApiKey", groqApiKey or "")
     editor.putString("witApiKey", witApiKey or "")
+    editor.putString("tavilyApiKey", tavilyApiKey or "")
     editor.putString("geminiModelId", selectedGeminiModelId or defaultGeminiModelId)
     editor.putString("groqModelId", selectedGroqModelId or defaultGroqModelId)
     editor.putString("audioModelId", selectedAudioModelId or defaultAudioModelId)
@@ -2955,6 +3021,7 @@ editor.putString("dashboardOrder", dashboardOrder or "assistant,dictation,gemini
     editor.putBoolean("newLinePerSentenceEnabled", newLinePerSentenceEnabled or false)
     editor.putBoolean("convertNumbersEnabled", convertNumbersEnabled or false)
     editor.putString("geminiLiveSystemInstruction", geminiLiveSystemInstruction or "أنت مساعد صوتي ذكي. مهمتك الرد المباشر بصوتك فقط.")
+    editor.putString("geminiLiveVoiceName", geminiLiveVoiceName or "Puck")
 
     editor.putBoolean("cleanExtraSpacesEnabled", cleanExtraSpacesEnabled or false)
     editor.putBoolean("forceDotAtEndEnabled", forceDotAtEndEnabled or false)
@@ -3337,6 +3404,14 @@ function openSettings()
     witApiKeyIn.setOnTouchListener(View.OnTouchListener{ onTouch = function(v, event) if event.getAction() == MotionEvent.ACTION_UP then v.requestFocus(); local imm = service.getSystemService(Context.INPUT_METHOD_SERVICE); if imm then imm.showSoftInput(v, 1) end end return false end })
     apiCard.addView(witApiKeyIn)
 
+    apiCard.addView(createLabel("مفتاح Tavily Search API:"))
+    local tavilyApiKeyIn = EditText(service)
+    tavilyApiKeyIn.setText(tavilyApiKey or "")
+    styleEditText(tavilyApiKeyIn)
+    tavilyApiKeyIn.addTextChangedListener{onTextChanged=function(s) tavilyApiKey=s and s.toString() or "" end}
+    tavilyApiKeyIn.setOnTouchListener(View.OnTouchListener{ onTouch = function(v, event) if event.getAction() == MotionEvent.ACTION_UP then v.requestFocus(); local imm = service.getSystemService(Context.INPUT_METHOD_SERVICE); if imm then imm.showSoftInput(v, 1) end end return false end })
+    apiCard.addView(tavilyApiKeyIn)
+
     -- SECTION: Model Selection
     local modelCard = createCard(contentL)
     addSectionHeader("اختيار النماذج (Models)", modelCard)
@@ -3389,6 +3464,16 @@ function openSettings()
     liveSysIn.addTextChangedListener{onTextChanged=function(s) geminiLiveSystemInstruction=s and s.toString() or "" end}
     liveSysIn.setOnTouchListener(View.OnTouchListener{ onTouch = function(v, event) if event.getAction() == MotionEvent.ACTION_UP then v.requestFocus(); local imm = service.getSystemService(Context.INPUT_METHOD_SERVICE); if imm then imm.showSoftInput(v, 1) end end return false end })
     liveCard.addView(liveSysIn)
+
+    liveCard.addView(createLabel("صوت المساعد (Voice):"))
+    local glvNames = ArrayList(); local glvIds = {}
+    for _, v in ipairs(geminiLiveVoices) do glvNames.add(v.name); table.insert(glvIds, v.id) end
+    local glvAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, glvNames); glvAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+    local glvSpinner = Spinner(service); glvSpinner.setAdapter(glvAdapter)
+    local currGlvIdx = -1; for i, id in ipairs(glvIds) do if id == geminiLiveVoiceName then currGlvIdx = i-1 break end end
+    if currGlvIdx ~= -1 then glvSpinner.setSelection(currGlvIdx) else glvSpinner.setSelection(0) end
+    glvSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener { onItemSelected = function(parent, view, position, id) geminiLiveVoiceName = glvIds[position + 1] end })
+    liveCard.addView(glvSpinner)
 
 
     local searchNames = ArrayList(); local searchIds = {}
@@ -3569,6 +3654,7 @@ function openSettings()
         groqApiKey = groqApiKeyIn.getText().toString()
         geminiApiKey = gemApiKeyIn.getText().toString()
         witApiKey = witApiKeyIn.getText().toString()
+        tavilyApiKey = tavilyApiKeyIn.getText().toString()
         saveSettings()
     end)
     btnL.addView(saveBtn)
@@ -3942,6 +4028,41 @@ function showGeminiLiveWindow()
         onConsoleMessage = function(super, consoleMessage)
             print("JS Console: " .. consoleMessage.message())
             return true
+        end,
+        onJsPrompt = function(super, view, url, message, defaultValue, result)
+            if message == "TOGGLE_FLASH_NATIVE" then
+                local enable = defaultValue == "true"
+                -- Delay slightly to ensure WebRTC has released the camera hardware
+                mainHandler.postDelayed(luajava.createProxy("java.lang.Runnable", {
+                    run = function()
+                        toggleNativeFlashMode(enable, function(success, err)
+                            if success then
+                                view.evaluateJavascript("window.onFlashToggled(true);", nil)
+                            else
+                                print("Flash error: " .. tostring(err))
+                                service.asyncSpeak("خطأ في تشغيل الفلاش")
+                                view.evaluateJavascript("window.onFlashToggled(false);", nil)
+                            end
+                        end)
+                    end
+                }), 300)
+                result.confirm("Handled")
+                return true
+            elseif message == "TOGGLE_FLASH_NATIVE_SILENT" then
+                local enable = defaultValue == "true"
+                mainHandler.postDelayed(luajava.createProxy("java.lang.Runnable", {
+                    run = function()
+                        toggleNativeFlashMode(enable, function(success, err)
+                            if not success then
+                                print("Silent Flash error: " .. tostring(err))
+                            end
+                        end)
+                    end
+                }), 100)
+                result.confirm("Handled")
+                return true
+            end
+            return super.onJsPrompt(view, url, message, defaultValue, result)
         end
     })
     webview.setWebChromeClient(webChromeClient)
@@ -3956,9 +4077,28 @@ function showGeminiLiveWindow()
     layout.addView(webview, LinearLayout.LayoutParams(-1, -1))
 
     -- Prepare Tools Configuration
+    local toolsConfig = [[
+    [{
+        "functionDeclarations": [
+            {
+                "name": "tavily_search",
+                "description": "استخدم هذه الأداة للبحث في الإنترنت عن أحدث المعلومات، الأخبار، أو الإجابة على أسئلة المستخدم التي تتطلب معلومات محدثة. قم بتمرير استعلام البحث (query) المناسب.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "query": {
+                            "type": "STRING",
+                            "description": "نص استعلام البحث الذي سيتم إرساله لمحرك البحث."
+                        }
+                    },
+                    "required": ["query"]
+                }
+            }
+        ]
+    }]
+    ]]
 
-
-    local sysInstr = (geminiLiveSystemInstruction or "أنت مساعد صوتي ذكي. مهمتك الرد المباشر بصوتك فقط.") .. " (لديك الآن القدرة على رؤية ما تعرضه الكاميرا في بث مباشر. ساعد المستخدم، وهو كفيف، في وصف البيئة أو قراءة النصوص أو التعرف على المنتجات عند سؤاله. ركز على الدقة والإيجاز في الوصف.)"
+    local sysInstr = (geminiLiveSystemInstruction or "أنت مساعد صوتي ذكي. مهمتك الرد المباشر بصوتك فقط.") .. " (لديك الآن القدرة على رؤية ما تعرضه الكاميرا في بث مباشر. ساعد المستخدم، وهو كفيف، في وصف البيئة أو قراءة النصوص أو التعرف على المنتجات عند سؤاله. ركز على الدقة والإيجاز في الوصف. أيضاً لديك أداة بحث في الإنترنت 'tavily_search' يمكنك استدعاؤها متى احتجت لمعلومات محدثة أو للبحث عن إجابة.)"
 
     sysInstr = escapeJsonString(sysInstr)
 
@@ -3989,6 +4129,7 @@ function showGeminiLiveWindow()
         <button id="startBtn">ابدأ المحادثة الآن</button>
         <button id="toggleCamBtn">📷 فتح الكاميرا</button>
         <button id="switchCamBtn">🔄 تبديل الكاميرا</button>
+        <button id="flashBtn" style="display: none; background: #FFD700; color: #000;">🔦 الفلاش</button>
         <button id="stopBtn">إنهاء المكالمة 🛑</button>
     </div>
     <div id="log">Logs:</div>
@@ -3998,7 +4139,10 @@ function showGeminiLiveWindow()
         const canvas = document.getElementById('canvasHelper');
         const toggleCamBtn = document.getElementById('toggleCamBtn');
         const switchCamBtn = document.getElementById('switchCamBtn');
+        const flashBtn = document.getElementById('flashBtn');
         let camStream = null, currentFacingMode = 'environment', videoInterval = null;
+        let isFlashActive = false;
+        let isFlashTransitioning = false;
 
         async function toggleCamera() {
             if (camStream) {
@@ -4022,6 +4166,17 @@ function showGeminiLiveWindow()
                 video.style.display = 'block';
                 video.className = currentFacingMode === 'user' ? '' : 'rear';
                 log('📷 تم تشغيل الكاميرا بنجاح', 'sys');
+
+                if (currentFacingMode === 'environment') {
+                    flashBtn.style.display = 'inline-block';
+                } else {
+                    flashBtn.style.display = 'none';
+                    if (isFlashActive) {
+                        isFlashActive = false;
+                        window.prompt("TOGGLE_FLASH_NATIVE_SILENT", "false"); // Turn off flash safely
+                    }
+                }
+
                 startVideoPusher();
                 return true;
             } catch (err) {
@@ -4029,6 +4184,41 @@ function showGeminiLiveWindow()
                 return false;
             }
         }
+
+        async function toggleFlash() {
+            if (isFlashTransitioning || currentFacingMode !== 'environment') return;
+            isFlashTransitioning = true;
+            const newState = !isFlashActive;
+
+            // 1. Stop current camera track to release hardware
+            if (camStream) {
+                camStream.getTracks().forEach(t => t.stop());
+                camStream = null;
+                video.style.display = 'none';
+                if (videoInterval) clearInterval(videoInterval);
+                log('إيقاف الكاميرا مؤقتاً لتشغيل الفلاش...', 'sys');
+            }
+
+            // 2. Request Native Lua to toggle torch
+            window.prompt("TOGGLE_FLASH_NATIVE", newState.toString());
+        }
+
+        // 3. Callback from Lua when native torch is set
+        window.onFlashToggled = async function(success) {
+            if (success) {
+                isFlashActive = !isFlashActive;
+                log('الفلاش الآن: ' + (isFlashActive ? 'مضاء' : 'مطفأ'), 'sys');
+                flashBtn.innerText = isFlashActive ? '🔦 الفلاش (شغال)' : '🔦 الفلاش';
+            } else {
+                log('فشل في تشغيل الفلاش من النظام', 'err');
+            }
+
+            // 4. Restart Camera
+            await startCamera();
+            isFlashTransitioning = false;
+        };
+
+        flashBtn.onclick = toggleFlash;
 
         function stopCamera() {
             if (camStream) camStream.getTracks().forEach(t => t.stop());
@@ -4134,6 +4324,11 @@ function showGeminiLiveWindow()
             stopCamera();
             toggleCamBtn.style.display = "none";
             switchCamBtn.style.display = "none";
+            flashBtn.style.display = "none";
+            if (isFlashActive) {
+                isFlashActive = false;
+                window.prompt("TOGGLE_FLASH_NATIVE_SILENT", "false"); // Ensure flash turns off safely
+            }
             if (ws) ws.close();
             if (micStream) micStream.getTracks().forEach(t => t.stop());
             stopAllAudio();
@@ -4146,6 +4341,61 @@ function showGeminiLiveWindow()
 
         stopBtn.onclick = endSession;
 
+        async function executeTavilySearch(functionName, callId, query) {
+            const tavilyKey = "]] .. (tavilyApiKey or "") .. [[";
+            if (!tavilyKey) {
+                log("❌ مفتاح Tavily API مفقود. إرسال خطأ للمساعد.", "err");
+                sendFunctionResponse(functionName, callId, { error: "Tavily API Key is missing. Tell the user to add it in settings." });
+                return;
+            }
+
+            try {
+                const response = await fetch("https://api.tavily.com/search", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        api_key: tavilyKey,
+                        query: query,
+                        include_answer: true,
+                        max_results: 3
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error("HTTP error " + response.status);
+                }
+
+                const data = await response.json();
+                let searchResult = data.answer || "";
+                if (data.results && data.results.length > 0) {
+                     searchResult += "\n\n" + data.results.map(r => r.content).join("\n");
+                }
+
+                log("✅ تم جلب نتائج البحث", "sys");
+                sendFunctionResponse(functionName, callId, { result: searchResult });
+
+            } catch (err) {
+                log("خطأ في بحث Tavily: " + err.message, "err");
+                sendFunctionResponse(functionName, callId, { error: "Search failed: " + err.message });
+            }
+        }
+
+        function sendFunctionResponse(name, id, responseObj) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                const msg = {
+                    toolResponse: {
+                        functionResponses: [{
+                            name: name,
+                            id: id,
+                            response: responseObj
+                        }]
+                    }
+                };
+                ws.send(JSON.stringify(msg));
+                log("تم إرسال نتيجة البحث للمساعد 📤", "sys");
+            }
+        }
+
         startBtn.onclick = () => {
             const key = "]] .. (geminiApiKey or "") .. [[";
             if (!key) { statusText.innerText = "❌ مفتاح API مفقود"; return; }
@@ -4154,14 +4404,14 @@ function showGeminiLiveWindow()
             ws = new WebSocket(wsUrl);
             ws.onopen = () => {
                 log("تم الاتصال بالسيرفر ✅", "sys");
-                const tools = undefined;
+                const tools = ]] .. toolsConfig .. [[;
                 const setupMsg = {
                     setup: {
                         model: "models/gemini-3.1-flash-live-preview",
                         systemInstruction: { parts: [{ text: "]] .. sysInstr .. [[" }] },
                         generationConfig: {
                             responseModalities: ["AUDIO"],
-                            speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Puck" } } }
+                            speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "]] .. (geminiLiveVoiceName or "Puck") .. [[" } } }
                         }
                     }
                 };
@@ -4195,7 +4445,17 @@ function showGeminiLiveWindow()
                         const parts = msg.serverContent.modelTurn.parts || [];
                         parts.forEach(p => {
                             if (p.inlineData && p.inlineData.data) playAudio(p.inlineData.data);
+                        });
+                    }
 
+                    if (msg.toolCall && msg.toolCall.functionCalls) {
+                        msg.toolCall.functionCalls.forEach(fc => {
+                            log("طلب المساعد بحثاً: " + fc.name, "sys");
+                            if (fc.name === "tavily_search") {
+                                const query = fc.args.query;
+                                log("جاري البحث عن: " + query, "sys");
+                                executeTavilySearch(fc.name, fc.id || "", query);
+                            }
                         });
                     }
 
