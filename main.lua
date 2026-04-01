@@ -4218,18 +4218,12 @@ function showGeminiLiveWindow()
         function sendFunctionResponse(name, id, responseObj) {
             if (ws && ws.readyState === WebSocket.OPEN) {
                 const msg = {
-                    clientContent: {
-                        turns: [{
-                            role: "user",
-                            parts: [{
-                                functionResponse: {
-                                    name: name,
-                                    id: id,
-                                    response: responseObj
-                                }
-                            }]
-                        }],
-                        turnComplete: true
+                    toolResponse: {
+                        functionResponses: [{
+                            name: name,
+                            id: id,
+                            response: responseObj
+                        }]
                     }
                 };
                 ws.send(JSON.stringify(msg));
@@ -4286,13 +4280,16 @@ function showGeminiLiveWindow()
                         const parts = msg.serverContent.modelTurn.parts || [];
                         parts.forEach(p => {
                             if (p.inlineData && p.inlineData.data) playAudio(p.inlineData.data);
-                            if (p.functionCall) {
-                                log("طلب المساعد بحثاً: " + p.functionCall.name, "sys");
-                                if (p.functionCall.name === "tavily_search") {
-                                    const query = p.functionCall.args.query;
-                                    log("جاري البحث عن: " + query, "sys");
-                                    executeTavilySearch(p.functionCall.name, p.functionCall.id || "", query);
-                                }
+                        });
+                    }
+
+                    if (msg.toolCall && msg.toolCall.functionCalls) {
+                        msg.toolCall.functionCalls.forEach(fc => {
+                            log("طلب المساعد بحثاً: " + fc.name, "sys");
+                            if (fc.name === "tavily_search") {
+                                const query = fc.args.query;
+                                log("جاري البحث عن: " + query, "sys");
+                                executeTavilySearch(fc.name, fc.id || "", query);
                             }
                         });
                     }
