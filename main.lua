@@ -1126,7 +1126,8 @@ function uploadFileToGemini(filePath, mimeType, apiKey, callback)
 
                 local os = putConn.getOutputStream()
                 local fis = FileInputStream(file)
-                local buffer = luajava.newArray(luajava.bindClass("java.lang.Byte").TYPE, 65536)
+                -- 1 MegaByte Buffer to avoid Lua bridging overhead
+                local buffer = luajava.newArray(luajava.bindClass("java.lang.Byte").TYPE, 1048576)
                 local read = fis.read(buffer)
 
                 local totalRead = 0
@@ -1251,7 +1252,8 @@ function transcribeWithGroq(filePath, callback, modelId)
                 dos.writeBytes("Content-Type: application/octet-stream\r\n\r\n")
 
                 local fileInputStream = FileInputStream(file)
-                local bufferSize = 65536
+                -- 1 MegaByte Buffer to avoid Lua bridging overhead
+                local bufferSize = 1048576
                 local Byte = luajava.bindClass("java.lang.Byte")
                 local buffer = luajava.newArray(Byte.TYPE, bufferSize)
                 local bytesRead = fileInputStream.read(buffer)
@@ -1438,7 +1440,8 @@ function transcribeWithWitAI(filePath, callback)
                 local dos = DataOutputStream(conn.getOutputStream())
                 local file = luajava.bindClass("java.io.File")(tostring(filePath))
                 local fileInputStream = FileInputStream(file)
-                local bufferSize = 65536
+                -- 1 MegaByte Buffer to avoid Lua bridging overhead
+                local bufferSize = 1048576
                 local Byte = luajava.bindClass("java.lang.Byte")
                 local buffer = luajava.newArray(Byte.TYPE, bufferSize)
                 local bytesRead = fileInputStream.read(buffer)
