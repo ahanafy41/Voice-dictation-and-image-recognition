@@ -3071,22 +3071,55 @@ function hideYoutubeAudioWindow()
 end
 
 function performLuaYoutubeSearch(query)
-    local url = "https://vid.puffyan.us/api/v1/search?q=" .. luajava.bindClass("java.net.URLEncoder").encode(query, "UTF-8")
+    local encodedQuery = luajava.bindClass("java.net.URLEncoder").encode(query, "UTF-8")
+    local url = "https://m.youtube.com/results?search_query=" .. encodedQuery
 
-    -- Jieshuo Http.get signature: get(url, cookie, charset, headers, callback)
-    Http.get(url, nil, "UTF-8", nil, function(code, content)
+    local headers = luajava.newInstance("java.util.HashMap")
+    headers.put("User-Agent", "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.120 Mobile Safari/537.36")
+    headers.put("Accept-Language", "ar-EG,ar;q=0.9,en-US;q=0.8,en;q=0.7")
+
+    Http.get(url, nil, "UTF-8", headers, function(code, content)
         service.post(Runnable({
             run = function()
                 if code == 200 and content and content ~= "" then
-                    -- Parse Invidious API results
-                    local safeContent = content:gsub("\\", "\\\\"):gsub("'", "\\'"):gsub("\n", "\\n"):gsub("\r", "")
-                    if youtubeWebView then
-                        local js = "receiveResults('" .. safeContent .. "');"
-                        youtubeWebView.evaluateJavascript(js, nil)
+                    -- Scrape official YouTube initial data
+                    local ytInitialData = content:match("ytInitialData%s*=%s*({.-});%s*</script>")
+                    if not ytInitialData then
+                        ytInitialData = content:match('window%["ytInitialData"%]%s*=%s*({.-});%s*</script>')
+                    end
+
+                    if ytInitialData then
+                        local resultsArr = {}
+                        -- Basic regex extraction since full JSON parse is heavy in pure lua
+                        -- We look for videoRenderer or compactVideoRenderer
+                        for videoId, title in string.gmatch(ytInitialData, '"videoId":"([^"]+)".-title":{"runs":%[{"text":"(.-)"}') do
+                            -- Avoid duplicates and short strings
+                            local isDup = false
+                            for _, v in ipairs(resultsArr) do if v.videoId == videoId then isDup = true break end end
+
+                            if not isDup and #title > 2 then
+                                -- clean title
+                                title = title:gsub('"', '\"'):gsub("\n", " ")
+                                table.insert(resultsArr, '{"type":"video","videoId":"' .. videoId .. '","title":"' .. title .. '"}')
+                            end
+                            if #resultsArr >= 15 then break end
+                        end
+
+                        local jsonArr = "[" .. table.concat(resultsArr, ",") .. "]"
+                        local safeContent = jsonArr:gsub("\\", "\\\\"):gsub("'", "\\'"):gsub("\n", "\\n"):gsub("\r", "")
+
+                        if youtubeWebView then
+                            local js = "receiveResults('" .. safeContent .. "');"
+                            youtubeWebView.evaluateJavascript(js, nil)
+                        end
+                    else
+                        if youtubeWebView then
+                            youtubeWebView.evaluateJavascript("document.getElementById('status').innerText = 'لم نتمكن من قراءة بيانات يوتيوب الرسمية.';", nil)
+                        end
                     end
                 else
                     if youtubeWebView then
-                        youtubeWebView.evaluateJavascript("document.getElementById('status').innerText = 'حدث خطأ في البحث. تأكد من اتصالك بالإنترنت.';", nil)
+                        youtubeWebView.evaluateJavascript("document.getElementById('status').innerText = 'حدث خطأ في الاتصال بموقع يوتيوب.';", nil)
                     end
                 end
             end
