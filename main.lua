@@ -1126,38 +1126,36 @@ function uploadFileToGemini(filePath, mimeType, apiKey, callback)
 
                 local os = putConn.getOutputStream()
                 local fis = FileInputStream(file)
-                -- 1 MegaByte Buffer to avoid Lua bridging overhead
-                local buffer = luajava.newArray(luajava.bindClass("java.lang.Byte").TYPE, 1048576)
+                local buffer = luajava.newArray(luajava.bindClass("java.lang.Byte").TYPE, 65536)
                 local read = fis.read(buffer)
 
                 local totalRead = 0
-                local uploadFinished = false
+                local SystemObj = luajava.bindClass("java.lang.System")
+                local lastSpeakTime = SystemObj.currentTimeMillis()
+                local ThreadClass = luajava.bindClass("java.lang.Thread")
 
-                local announceRunnable
-                announceRunnable = luajava.createProxy("java.lang.Runnable", {
-                    run = function()
-                        if uploadFinished then return end
-                        if fileSize and fileSize > 0 then
-                            local percent = math.floor((totalRead / fileSize) * 100)
-                            if percent > 0 and percent < 100 then
-                                service.asyncSpeak("تم رفع " .. percent .. " في المئة")
-                            end
-                        end
-                        if not uploadFinished then
-                            mainHandler.postDelayed(announceRunnable, 10000)
-                        end
-                    end
-                })
-                mainHandler.postDelayed(announceRunnable, 10000)
-
-                -- Fast block read/write inside Java to avoid Lua loop overhead entirely
                 while read ~= -1 do
                     os.write(buffer, 0, read)
                     totalRead = totalRead + read
+
+                    local currentTime = SystemObj.currentTimeMillis()
+                    if currentTime - lastSpeakTime >= 10000 then
+                        if fileSize and fileSize > 0 then
+                            local percent = math.floor((totalRead / fileSize) * 100)
+                            if percent > 0 and percent < 100 then
+                                local pText = "تم رفع " .. percent .. " في المئة"
+                                mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                                    run = function() service.asyncSpeak(pText) end
+                                }))
+                            end
+                        end
+                        lastSpeakTime = currentTime
+                    end
+
+                    pcall(function() ThreadClass.sleep(10) end)
                     read = fis.read(buffer)
                 end
 
-                uploadFinished = true
                 fis.close()
                 os.flush()
                 os.close()
@@ -1252,41 +1250,39 @@ function transcribeWithGroq(filePath, callback, modelId)
                 dos.writeBytes("Content-Type: application/octet-stream\r\n\r\n")
 
                 local fileInputStream = FileInputStream(file)
-                -- 1 MegaByte Buffer to avoid Lua bridging overhead
-                local bufferSize = 1048576
+                local bufferSize = 65536
                 local Byte = luajava.bindClass("java.lang.Byte")
                 local buffer = luajava.newArray(Byte.TYPE, bufferSize)
                 local bytesRead = fileInputStream.read(buffer)
 
                 local fileSize = file.length()
                 local totalRead = 0
-                local uploadFinished = false
+                local SystemObj = luajava.bindClass("java.lang.System")
+                local lastSpeakTime = SystemObj.currentTimeMillis()
+                local ThreadClass = luajava.bindClass("java.lang.Thread")
 
-                local announceRunnable
-                announceRunnable = luajava.createProxy("java.lang.Runnable", {
-                    run = function()
-                        if uploadFinished then return end
-                        if fileSize and fileSize > 0 then
-                            local percent = math.floor((totalRead / fileSize) * 100)
-                            if percent > 0 and percent < 100 then
-                                service.asyncSpeak("تم رفع " .. percent .. " في المئة")
-                            end
-                        end
-                        if not uploadFinished then
-                            mainHandler.postDelayed(announceRunnable, 10000)
-                        end
-                    end
-                })
-                mainHandler.postDelayed(announceRunnable, 10000)
-
-                -- Fast block read/write
                 while bytesRead > 0 do
                     dos.write(buffer, 0, bytesRead)
                     totalRead = totalRead + bytesRead
+
+                    local currentTime = SystemObj.currentTimeMillis()
+                    if currentTime - lastSpeakTime >= 10000 then
+                        if fileSize and fileSize > 0 then
+                            local percent = math.floor((totalRead / fileSize) * 100)
+                            if percent > 0 and percent < 100 then
+                                local pText = "تم رفع " .. percent .. " في المئة"
+                                mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                                    run = function() service.asyncSpeak(pText) end
+                                }))
+                            end
+                        end
+                        lastSpeakTime = currentTime
+                    end
+
+                    pcall(function() ThreadClass.sleep(10) end)
                     bytesRead = fileInputStream.read(buffer)
                 end
 
-                uploadFinished = true
                 fileInputStream.close()
 
                 dos.writeBytes("\r\n")
@@ -1440,41 +1436,39 @@ function transcribeWithWitAI(filePath, callback)
                 local dos = DataOutputStream(conn.getOutputStream())
                 local file = luajava.bindClass("java.io.File")(tostring(filePath))
                 local fileInputStream = FileInputStream(file)
-                -- 1 MegaByte Buffer to avoid Lua bridging overhead
-                local bufferSize = 1048576
+                local bufferSize = 65536
                 local Byte = luajava.bindClass("java.lang.Byte")
                 local buffer = luajava.newArray(Byte.TYPE, bufferSize)
                 local bytesRead = fileInputStream.read(buffer)
 
                 local fileSize = file.length()
                 local totalRead = 0
-                local uploadFinished = false
+                local SystemObj = luajava.bindClass("java.lang.System")
+                local lastSpeakTime = SystemObj.currentTimeMillis()
+                local ThreadClass = luajava.bindClass("java.lang.Thread")
 
-                local announceRunnable
-                announceRunnable = luajava.createProxy("java.lang.Runnable", {
-                    run = function()
-                        if uploadFinished then return end
-                        if fileSize and fileSize > 0 then
-                            local percent = math.floor((totalRead / fileSize) * 100)
-                            if percent > 0 and percent < 100 then
-                                service.asyncSpeak("تم رفع " .. percent .. " في المئة")
-                            end
-                        end
-                        if not uploadFinished then
-                            mainHandler.postDelayed(announceRunnable, 10000)
-                        end
-                    end
-                })
-                mainHandler.postDelayed(announceRunnable, 10000)
-
-                -- Fast block read/write
                 while bytesRead > 0 do
                     dos.write(buffer, 0, bytesRead)
                     totalRead = totalRead + bytesRead
+
+                    local currentTime = SystemObj.currentTimeMillis()
+                    if currentTime - lastSpeakTime >= 10000 then
+                        if fileSize and fileSize > 0 then
+                            local percent = math.floor((totalRead / fileSize) * 100)
+                            if percent > 0 and percent < 100 then
+                                local pText = "تم رفع " .. percent .. " في المئة"
+                                mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                                    run = function() service.asyncSpeak(pText) end
+                                }))
+                            end
+                        end
+                        lastSpeakTime = currentTime
+                    end
+
+                    pcall(function() ThreadClass.sleep(10) end)
                     bytesRead = fileInputStream.read(buffer)
                 end
 
-                uploadFinished = true
                 fileInputStream.close()
                 dos.close()
 
