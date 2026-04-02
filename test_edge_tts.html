@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head>
+<script>
+async function tts(text, voice) {
+    const ws = new WebSocket("wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=6A5AA1D4EAFF4E9FB37E23D68491D6F4");
+
+    ws.onopen = () => {
+        console.log("WS Open");
+        const date = new Date().toUTCString();
+        const config = `X-Timestamp:${date}\r\nContent-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n{"context":{"synthesis":{"audio":{"metadataoptions":{"sentenceBoundaryEnabled":"false","wordBoundaryEnabled":"true"},"outputFormat":"audio-24khz-48kbitrate-mono-mp3"}}}}`;
+        ws.send(config);
+
+        const reqId = Math.random().toString(36).substring(2, 15);
+        const ssml = `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='ar-EG'><voice name='${voice}'><prosody rate='+0%'>${text}</prosody></voice></speak>`;
+        const payload = `X-RequestId:${reqId}\r\nContent-Type:application/ssml+xml\r\nX-Timestamp:${date}\r\nPath:ssml\r\n\r\n${ssml}`;
+        ws.send(payload);
+    };
+
+    let audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    let audioQueue = [];
+    let isPlaying = false;
+    let source = null;
+
+    ws.onmessage = async (event) => {
+        if (typeof event.data === "string") {
+            console.log("Msg:", event.data);
+            if (event.data.includes("Path:turn.end")) {
+                ws.close();
+            }
+        } else {
+            console.log("Audio chunk received");
+        }
+    };
+}
+</script>
+</head>
+<body></body>
+</html>
