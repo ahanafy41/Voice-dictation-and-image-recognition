@@ -3054,7 +3054,7 @@ end
 
 
 -- ==========================================
--- YouTube Audio Player Feature
+-- YouTube Custom Clean Audio Frontend
 -- ==========================================
 local youtubeAudioWindow = nil
 local youtubeWebView = nil
@@ -3070,29 +3070,6 @@ function hideYoutubeAudioWindow()
     end
 end
 
--- JavaScript Control Functions
-local function ytPlayPause()
-    if youtubeWebView then
-        local js = [[
-            javascript:(function() {
-                var v = document.querySelector('video');
-                if(v) {
-                    if(v.paused) v.play();
-                    else v.pause();
-                }
-            })();
-        ]]
-        youtubeWebView.evaluateJavascript(js, nil)
-    end
-end
-
-local function ytSeek(seconds)
-    if youtubeWebView then
-        local js = "javascript:(function() { var v = document.querySelector('video'); if(v) v.currentTime += " .. seconds .. "; })();"
-        youtubeWebView.evaluateJavascript(js, nil)
-    end
-end
-
 function showYoutubeAudioWindow()
     if youtubeAudioWindow then return end
 
@@ -3100,7 +3077,7 @@ function showYoutubeAudioWindow()
     youtubeAudioWindow.setOrientation(LinearLayout.VERTICAL)
     youtubeAudioWindow.setBackgroundColor(0xFF000000)
 
-    -- Header (Close button)
+    -- Header (Close button only)
     local headerL = LinearLayout(service)
     headerL.setOrientation(LinearLayout.HORIZONTAL)
     headerL.setGravity(Gravity.CENTER)
@@ -3116,11 +3093,11 @@ function showYoutubeAudioWindow()
         openMainWindow()
     end)
 
-    local cParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+    local cParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
     headerL.addView(closeBtn, cParams)
     youtubeAudioWindow.addView(headerL)
 
-    -- WebView Container (Takes most of the space)
+    -- WebView Container
     local webContainer = LinearLayout(service)
     webContainer.setOrientation(LinearLayout.VERTICAL)
     local wcParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0)
@@ -3131,61 +3108,10 @@ function showYoutubeAudioWindow()
     webSettings.setJavaScriptEnabled(true)
     webSettings.setDomStorageEnabled(true)
     webSettings.setMediaPlaybackRequiresUserGesture(false)
-    webSettings.setLoadsImagesAutomatically(false)
-    webSettings.setBlockNetworkImage(true)
 
     local webViewClient = luajava.override(WebViewClient, {
-        onPageFinished = function(view, url)
-            if not youtubeWebView then return end
-            local js = [[
-                javascript:(function() {
-                    Object.defineProperty(document, 'visibilityState', { get: function() { return 'visible'; } });
-                    Object.defineProperty(document, 'hidden', { get: function() { return false; } });
-
-                    var style = document.createElement('style');
-                    style.innerHTML = `
-                        /* Completely collapse the video player area so it takes 0 space and is invisible */
-                        #player-container-id,
-                        .player-size,
-                        ytm-mobile-video-player-app-renderer,
-                        .html5-video-player {
-                            height: 0px !important;
-                            min-height: 0px !important;
-                            padding: 0 !important;
-                            margin: 0 !important;
-                            visibility: hidden !important;
-                        }
-
-                        /* Keep the actual video element functioning but totally invisible and 0 size */
-                        video {
-                            opacity: 0 !important;
-                            width: 0px !important;
-                            height: 0px !important;
-                            position: absolute !important;
-                            top: -9999px !important;
-                            pointer-events: none !important;
-                        }
-
-                        /* Hide images, thumbnails, and ads to keep it clean */
-                        ytm-thumbnail-overlay-time-status-renderer,
-                        .thumbnail-container,
-                        img,
-                        .ytm-channel-avatar,
-                        ytm-standalone-badge-supported-renderer,
-                        ytm-promoted-sparkles-web-renderer,
-                        ad-slot-renderer,
-                        .ad-showing {
-                            display: none !important;
-                        }
-                    `;
-                    document.head.appendChild(style);
-
-                    setInterval(function() {
-                        document.dispatchEvent(new Event('visibilitychange'));
-                    }, 2000);
-                })();
-            ]]
-            youtubeWebView.evaluateJavascript(js, nil)
+        shouldOverrideUrlLoading = function(view, url)
+            return false
         end
     })
     youtubeWebView.setWebViewClient(webViewClient)
@@ -3194,44 +3120,6 @@ function showYoutubeAudioWindow()
     youtubeWebView.setLayoutParams(wParams)
     webContainer.addView(youtubeWebView)
     youtubeAudioWindow.addView(webContainer)
-
-    -- Media Controls (Bottom fixed area)
-    local controlsL = LinearLayout(service)
-    controlsL.setOrientation(LinearLayout.HORIZONTAL)
-    controlsL.setGravity(Gravity.CENTER)
-    controlsL.setPadding(20, 30, 20, 30)
-    controlsL.setBackgroundColor(0xFF222222)
-
-    local seekBackBtn = Button(service)
-    seekBackBtn.setText("⏪ إرجاع")
-    seekBackBtn.setContentDescription("إرجاع الفيديو عشر ثواني")
-    styleButton(seekBackBtn, "secondary")
-    seekBackBtn.setOnClickListener(function() ytSeek(-10) end)
-
-    local playPauseBtn = Button(service)
-    playPauseBtn.setText("⏯️ تشغيل / إيقاف")
-    playPauseBtn.setContentDescription("تشغيل أو إيقاف الفيديو")
-    styleButton(playPauseBtn, "primary")
-    playPauseBtn.setOnClickListener(function() ytPlayPause() end)
-
-    local seekFwdBtn = Button(service)
-    seekFwdBtn.setText("تقديم ⏩")
-    seekFwdBtn.setContentDescription("تقديم الفيديو عشر ثواني")
-    styleButton(seekFwdBtn, "secondary")
-    seekFwdBtn.setOnClickListener(function() ytSeek(10) end)
-
-    local sp1 = View(service); sp1.setLayoutParams(LinearLayout.LayoutParams(20, 0))
-    local sp2 = View(service); sp2.setLayoutParams(LinearLayout.LayoutParams(20, 0))
-
-    controlsL.addView(seekBackBtn)
-    controlsL.addView(sp1)
-    controlsL.addView(playPauseBtn)
-    controlsL.addView(sp2)
-    controlsL.addView(seekFwdBtn)
-
-    local cpParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-    controlsL.setLayoutParams(cpParams)
-    youtubeAudioWindow.addView(controlsL)
 
     -- Window Params
     local p = WindowManager.LayoutParams()
@@ -3248,7 +3136,156 @@ function showYoutubeAudioWindow()
         print("Error opening Youtube: " .. tostring(err))
     end
 
-    youtubeWebView.loadUrl("https://m.youtube.com")
+    -- local HTML/JS Frontend that acts as a custom client
+    local html = [[
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>مشغل يوتيوب النظيف</title>
+<style>
+    body { background-color: #000; color: #fff; font-family: sans-serif; padding: 20px; margin: 0; }
+    input { width: 100%; padding: 15px; font-size: 18px; border-radius: 10px; border: none; margin-bottom: 10px; box-sizing: border-box; }
+    button { background-color: #1e88e5; color: white; border: none; padding: 15px 20px; font-size: 18px; border-radius: 10px; cursor: pointer; width: 100%; margin-bottom: 20px; }
+    .result-item { background-color: #222; padding: 15px; margin-bottom: 10px; border-radius: 10px; }
+    .result-title { font-size: 18px; font-weight: bold; margin-bottom: 10px; }
+    .play-btn { background-color: #4CAF50; width: auto; padding: 10px 20px; margin-bottom: 0;}
+    #controls { display: none; background-color: #111; padding: 20px; border-radius: 10px; position: fixed; bottom: 0; left: 0; right: 0; text-align: center; }
+    #controls button { width: 30%; display: inline-block; margin: 0 1%; background-color: #444; }
+    #status { margin-bottom: 15px; color: #aaa; }
+    /* Hidden iframe for official YouTube Iframe API to stream audio */
+    #player { position: absolute; top: -9999px; left: -9999px; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+</style>
+<script src="https://www.youtube.com/iframe_api"></script>
+</head>
+<body>
+
+<input type="text" id="searchInput" placeholder="ابحث في يوتيوب...">
+<button onclick="searchYoutube()">🔍 بحث</button>
+<div id="status"></div>
+<div id="results"></div>
+
+<!-- YouTube Player (Invisible) -->
+<div id="player"></div>
+
+<div id="controls">
+    <div id="nowPlaying" style="margin-bottom:15px; font-weight:bold; font-size:16px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"></div>
+    <button onclick="seek(-10)">⏪ إرجاع</button>
+    <button id="playPauseBtn" onclick="togglePlay()">⏸️ إيقاف</button>
+    <button onclick="seek(10)">تقديم ⏩</button>
+</div>
+
+<script>
+    var player;
+    var isPlaying = false;
+
+    function onYouTubeIframeAPIReady() {
+        player = new YT.Player('player', {
+            height: '1',
+            width: '1',
+            videoId: '',
+            playerVars: {
+                'playsinline': 1,
+                'controls': 0,
+                'disablekb': 1,
+                'fs': 0,
+                'modestbranding': 1,
+                'rel': 0
+            },
+            events: {
+                'onReady': onPlayerReady,
+                'onStateChange': onPlayerStateChange
+            }
+        });
+    }
+
+    function onPlayerReady(event) {
+        console.log("Player ready");
+    }
+
+    function onPlayerStateChange(event) {
+        if (event.data == YT.PlayerState.PLAYING) {
+            isPlaying = true;
+            document.getElementById('playPauseBtn').innerText = "⏸️ إيقاف";
+        } else if (event.data == YT.PlayerState.PAUSED) {
+            isPlaying = false;
+            document.getElementById('playPauseBtn').innerText = "▶️ تشغيل";
+        }
+    }
+
+    function togglePlay() {
+        if(player && player.getPlayerState) {
+            if(isPlaying) {
+                player.pauseVideo();
+            } else {
+                player.playVideo();
+            }
+        }
+    }
+
+    function seek(seconds) {
+        if(player && player.getCurrentTime) {
+            var currentTime = player.getCurrentTime();
+            player.seekTo(currentTime + seconds, true);
+        }
+    }
+
+    function playAudio(videoId, title) {
+        if(player && player.loadVideoById) {
+            document.getElementById('nowPlaying').innerText = title;
+            document.getElementById('controls').style.display = 'block';
+            player.loadVideoById({videoId: videoId, suggestedQuality: 'small'});
+        } else {
+            alert("المشغل لم يكتمل تحميله بعد، حاول مرة أخرى.");
+        }
+    }
+
+    async function searchYoutube() {
+        const query = document.getElementById('searchInput').value;
+        if(!query) return;
+
+        document.getElementById('status').innerText = "جاري البحث...";
+        document.getElementById('results').innerHTML = "";
+
+        try {
+            // We use Piped API (a privacy-friendly YouTube frontend API) to get pure JSON results, no images needed!
+            const res = await fetch("https://pipedapi.kavin.rocks/search?q=" + encodeURIComponent(query) + "&filter=videos");
+            const data = await res.json();
+
+            if(data && data.items && data.items.length > 0) {
+                document.getElementById('status').innerText = "نتائج البحث:";
+                let html = "";
+                for(let i=0; i<Math.min(15, data.items.length); i++) {
+                    const item = data.items[i];
+                    // item.url is usually like /watch?v=...
+                    const vidId = item.url.split('v=')[1];
+                    if(vidId) {
+                        html += "<div class='result-item'>";
+                        html += "<div class='result-title'>" + item.title + "</div>";
+                        html += "<button class='play-btn' onclick='playAudio("" + vidId + "", "" + item.title.replace(/'/g, "") + "")'>▶️ تشغيل الصوت</button>";
+                        html += "</div>";
+                    }
+                }
+                document.getElementById('results').innerHTML = html;
+            } else {
+                document.getElementById('status').innerText = "لم يتم العثور على نتائج.";
+            }
+        } catch(e) {
+            document.getElementById('status').innerText = "حدث خطأ أثناء البحث. يرجى التحقق من اتصالك بالإنترنت.";
+        }
+    }
+
+    // Prevent pausing when screen is off
+    Object.defineProperty(document, 'visibilityState', { get: function() { return 'visible'; } });
+    Object.defineProperty(document, 'hidden', { get: function() { return false; } });
+    setInterval(function() { document.dispatchEvent(new Event('visibilitychange')); }, 2000);
+</script>
+</body>
+</html>
+    ]]
+
+    youtubeWebView.loadDataWithBaseURL("https://youtube.com", html, "text/html", "UTF-8", nil)
 end
 
 function openMainWindow()
