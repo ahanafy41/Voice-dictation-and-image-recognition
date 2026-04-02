@@ -252,31 +252,12 @@ pdfTtsAutoNext = prefs.getBoolean("pdfTtsAutoNext", true)
 mainHandler = Handler(Looper.getMainLooper())
 
 -- **Edge TTS Voices (Arabic)**
-local edgeTtsVoices = {
-    { id = "ar-EG-SalmaNeural", name = "سلمى (مصر - أنثى)" },
-    { id = "ar-EG-ShakirNeural", name = "شاكر (مصر - ذكر)" },
-    { id = "ar-SA-ZariyahNeural", name = "زارية (السعودية - أنثى)" },
-    { id = "ar-SA-HamedNeural", name = "حامد (السعودية - ذكر)" },
-    { id = "ar-AE-FatimaNeural", name = "فاطمة (الإمارات - أنثى)" },
-    { id = "ar-AE-HamdanNeural", name = "حمدان (الإمارات - ذكر)" },
-    { id = "ar-JO-SanaNeural", name = "سناء (الأردن - أنثى)" },
-    { id = "ar-JO-TaimNeural", name = "تيم (الأردن - ذكر)" },
-    { id = "ar-QA-AmalNeural", name = "أمل (قطر - أنثى)" },
-    { id = "ar-QA-MoazNeural", name = "معاذ (قطر - ذكر)" },
-    { id = "ar-KW-NouraNeural", name = "نورة (الكويت - أنثى)" },
-    { id = "ar-KW-FahedNeural", name = "فهد (الكويت - ذكر)" },
-    { id = "ar-OM-AyshaNeural", name = "عائشة (عُمان - أنثى)" },
-    { id = "ar-OM-AbdullahNeural", name = "عبدالله (عُمان - ذكر)" },
-    { id = "ar-BH-LailaNeural", name = "ليلى (البحرين - أنثى)" },
-    { id = "ar-BH-AliNeural", name = "علي (البحرين - ذكر)" },
-    { id = "ar-IQ-RanaNeural", name = "رنا (العراق - أنثى)" },
-    { id = "ar-IQ-BasselNeural", name = "باسل (العراق - ذكر)" },
-    { id = "ar-MA-MounaNeural", name = "منى (المغرب - أنثى)" },
-    { id = "ar-MA-JamalNeural", name = "جمال (المغرب - ذكر)" },
-    { id = "ar-DZ-AminaNeural", name = "أمينة (الجزائر - أنثى)" },
-    { id = "ar-DZ-IsmaelNeural", name = "إسماعيل (الجزائر - ذكر)" },
-    { id = "ar-TN-ReemNeural", name = "ريم (تونس - أنثى)" },
-    { id = "ar-TN-HediNeural", name = "الهادي (تونس - ذكر)" }
+-- **Google Free TTS Voices (Arabic)**
+local freeOnlineTtsVoices = {
+    { id = "ar", name = "عربي (قياسي)" },
+    { id = "ar-EG", name = "عربي (مصر)" },
+    { id = "ar-SA", name = "عربي (السعودية)" },
+    { id = "ar-AE", name = "عربي (الإمارات)" }
 }
 
 -- **Global Variables**
@@ -294,182 +275,78 @@ local summaryWindow = nil
 local summaryQueryRecognizer = nil
 local isNativeFlashOn = false
 
--- **Edge TTS Global**
-local edgeTtsWebView = nil
-local isEdgeTtsInit = false
-local edgeTtsHtml = [[
-<!DOCTYPE html>
-<html>
-<head>
-<script>
-    let ws = null;
-    let audioContext = null;
-    let currentSource = null;
-    let audioChunks = [];
+-- **Online Free TTS Global Player**
+local onlineTtsPlayer = nil
 
-    function initAudio() {
-        if (!audioContext) {
-            audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
-        }
-    }
+function stopOnlineTts()
+    if onlineTtsPlayer then
+        pcall(function()
+            if onlineTtsPlayer.isPlaying() then
+                onlineTtsPlayer.stop()
+            end
+            onlineTtsPlayer.release()
+        end)
+        onlineTtsPlayer = nil
+    end
+end
 
-    async function playAudioChunk(arrayBuffer) {
-        if (!audioContext) return;
-        try {
-            const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-            currentSource = audioContext.createBufferSource();
-            currentSource.buffer = audioBuffer;
-            currentSource.connect(audioContext.destination);
-            currentSource.onended = () => {
-                window.prompt("EDGE_TTS_ENDED", "");
-            };
-            currentSource.start();
-        } catch (e) {
-            console.error("Audio decode error", e);
-            window.prompt("EDGE_TTS_ERROR", "Audio decode error");
-        }
-    }
+function speakOnlineTts(text, langCode, speed)
+    stopOnlineTts()
+    import "android.media.MediaPlayer"
+    import "android.net.Uri"
+    import "java.net.URLEncoder"
 
-    function generateSSML(text, voice, rate, pitch) {
-        // Create proper XML payload
-        return `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='en-US'>
-            <voice name='${voice}'>
-                <prosody rate='${rate}' pitch='${pitch}'>${text}</prosody>
-            </voice>
-        </speak>`;
-    }
+    local s, encodedText = pcall(function() return URLEncoder.encode(text, "UTF-8") end)
+    if not s or not encodedText then return end
 
-    function stopTts() {
-        if (ws) {
-            ws.close();
-            ws = null;
-        }
-        if (currentSource) {
-            currentSource.stop();
-            currentSource = null;
-        }
-        audioChunks = [];
-    }
+    local url = "https://translate.google.com/translate_tts?ie=UTF-8&q=" .. encodedText .. "&tl=" .. langCode .. "&client=tw-ob"
 
-    function speakText(text, voice, speed) {
-        stopTts();
-        initAudio();
-
-        let rateStr = "+0%";
-        if (speed && speed !== 1.0) {
-           let ratePct = Math.round((speed - 1.0) * 100);
-           rateStr = ratePct >= 0 ? `+${ratePct}%` : `${ratePct}%`;
-        }
-
-        const url = "wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=6A5AA1D4EAFF4E9FB37E23D68491D6F4";
-        ws = new WebSocket(url);
-
-        ws.onopen = () => {
-            const configMsg = "X-Timestamp:" + new Date().toUTCString() + "\r\nContent-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n" +
-                              "{\"context\":{\"synthesis\":{\"audio\":{\"metadataoptions\":{\"sentenceBoundaryEnabled\":\"false\",\"wordBoundaryEnabled\":\"false\"},\"outputFormat\":\"audio-24khz-48kbitrate-mono-mp3\"}}}}";
-            ws.send(configMsg);
-
-            const requestId = Math.random().toString(36).substring(2, 15);
-            const ssml = generateSSML(text, voice, rateStr, "default");
-            const payload = "X-RequestId:" + requestId + "\r\nContent-Type:application/ssml+xml\r\nX-Timestamp:" + new Date().toUTCString() + "\r\nPath:ssml\r\n\r\n" + ssml;
-
-            ws.send(payload);
-        };
-
-        ws.onmessage = async (event) => {
-            if (typeof event.data === "string") {
-                if (event.data.includes("Path:turn.end")) {
-                    ws.close();
-                    if (audioChunks.length > 0) {
-                        const blob = new Blob(audioChunks);
-                        const arrayBuffer = await blob.arrayBuffer();
-                        playAudioChunk(arrayBuffer);
-                        audioChunks = [];
-                    } else {
-                         window.prompt("EDGE_TTS_ENDED", "");
-                    }
-                }
-            } else if (event.data instanceof Blob) {
-                // Remove header to get pure audio bytes
-                const arrayBuffer = await event.data.arrayBuffer();
-                const view = new DataView(arrayBuffer);
-                let headerEnd = 0;
-                for (let i = 0; i < arrayBuffer.byteLength - 1; i++) {
-                     if (view.getUint8(i) === 0x0D && view.getUint8(i+1) === 0x0A &&
-                         view.getUint8(i+2) === 0x0D && view.getUint8(i+3) === 0x0A) {
-                         headerEnd = i + 4;
-                         break;
-                     }
-                }
-                const audioData = event.data.slice(headerEnd);
-                audioChunks.push(audioData);
-            }
-        };
-
-        ws.onerror = (e) => {
-            window.prompt("EDGE_TTS_ERROR", "WebSocket error");
-        };
-    }
-</script>
-</head>
-<body></body>
-</html>
-]]
-
-
-function initEdgeTtsWebView()
-    if edgeTtsWebView then return end
     mainHandler.post(luajava.createProxy("java.lang.Runnable", {
         run = function()
-            local WebView = luajava.bindClass("android.webkit.WebView")
-            local WebChromeClient = luajava.bindClass("android.webkit.WebChromeClient")
+            local success, err = pcall(function()
+                onlineTtsPlayer = MediaPlayer()
 
-            edgeTtsWebView = WebView(service)
-            edgeTtsWebView.getSettings().setJavaScriptEnabled(true)
-            edgeTtsWebView.getSettings().setMediaPlaybackRequiresUserGesture(false)
+                -- Set playback speed if supported (Android 6.0+)
+                if speed and speed ~= 1.0 then
+                    local pcallSuccess, _ = pcall(function()
+                        local params = onlineTtsPlayer.getPlaybackParams()
+                        params.setSpeed(speed)
+                        onlineTtsPlayer.setPlaybackParams(params)
+                    end)
+                end
 
-            local webChromeClient = luajava.override(WebChromeClient, {
-                onJsPrompt = function(super, view, url, message, defaultValue, result)
-                    if message == "EDGE_TTS_ENDED" then
-                        result.confirm("handled")
-                        -- Trigger Lua callback
-                        if _G.onEdgeTtsSentenceEnded then
-                            _G.onEdgeTtsSentenceEnded()
+                onlineTtsPlayer.setDataSource(url)
+
+                onlineTtsPlayer.setOnCompletionListener(luajava.createProxy("android.media.MediaPlayer$OnCompletionListener", {
+                    onCompletion = function(mp)
+                        if _G.onOnlineTtsSentenceEnded then
+                            _G.onOnlineTtsSentenceEnded()
                         end
-                        return true
-                    elseif message == "EDGE_TTS_ERROR" then
-                        result.confirm("handled")
-                        if _G.onEdgeTtsError then
-                             _G.onEdgeTtsError(defaultValue)
+                        stopOnlineTts()
+                    end
+                }))
+
+                onlineTtsPlayer.setOnErrorListener(luajava.createProxy("android.media.MediaPlayer$OnErrorListener", {
+                    onError = function(mp, what, extra)
+                        if _G.onOnlineTtsError then
+                            _G.onOnlineTtsError("MediaPlayer Error: " .. tostring(what))
                         end
+                        stopOnlineTts()
                         return true
                     end
-                    return super.onJsPrompt(view, url, message, defaultValue, result)
-                end
-            })
-            edgeTtsWebView.setWebChromeClient(webChromeClient)
-            edgeTtsWebView.loadDataWithBaseURL("https://localhost", edgeTtsHtml, "text/html", "UTF-8", nil)
-            isEdgeTtsInit = true
-        end
-    }))
-end
+                }))
 
-function speakEdgeTts(text, voiceName, speed)
-    if not edgeTtsWebView or not isEdgeTtsInit then return end
-    mainHandler.post(luajava.createProxy("java.lang.Runnable", {
-        run = function()
-            local escapedText = text:gsub("'", "\\'"):gsub("\n", " "):gsub("\r", "")
-            local js = string.format("speakText('%s', '%s', %f);", escapedText, voiceName, speed or 1.0)
-            edgeTtsWebView.evaluateJavascript(js, nil)
-        end
-    }))
-end
+                onlineTtsPlayer.prepareAsync()
+                onlineTtsPlayer.setOnPreparedListener(luajava.createProxy("android.media.MediaPlayer$OnPreparedListener", {
+                    onPrepared = function(mp)
+                        mp.start()
+                    end
+                }))
+            end)
 
-function stopEdgeTts()
-     if not edgeTtsWebView or not isEdgeTtsInit then return end
-     mainHandler.post(luajava.createProxy("java.lang.Runnable", {
-        run = function()
-            edgeTtsWebView.evaluateJavascript("stopTts();", nil)
+            if not success and _G.onOnlineTtsError then
+                _G.onOnlineTtsError(tostring(err))
+            end
         end
     }))
 end
@@ -903,9 +780,9 @@ function openPdfTtsSettings(onSaved)
     local engineNames = ArrayList()
     local enginePackages = {}
 
-    -- Add Edge TTS Option First
-    engineNames.add("🎙️ أصوات الذكاء الاصطناعي (Edge TTS - جودة فائقة)")
-    table.insert(enginePackages, "edge_tts")
+    -- Add Online Free TTS Option First
+    engineNames.add("🎙️ القارئ الذكي السحابي (جوجل - مجاني)")
+    table.insert(enginePackages, "online_free_tts")
 
     local tempTts = TextToSpeech(service, nil)
     local engines = tempTts.getEngines()
@@ -937,8 +814,8 @@ function openPdfTtsSettings(onSaved)
         local voiceNames = ArrayList()
         currentVoices = {}
 
-        if enginePkg == "edge_tts" then
-            for _, v in ipairs(edgeTtsVoices) do
+        if enginePkg == "online_free_tts" then
+            for _, v in ipairs(freeOnlineTtsVoices) do
                 voiceNames.add(v.name)
                 table.insert(currentVoices, v.id)
             end
@@ -2321,13 +2198,13 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
         }))
     end
 
-    _G.onEdgeTtsSentenceEnded = function()
+    _G.onOnlineTtsSentenceEnded = function()
         if isPlaying then handleNextSentence() end
     end
 
-    _G.onEdgeTtsError = function(errStr)
+    _G.onOnlineTtsError = function(errStr)
         if isPlaying then
-             service.asyncSpeak("عذراً، حدث خطأ في تشغيل الصوت.")
+             service.asyncSpeak("عذراً، حدث خطأ في الاتصال بالسيرفر السحابي.")
              stopReading()
         end
     end
@@ -2480,8 +2357,8 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
 
     stopReading = function()
         isPlaying = false
-        if pdfTtsEngine == "edge_tts" then
-            stopEdgeTts()
+        if pdfTtsEngine == "online_free_tts" then
+            stopOnlineTts()
         end
         if docTts then pcall(function() docTts.stop() end) end
         playBtn.setText("▶️")
@@ -2513,8 +2390,7 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
     initDocTts = function(callback)
         mainHandler.post(luajava.createProxy("java.lang.Runnable", {
             run = function()
-                if pdfTtsEngine == "edge_tts" then
-                    initEdgeTtsWebView()
+                if pdfTtsEngine == "online_free_tts" then
                     isDocTtsInit = true
                     if callback then callback(true) end
                     return
@@ -2571,10 +2447,10 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
         isPlaying = true
         playBtn.setText("⏸️")
         local function startSpeak()
-            if pdfTtsEngine == "edge_tts" then
+            if pdfTtsEngine == "online_free_tts" then
                 local voice = pdfTtsVoiceName
-                if not voice or voice == "" then voice = "ar-EG-SalmaNeural" end
-                speakEdgeTts(text, voice, pdfTtsSpeed or 1.0)
+                if not voice or voice == "" then voice = "ar" end
+                speakOnlineTts(text, voice, pdfTtsSpeed or 1.0)
             elseif docTts and isDocTtsInit then
                 local s_s, err = pcall(function() docTts.speak(tostring(text), TextToSpeech.QUEUE_FLUSH, nil, "doc_seg") end)
                 if not s_s then
@@ -2583,7 +2459,7 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
                 end
             else service.asyncSpeak(tostring(text)) end
         end
-        if not isDocTtsInit or (pdfTtsEngine ~= "edge_tts" and not docTts) then initDocTts(function(success) if success then startSpeak() else stopReading() end end)
+        if not isDocTtsInit or (pdfTtsEngine ~= "online_free_tts" and not docTts) then initDocTts(function(success) if success then startSpeak() else stopReading() end end)
         else startSpeak() end
     end
 
