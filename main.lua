@@ -1,8 +1,73 @@
 require "import"
 import "android.content.Intent"
+import "android.graphics.Bitmap"
+import "java.io.ByteArrayOutputStream"
+
 if activity then
     local intent = activity.getIntent()
     if intent then
+        -- Handle Creating a Shortcut
+        local createShortcutId = intent.getStringExtra("create_shortcut_id")
+        if createShortcutId and createShortcutId ~= "" then
+            local label = intent.getStringExtra("create_shortcut_label") or "Shortcut"
+            local iconText = intent.getStringExtra("create_shortcut_icon") or "🚀"
+            local action = intent.getStringExtra("create_shortcut_action") or ""
+
+            local success, err = pcall(function()
+                local ShortcutManager = luajava.bindClass("android.content.pm.ShortcutManager")
+                local ShortcutInfo = luajava.bindClass("android.content.pm.ShortcutInfo")
+                local Icon = luajava.bindClass("android.graphics.drawable.Icon")
+
+                local bmp = Bitmap.createBitmap(128, 128, Bitmap.Config.ARGB_8888)
+                local canvas = luajava.bindClass("android.graphics.Canvas")(bmp)
+                canvas.drawColor(0xFF1E1E1E)
+                local paint = luajava.bindClass("android.graphics.Paint")()
+                paint.setColor(0xFFFFFFFF)
+                paint.setTextSize(64)
+                paint.setTextAlign(luajava.bindClass("android.graphics.Paint$Align").CENTER)
+                canvas.drawText(iconText, 64, 85, paint)
+                local icon = Icon.createWithBitmap(bmp)
+
+                local pkgManager = activity.getPackageManager()
+                local launchIntent = pkgManager.getLaunchIntentForPackage(activity.getPackageName())
+                if not launchIntent then
+                    launchIntent = Intent()
+                    local ComponentName = luajava.bindClass("android.content.ComponentName")
+                    launchIntent.setComponent(ComponentName(activity, "com.androlua.Main"))
+                end
+                launchIntent.setAction(Intent.ACTION_VIEW)
+                launchIntent.putExtra("shortcut_action", action)
+                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP)
+
+                if android.os.Build.VERSION.SDK_INT >= 26 then
+                    local Context = luajava.bindClass("android.content.Context")
+                    local shortcutManager = activity.getSystemService(Context.SHORTCUT_SERVICE)
+                    if shortcutManager.isRequestPinShortcutSupported() then
+                        local pinShortcutInfo = ShortcutInfo.Builder(activity, createShortcutId)
+                            .setShortLabel(label)
+                            .setIcon(icon)
+                            .setIntent(launchIntent)
+                            .build()
+                        local pinnedShortcutCallbackIntent = shortcutManager.createShortcutResultIntent(pinShortcutInfo)
+                        local successIntent = luajava.bindClass("android.app.PendingIntent").getBroadcast(activity, 0, pinnedShortcutCallbackIntent, luajava.bindClass("android.app.PendingIntent").FLAG_IMMUTABLE)
+                        shortcutManager.requestPinShortcut(pinShortcutInfo, successIntent.getIntentSender())
+                    end
+                else
+                    local addIntent = Intent()
+                    addIntent.putExtra(Intent.EXTRA_SHORTCUT_INTENT, launchIntent)
+                    addIntent.putExtra(Intent.EXTRA_SHORTCUT_NAME, label)
+                    addIntent.putExtra(Intent.EXTRA_SHORTCUT_ICON, bmp)
+                    addIntent.setAction("com.android.launcher.action.INSTALL_SHORTCUT")
+                    activity.sendBroadcast(addIntent)
+                end
+            end)
+            if not success then print("Error creating shortcut: " .. tostring(err)) end
+
+            activity.finish()
+            return
+        end
+
+        -- Handle Being Launched FROM a Shortcut
         local action = intent.getStringExtra("shortcut_action")
         if action and action ~= "" then
             local brIntent = Intent("com.a11y.gemini.SHORTCUT_ACTION")
@@ -628,64 +693,35 @@ function removeFloatingButton()
 end
 
 -- **Create Shortcut Function**
+-- **Create Shortcut Function (Delegated to Activity)**
 function createShortcutForFeature(id, label, iconText, action)
+    service.asyncSpeak("جاري محاولة إنشاء اختصار " .. label .. "...")
     local success, err = pcall(function()
-        local ShortcutManager = luajava.bindClass("android.content.pm.ShortcutManager")
-        local ShortcutInfo = luajava.bindClass("android.content.pm.ShortcutInfo")
-        local Icon = luajava.bindClass("android.graphics.drawable.Icon")
-        local Intent = luajava.bindClass("android.content.Intent")
-
-        -- Create a simple bitmap for the icon based on text
-        local bmp = Bitmap.createBitmap(128, 128, Bitmap.Config.ARGB_8888)
-        local canvas = luajava.bindClass("android.graphics.Canvas")(bmp)
-        canvas.drawColor(0xFF1E1E1E) -- Dark background
-        local paint = luajava.bindClass("android.graphics.Paint")()
-        paint.setColor(0xFFFFFFFF)
-        paint.setTextSize(64)
-        paint.setTextAlign(luajava.bindClass("android.graphics.Paint$Align").CENTER)
-        canvas.drawText(iconText, 64, 85, paint)
-
-        local icon = Icon.createWithBitmap(bmp)
-
-        -- The intent to launch (safe for Service context)
         local ctx = service or activity
         local pkgManager = ctx.getPackageManager()
         local launchIntent = pkgManager.getLaunchIntentForPackage(ctx.getPackageName())
-        if not launchIntent then
-            service.asyncSpeak("تعذر العثور على التطبيق لإنشاء الاختصار.")
-            return
-        end
-        launchIntent.setAction(Intent.ACTION_MAIN)
-        launchIntent.putExtra("shortcut_action", action)
 
-        if android.os.Build.VERSION.SDK_INT >= 26 then
-            local shortcutManager = ctx.getSystemService(ShortcutManager.class)
-            if shortcutManager.isRequestPinShortcutSupported() then
-                local pinShortcutInfo = ShortcutInfo.Builder(ctx, id)
-                    .setShortLabel(label)
-                    .setIcon(icon)
-                    .setIntent(launchIntent)
-                    .build()
-                local pinnedShortcutCallbackIntent = shortcutManager.createShortcutResultIntent(pinShortcutInfo)
-                local successIntent = luajava.bindClass("android.app.PendingIntent").getBroadcast(ctx, 0, pinnedShortcutCallbackIntent, luajava.bindClass("android.app.PendingIntent").FLAG_IMMUTABLE)
-                shortcutManager.requestPinShortcut(pinShortcutInfo, successIntent.getIntentSender())
-                service.asyncSpeak("تم طلب إضافة اختصار " .. label .. " إلى الشاشة الرئيسية.")
-            else
-                service.asyncSpeak("إضافة الاختصارات غير مدعومة على هذا الجهاز.")
-            end
-        else
-            -- Legacy shortcut creation
-            local addIntent = Intent()
-            addIntent.putExtra(Intent.EXTRA_SHORTCUT_INTENT, launchIntent)
-            addIntent.putExtra(Intent.EXTRA_SHORTCUT_NAME, label)
-            addIntent.putExtra(Intent.EXTRA_SHORTCUT_ICON, bmp)
-            addIntent.setAction("com.android.launcher.action.INSTALL_SHORTCUT")
-            ctx.sendBroadcast(addIntent)
-            service.asyncSpeak("تم إضافة اختصار " .. label .. " إلى الشاشة الرئيسية.")
+        if not launchIntent then
+            local Intent = luajava.bindClass("android.content.Intent")
+            launchIntent = Intent()
+            local ComponentName = luajava.bindClass("android.content.ComponentName")
+            launchIntent.setComponent(ComponentName(ctx, "com.androlua.Main"))
         end
+
+        -- Send intent to our own Activity to perform the actual shortcut creation
+        local Intent = luajava.bindClass("android.content.Intent")
+        launchIntent.setAction(Intent.ACTION_MAIN)
+        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        launchIntent.putExtra("create_shortcut_id", id)
+        launchIntent.putExtra("create_shortcut_label", label)
+        launchIntent.putExtra("create_shortcut_icon", iconText)
+        launchIntent.putExtra("create_shortcut_action", action)
+
+        ctx.startActivity(launchIntent)
+        service.asyncSpeak("تم إرسال الطلب، وافق من النافذة.")
     end)
     if not success then
-        service.asyncSpeak("حدث خطأ أثناء إنشاء الاختصار: " .. tostring(err))
+        service.asyncSpeak("فشل إرسال الطلب: " .. tostring(err))
     end
 end
 
