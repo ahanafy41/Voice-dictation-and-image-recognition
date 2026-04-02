@@ -4426,8 +4426,8 @@ function showGeminiLiveWindow()
                 }
 
                 // Prevent WebSocket 413 Payload Too Large error by truncating results
-                if (searchResult.length > 3000) {
-                    searchResult = searchResult.substring(0, 3000) + "...(تم قص النص لزيادة الطول)";
+                if (searchResult.length > 1000) {
+                    searchResult = searchResult.substring(0, 1000) + "...(تم قص النص لزيادة الطول)";
                 }
 
                 log("✅ اكتمل بحث Groq", "sys");
@@ -4470,8 +4470,8 @@ function showGeminiLiveWindow()
                 }
 
                 // Prevent WebSocket 413 Payload Too Large error by truncating results
-                if (searchResult.length > 3000) {
-                    searchResult = searchResult.substring(0, 3000) + "...(تم قص النص لزيادة الطول)";
+                if (searchResult.length > 1000) {
+                    searchResult = searchResult.substring(0, 1000) + "...(تم قص النص لزيادة الطول)";
                 }
 
                 log("✅ تم جلب نتائج البحث", "sys");
