@@ -3070,6 +3070,30 @@ function hideYoutubeAudioWindow()
     end
 end
 
+function performLuaYoutubeSearch(query)
+    service.post(Runnable({
+        run = function()
+            local Http = luajava.bindClass("com.nirenr.screendesigner.net.Http")
+            -- Use invidious API for fast, pure JSON results without CORS issues since we call from Lua backend
+            local url = "https://vid.puffyan.us/api/v1/search?q=" .. luajava.bindClass("java.net.URLEncoder").encode(query, "UTF-8")
+            local code, content = Http.get(url)
+
+            if code == 200 and content and content ~= "" then
+                -- Send the stringified JSON directly to JS to parse it
+                local safeContent = content:gsub("\\", "\\\\"):gsub("'", "\\'"):gsub("\n", "\\n"):gsub("\r", "")
+                if youtubeWebView then
+                    local js = "receiveResults('" .. safeContent .. "');"
+                    youtubeWebView.evaluateJavascript(js, nil)
+                end
+            else
+                if youtubeWebView then
+                    youtubeWebView.evaluateJavascript("document.getElementById('status').innerText = 'حدث خطأ في البحث أو لا توجد نتائج.';", nil)
+                end
+            end
+        end
+    }))
+end
+
 function showYoutubeAudioWindow()
     if youtubeAudioWindow then return end
 
@@ -3108,6 +3132,20 @@ function showYoutubeAudioWindow()
     webSettings.setJavaScriptEnabled(true)
     webSettings.setDomStorageEnabled(true)
     webSettings.setMediaPlaybackRequiresUserGesture(false)
+
+    local webChromeClient = luajava.override(WebChromeClient, {
+        onJsPrompt = function(view, url, message, defaultValue, result)
+            local prefix = "yt_search:"
+            if message:sub(1, #prefix) == prefix then
+                local query = message:sub(#prefix + 1)
+                performLuaYoutubeSearch(query)
+                result.confirm()
+                return true
+            end
+            return false
+        end
+    })
+    youtubeWebView.setWebChromeClient(webChromeClient)
 
     local webViewClient = luajava.override(WebViewClient, {
         shouldOverrideUrlLoading = function(view, url)
