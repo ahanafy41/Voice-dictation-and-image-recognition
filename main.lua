@@ -239,7 +239,6 @@ translateToLanguage = prefs.getString("translateToLanguage", defaultTranslateTo)
 autoPunctuationEnabled = prefs.getBoolean("autoPunctuation", true)
 geminiLiveSystemInstruction = prefs.getString("geminiLiveSystemInstruction", "أنت مساعد صوتي ذكي. مهمتك الرد المباشر بصوتك فقط.")
 geminiLiveVoiceName = prefs.getString("geminiLiveVoiceName", "Puck")
-geminiLiveSearchTool = prefs.getString("geminiLiveSearchTool", "groq") -- "groq" or "tavily"
 
 
 -- PDF TTS Settings
@@ -3023,7 +3022,6 @@ editor.putString("dashboardOrder", dashboardOrder or "assistant,dictation,gemini
     editor.putBoolean("convertNumbersEnabled", convertNumbersEnabled or false)
     editor.putString("geminiLiveSystemInstruction", geminiLiveSystemInstruction or "أنت مساعد صوتي ذكي. مهمتك الرد المباشر بصوتك فقط.")
     editor.putString("geminiLiveVoiceName", geminiLiveVoiceName or "Puck")
-    editor.putString("geminiLiveSearchTool", geminiLiveSearchTool or "groq")
 
     editor.putBoolean("cleanExtraSpacesEnabled", cleanExtraSpacesEnabled or false)
     editor.putBoolean("forceDotAtEndEnabled", forceDotAtEndEnabled or false)
@@ -3476,16 +3474,6 @@ function openSettings()
     if currGlvIdx ~= -1 then glvSpinner.setSelection(currGlvIdx) else glvSpinner.setSelection(0) end
     glvSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener { onItemSelected = function(parent, view, position, id) geminiLiveVoiceName = glvIds[position + 1] end })
     liveCard.addView(glvSpinner)
-
-    liveCard.addView(createLabel("أداة البحث للبث المباشر:"))
-    local searchToolNames = ArrayList(); local searchToolIds = {"groq", "tavily"}
-    searchToolNames.add("Groq Search (مجاني وقوي)"); searchToolNames.add("Tavily Search (مدفوع)")
-    local searchToolAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, searchToolNames); searchToolAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-    local searchToolSpinner = Spinner(service); searchToolSpinner.setAdapter(searchToolAdapter)
-    local currSearchToolIdx = 0; for i, id in ipairs(searchToolIds) do if id == geminiLiveSearchTool then currSearchToolIdx = i-1 break end end
-    searchToolSpinner.setSelection(currSearchToolIdx)
-    searchToolSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener { onItemSelected = function(parent, view, position, id) geminiLiveSearchTool = searchToolIds[position + 1] end })
-    liveCard.addView(searchToolSpinner)
 
 
     local searchNames = ArrayList(); local searchIds = {}
@@ -4089,54 +4077,28 @@ function showGeminiLiveWindow()
     layout.addView(webview, LinearLayout.LayoutParams(-1, -1))
 
     -- Prepare Tools Configuration
-    local toolsConfig = ""
-    local sysInstr = (geminiLiveSystemInstruction or "أنت مساعد صوتي ذكي. مهمتك الرد المباشر بصوتك فقط.") .. " (لديك الآن القدرة على رؤية ما تعرضه الكاميرا في بث مباشر. ساعد المستخدم، وهو كفيف، في وصف البيئة أو قراءة النصوص أو التعرف على المنتجات عند سؤاله. ركز على الدقة والإيجاز في الوصف. "
+    local toolsConfig = [[
+    [{
+        "functionDeclarations": [
+            {
+                "name": "tavily_search",
+                "description": "استخدم هذه الأداة للبحث في الإنترنت عن أحدث المعلومات، الأخبار، أو الإجابة على أسئلة المستخدم التي تتطلب معلومات محدثة. قم بتمرير استعلام البحث (query) المناسب.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "query": {
+                            "type": "STRING",
+                            "description": "نص استعلام البحث الذي سيتم إرساله لمحرك البحث."
+                        }
+                    },
+                    "required": ["query"]
+                }
+            }
+        ]
+    }]
+    ]]
 
-    if geminiLiveSearchTool == "tavily" then
-        toolsConfig = [[
-        [{
-            "functionDeclarations": [
-                {
-                    "name": "tavily_search",
-                    "description": "استخدم هذه الأداة للبحث في الإنترنت عن أحدث المعلومات، الأخبار، أو الإجابة على أسئلة المستخدم التي تتطلب معلومات محدثة. قم بتمرير استعلام البحث (query) المناسب.",
-                    "parameters": {
-                        "type": "OBJECT",
-                        "properties": {
-                            "query": {
-                                "type": "STRING",
-                                "description": "نص استعلام البحث الذي سيتم إرساله لمحرك البحث."
-                            }
-                        },
-                        "required": ["query"]
-                    }
-                }
-            ]
-        }]
-        ]]
-        sysInstr = sysInstr .. "أيضاً لديك أداة بحث في الإنترنت 'tavily_search' يمكنك استدعاؤها متى احتجت لمعلومات محدثة أو للبحث عن إجابة.)"
-    else
-        toolsConfig = [[
-        [{
-            "functionDeclarations": [
-                {
-                    "name": "groq_ai_search",
-                    "description": "أداة بحث ذكية ومجانية مدعومة من Groq. استخدم هذه الأداة للبحث عن المعلومات المحدثة أو الإجابة على الأسئلة العامة. مرر استعلام البحث (query).",
-                    "parameters": {
-                        "type": "OBJECT",
-                        "properties": {
-                            "query": {
-                                "type": "STRING",
-                                "description": "نص استعلام البحث أو السؤال الموجه للذكاء الاصطناعي الخاص بالبحث."
-                            }
-                        },
-                        "required": ["query"]
-                    }
-                }
-            ]
-        }]
-        ]]
-        sysInstr = sysInstr .. "أيضاً لديك أداة بحث في الإنترنت 'groq_ai_search' يمكنك استدعاؤها متى احتجت لمعلومات محدثة أو للبحث عن إجابة.)"
-    end
+    local sysInstr = (geminiLiveSystemInstruction or "أنت مساعد صوتي ذكي. مهمتك الرد المباشر بصوتك فقط.") .. " (لديك الآن القدرة على رؤية ما تعرضه الكاميرا في بث مباشر. ساعد المستخدم، وهو كفيف، في وصف البيئة أو قراءة النصوص أو التعرف على المنتجات عند سؤاله. ركز على الدقة والإيجاز في الوصف. أيضاً لديك أداة بحث في الإنترنت 'tavily_search' يمكنك استدعاؤها متى احتجت لمعلومات محدثة أو للبحث عن إجابة.)"
 
     sysInstr = escapeJsonString(sysInstr)
 
@@ -4379,66 +4341,6 @@ function showGeminiLiveWindow()
 
         stopBtn.onclick = endSession;
 
-        async function executeGroqSearch(functionName, callId, query) {
-            const groqKey = "]] .. (groqApiKey or "") .. [[";
-            const groqModelId = "]] .. (selectedSearchModelId or "compound-beta") .. [[";
-
-            if (!groqKey) {
-                log("❌ مفتاح Groq API مفقود. أداة البحث تحتاج لمفتاح Groq.", "err");
-                sendFunctionResponse(functionName, callId, { error: "Groq API Key is missing. Tell the user to add it in settings." });
-                return;
-            }
-
-            try {
-                log("🔍 جاري البحث باستخدام Groq Search...", "sys");
-
-                // Truncate the search query if it's too large to prevent Groq API 413 Payload Too Large error
-                let safeQuery = query;
-                if (safeQuery.length > 2000) {
-                    safeQuery = safeQuery.substring(0, 2000) + "...(تم تقصير السؤال لزيادة الطول)";
-                }
-
-                const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "Authorization": `Bearer ${groqKey}`
-                    },
-                    body: JSON.stringify({
-                        model: groqModelId,
-                        messages: [
-                            { role: "system", content: "You are a helpful AI search assistant. Provide accurate, updated information for the user's query." },
-                            { role: "user", content: safeQuery }
-                        ],
-                        temperature: 0.3,
-                        max_tokens: 1024
-                    })
-                });
-
-                if (!response.ok) {
-                    throw new Error("HTTP error " + response.status);
-                }
-
-                const data = await response.json();
-                let searchResult = "لا توجد نتيجة";
-                if (data.choices && data.choices.length > 0 && data.choices[0].message) {
-                    searchResult = data.choices[0].message.content;
-                }
-
-                // Prevent WebSocket 413 Payload Too Large error by truncating results
-                if (searchResult.length > 1000) {
-                    searchResult = searchResult.substring(0, 1000) + "...(تم قص النص لزيادة الطول)";
-                }
-
-                log("✅ اكتمل بحث Groq", "sys");
-                sendFunctionResponse(functionName, callId, { result: searchResult });
-
-            } catch (err) {
-                log("خطأ في بحث Groq: " + err.message, "err");
-                sendFunctionResponse(functionName, callId, { error: "Search failed: " + err.message });
-            }
-        }
-
         async function executeTavilySearch(functionName, callId, query) {
             const tavilyKey = "]] .. (tavilyApiKey or "") .. [[";
             if (!tavilyKey) {
@@ -4553,15 +4455,11 @@ function showGeminiLiveWindow()
 
                     if (msg.toolCall && msg.toolCall.functionCalls) {
                         msg.toolCall.functionCalls.forEach(fc => {
-                            log("طلب المساعد بحثاً عبر الأداة: " + fc.name, "sys");
+                            log("طلب المساعد بحثاً: " + fc.name, "sys");
                             if (fc.name === "tavily_search") {
                                 const query = fc.args.query;
-                                log("جاري البحث في Tavily عن: " + query, "sys");
+                                log("جاري البحث عن: " + query, "sys");
                                 executeTavilySearch(fc.name, fc.id || "", query);
-                            } else if (fc.name === "groq_ai_search") {
-                                const query = fc.args.query;
-                                log("جاري البحث في Groq عن: " + query, "sys");
-                                executeGroqSearch(fc.name, fc.id || "", query);
                             }
                         });
                     }
