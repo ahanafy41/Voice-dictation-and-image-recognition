@@ -3067,93 +3067,11 @@ function hideYoutubeAudioWindow()
             youtubeWebView.destroy()
             youtubeWebView = nil
         end
-        if hiddenYoutubeSearchWebView then
-            hiddenYoutubeSearchWebView.destroy()
-            hiddenYoutubeSearchWebView = nil
-        end
+
     end
 end
 
-local hiddenYoutubeSearchWebView = nil
 
-local function performYoutubeHiddenSearch(query)
-    if not hiddenYoutubeSearchWebView then
-        hiddenYoutubeSearchWebView = WebView(service)
-        local webSettings = hiddenYoutubeSearchWebView.getSettings()
-        webSettings.setJavaScriptEnabled(true)
-        webSettings.setLoadsImagesAutomatically(false)
-        webSettings.setBlockNetworkImage(true)
-
-        hiddenYoutubeSearchWebView.setWebChromeClient(luajava.override(WebChromeClient, {
-            onJsPrompt = function(view, url, message, defaultValue, result)
-                local prefix = "hidden_yt_results:"
-                if message:sub(1, #prefix) == prefix then
-                    local jsonStr = message:sub(#prefix + 1)
-                    if youtubeWebView then
-                        local safeJson = jsonStr:gsub("\\", "\\\\"):gsub("'", "\\'"):gsub("\n", "\\n"):gsub("\r", "")
-                        youtubeWebView.evaluateJavascript("receiveResults('" .. safeJson .. "');", nil)
-                    end
-                    result.confirm()
-                    return true
-                end
-                return false
-            end
-        }))
-
-        hiddenYoutubeSearchWebView.setWebViewClient(luajava.override(WebViewClient, {
-            onPageFinished = function(view, url)
-                if string.find(url, "search_query") then
-                    mainHandler.postDelayed(luajava.createProxy("java.lang.Runnable", {
-                        run = function()
-                            local js = [[
-                                javascript:(function() {
-                                    var links = document.querySelectorAll('a');
-                                    var results = [];
-                                    var seen = {};
-                                    for(var i=0; i<links.length; i++) {
-                                        var link = links[i];
-                                        var href = link.getAttribute('href');
-                                        if (href && href.indexOf('/watch?v=') !== -1) {
-                                            var vidId = href.split('v=')[1].split('&')[0];
-                                            if (seen[vidId]) continue;
-
-                                            var title = link.innerText.trim();
-                                            if (!title) {
-                                                var heading = link.querySelector('h3, h4, .compact-media-item-headline');
-                                                if (heading) title = heading.innerText.trim();
-                                            }
-                                            if (!title) title = link.getAttribute('title') || link.getAttribute('aria-label') || "";
-
-                                            // Make sure we don't grab garbage links
-                                            if (title.length > 2 && vidId) {
-                                                seen[vidId] = true;
-                                                // Clean up title for JSON
-                                                title = title.replace(/"/g, '\\"').replace(/\n/g, ' ');
-                                                results.push('{"type":"video","videoId":"' + vidId + '","title":"' + title + '"}');
-                                                if(results.length >= 15) break;
-                                            }
-                                        }
-                                    }
-                                    if(results.length > 0) {
-                                        var jsonArr = "[" + results.join(',') + "]";
-                                        prompt("hidden_yt_results:" + jsonArr, "");
-                                    } else {
-                                        prompt("hidden_yt_results:[]", "");
-                                    }
-                                })();
-                            ]]
-                            view.evaluateJavascript(js, nil)
-                        end
-                    }), 3000) -- wait 3s for content to render
-                end
-            end
-        }))
-    end
-
-    local encodedQuery = luajava.bindClass("java.net.URLEncoder").encode(query, "UTF-8")
-    local searchUrl = "https://m.youtube.com/results?search_query=" .. encodedQuery
-    hiddenYoutubeSearchWebView.loadUrl(searchUrl)
-end
 
 function showYoutubeAudioWindow()
     if youtubeAudioWindow then return end
