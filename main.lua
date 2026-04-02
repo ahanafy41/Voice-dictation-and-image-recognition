@@ -1149,13 +1149,13 @@ function uploadFileToGemini(filePath, mimeType, apiKey, callback)
                 })
                 mainHandler.postDelayed(announceRunnable, 10000)
 
-                local ThreadClass = luajava.bindClass("java.lang.Thread")
+                -- Fast block read/write inside Java to avoid Lua loop overhead entirely
                 while read ~= -1 do
                     os.write(buffer, 0, read)
                     totalRead = totalRead + read
-                    pcall(function() ThreadClass.sleep(2) end)
                     read = fis.read(buffer)
                 end
+
                 uploadFinished = true
                 fis.close()
                 os.flush()
@@ -1277,13 +1277,13 @@ function transcribeWithGroq(filePath, callback, modelId)
                 })
                 mainHandler.postDelayed(announceRunnable, 10000)
 
-                local ThreadClass = luajava.bindClass("java.lang.Thread")
+                -- Fast block read/write
                 while bytesRead > 0 do
                     dos.write(buffer, 0, bytesRead)
                     totalRead = totalRead + bytesRead
-                    pcall(function() ThreadClass.sleep(2) end)
                     bytesRead = fileInputStream.read(buffer)
                 end
+
                 uploadFinished = true
                 fileInputStream.close()
 
@@ -1464,13 +1464,13 @@ function transcribeWithWitAI(filePath, callback)
                 })
                 mainHandler.postDelayed(announceRunnable, 10000)
 
-                local ThreadClass = luajava.bindClass("java.lang.Thread")
+                -- Fast block read/write
                 while bytesRead > 0 do
                     dos.write(buffer, 0, bytesRead)
                     totalRead = totalRead + bytesRead
-                    pcall(function() ThreadClass.sleep(2) end)
                     bytesRead = fileInputStream.read(buffer)
                 end
+
                 uploadFinished = true
                 fileInputStream.close()
                 dos.close()
