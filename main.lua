@@ -4391,6 +4391,13 @@ function showGeminiLiveWindow()
 
             try {
                 log("🔍 جاري البحث باستخدام Groq Search...", "sys");
+
+                // Truncate the search query if it's too large to prevent Groq API 413 Payload Too Large error
+                let safeQuery = query;
+                if (safeQuery.length > 2000) {
+                    safeQuery = safeQuery.substring(0, 2000) + "...(تم تقصير السؤال لزيادة الطول)";
+                }
+
                 const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
                     method: "POST",
                     headers: {
@@ -4401,7 +4408,7 @@ function showGeminiLiveWindow()
                         model: groqModelId,
                         messages: [
                             { role: "system", content: "You are a helpful AI search assistant. Provide accurate, updated information for the user's query." },
-                            { role: "user", content: query }
+                            { role: "user", content: safeQuery }
                         ],
                         temperature: 0.3,
                         max_tokens: 1024
