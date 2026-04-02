@@ -1128,10 +1128,33 @@ function uploadFileToGemini(filePath, mimeType, apiKey, callback)
                 local fis = FileInputStream(file)
                 local buffer = luajava.newArray(luajava.bindClass("java.lang.Byte").TYPE, 8192)
                 local read = fis.read(buffer)
+
+                local totalRead = 0
+                local uploadFinished = false
+
+                local announceRunnable
+                announceRunnable = luajava.createProxy("java.lang.Runnable", {
+                    run = function()
+                        if uploadFinished then return end
+                        if fileSize and fileSize > 0 then
+                            local percent = math.floor((totalRead / fileSize) * 100)
+                            if percent > 0 and percent < 100 then
+                                service.asyncSpeak("تم رفع " .. percent .. " في المئة")
+                            end
+                        end
+                        if not uploadFinished then
+                            mainHandler.postDelayed(announceRunnable, 10000)
+                        end
+                    end
+                })
+                mainHandler.postDelayed(announceRunnable, 10000)
+
                 while read ~= -1 do
                     os.write(buffer, 0, read)
+                    totalRead = totalRead + read
                     read = fis.read(buffer)
                 end
+                uploadFinished = true
                 fis.close()
                 os.flush()
                 os.close()
@@ -1230,10 +1253,34 @@ function transcribeWithGroq(filePath, callback, modelId)
                 local Byte = luajava.bindClass("java.lang.Byte")
                 local buffer = luajava.newArray(Byte.TYPE, bufferSize)
                 local bytesRead = fileInputStream.read(buffer)
+
+                local fileSize = file.length()
+                local totalRead = 0
+                local uploadFinished = false
+
+                local announceRunnable
+                announceRunnable = luajava.createProxy("java.lang.Runnable", {
+                    run = function()
+                        if uploadFinished then return end
+                        if fileSize and fileSize > 0 then
+                            local percent = math.floor((totalRead / fileSize) * 100)
+                            if percent > 0 and percent < 100 then
+                                service.asyncSpeak("تم رفع " .. percent .. " في المئة")
+                            end
+                        end
+                        if not uploadFinished then
+                            mainHandler.postDelayed(announceRunnable, 10000)
+                        end
+                    end
+                })
+                mainHandler.postDelayed(announceRunnable, 10000)
+
                 while bytesRead > 0 do
                     dos.write(buffer, 0, bytesRead)
+                    totalRead = totalRead + bytesRead
                     bytesRead = fileInputStream.read(buffer)
                 end
+                uploadFinished = true
                 fileInputStream.close()
 
                 dos.writeBytes("\r\n")
@@ -1391,10 +1438,34 @@ function transcribeWithWitAI(filePath, callback)
                 local Byte = luajava.bindClass("java.lang.Byte")
                 local buffer = luajava.newArray(Byte.TYPE, bufferSize)
                 local bytesRead = fileInputStream.read(buffer)
+
+                local fileSize = file.length()
+                local totalRead = 0
+                local uploadFinished = false
+
+                local announceRunnable
+                announceRunnable = luajava.createProxy("java.lang.Runnable", {
+                    run = function()
+                        if uploadFinished then return end
+                        if fileSize and fileSize > 0 then
+                            local percent = math.floor((totalRead / fileSize) * 100)
+                            if percent > 0 and percent < 100 then
+                                service.asyncSpeak("تم رفع " .. percent .. " في المئة")
+                            end
+                        end
+                        if not uploadFinished then
+                            mainHandler.postDelayed(announceRunnable, 10000)
+                        end
+                    end
+                })
+                mainHandler.postDelayed(announceRunnable, 10000)
+
                 while bytesRead > 0 do
                     dos.write(buffer, 0, bytesRead)
+                    totalRead = totalRead + bytesRead
                     bytesRead = fileInputStream.read(buffer)
                 end
+                uploadFinished = true
                 fileInputStream.close()
                 dos.close()
 
