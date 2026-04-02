@@ -3144,14 +3144,39 @@ function showYoutubeAudioWindow()
 
                     var style = document.createElement('style');
                     style.innerHTML = `
-                        /* Hide video visually */
-                        video { opacity: 0.001 !important; width: 1px !important; height: 1px !important; pointer-events: none !important; }
-                        .html5-video-container { width: 1px !important; height: 1px !important; }
+                        /* Completely collapse the video player area so it takes 0 space and is invisible */
+                        #player-container-id,
+                        .player-size,
+                        ytm-mobile-video-player-app-renderer,
+                        .html5-video-player {
+                            height: 0px !important;
+                            min-height: 0px !important;
+                            padding: 0 !important;
+                            margin: 0 !important;
+                            visibility: hidden !important;
+                        }
 
-                        /* Hide images and ads */
+                        /* Keep the actual video element functioning but totally invisible and 0 size */
+                        video {
+                            opacity: 0 !important;
+                            width: 0px !important;
+                            height: 0px !important;
+                            position: absolute !important;
+                            top: -9999px !important;
+                            pointer-events: none !important;
+                        }
+
+                        /* Hide images, thumbnails, and ads to keep it clean */
                         ytm-thumbnail-overlay-time-status-renderer,
-                        .thumbnail-container, img, .ytm-channel-avatar, ytm-standalone-badge-supported-renderer { display: none !important; }
-                        ytm-promoted-sparkles-web-renderer, ad-slot-renderer, .ad-showing { display: none !important; }
+                        .thumbnail-container,
+                        img,
+                        .ytm-channel-avatar,
+                        ytm-standalone-badge-supported-renderer,
+                        ytm-promoted-sparkles-web-renderer,
+                        ad-slot-renderer,
+                        .ad-showing {
+                            display: none !important;
+                        }
                     `;
                     document.head.appendChild(style);
 
