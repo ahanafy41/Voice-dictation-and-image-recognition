@@ -966,9 +966,9 @@ function makeAiRequest(prompt, systemInstruction, imageBase64, modelIdOverride, 
 end
 
 -- ### Feature Wrapper Functions
-function correctWithGemini(text, callback)
+function correctWithAi(text, callback)
     local instructions = {}
-    table.insert(instructions, "Clean text by removing fillers (aaa, yaani, etc.).")
+    table.insert(instructions, "Clean fillers. FIX ARABIC SPELLING STRICTLY: (ة/ه, ي/ى, and Hamzas أ/إ/ء) keep dialect.")
 
     if tashkeelEnabled then table.insert(instructions, "Add proper Arabic tashkeel (diacritics).") end
     if profanityFilterEnabled then table.insert(instructions, "Replace any profanity or offensive words with stars (***).") end
@@ -3499,12 +3499,6 @@ function openSettings()
 
     local function refreshSortUI()
         sortContainer.removeAllViews()
-        local keys = {}
-        if not dashboardOrder then dashboardOrder = "assistant,dictation,geminiLive,reader,image,transcription,settings" end
-        for k in dashboardOrder:gmatch("([^,]+)") do
-            keys[#keys + 1] = k:gsub("^%%s+", ""):gsub("%%s+$", "")
-        end
-
         local keyNames = {
             assistant = "المساعد الشخصي",
             dictation = "الإملاء والترجمة",
@@ -3513,6 +3507,15 @@ function openSettings()
             transcription = "تفريغ الصوت",
             settings = "الإعدادات", geminiLive = "البث المباشر (Gemini Live)"
         }
+
+        local keys = {}
+        if not dashboardOrder then dashboardOrder = "assistant,dictation,geminiLive,reader,image,transcription,settings" end
+        for k in dashboardOrder:gmatch("([^,]+)") do
+            local cleanKey = k:gsub("^%%s+", ""):gsub("%%s+$", "")
+            if keyNames[cleanKey] then
+                keys[#keys + 1] = cleanKey
+            end
+        end
 
         for i, k in ipairs(keys) do
             local row = LinearLayout(service)
@@ -3808,7 +3811,7 @@ function startVoiceRecognition(fromDashboard)
                     local function handleCorrection(textToCorrect, callback)
                         local needsCorrection = geminiCorrectionEnabled or (selectedDictationMode and selectedDictationMode ~= "none")
                         if needsCorrection then
-                            correctWithGemini(textToCorrect, callback)
+                            correctWithAi(textToCorrect, callback)
                         else
                             callback(textToCorrect)
                         end
