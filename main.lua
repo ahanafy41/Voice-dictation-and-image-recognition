@@ -3181,35 +3181,49 @@ function openMainWindow()
     titleTxt.setPadding(0, 20, 0, 50)
     contentL.addView(titleTxt)
 
+    local function createFeatureRow(mainBtn, shortcutBtn)
+        local row = LinearLayout(service)
+        row.setOrientation(LinearLayout.HORIZONTAL)
+        row.setGravity(Gravity.CENTER_VERTICAL)
+
+        local lpMain = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0)
+        row.addView(mainBtn, lpMain)
+
+        if shortcutBtn then
+            local lpShort = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT)
+            lpShort.leftMargin = 10
+            row.addView(shortcutBtn, lpShort)
+        end
+        return row
+    end
+
     local buttons = {
         assistant = function()
             local btn = Button(service); btn.setText("🤖 المساعد الشخصي")
             btn.setContentDescription("فتح المساعد الشخصي والبحث الذكي")
             styleButton(btn, "primary")
             btn.onClick = function(v) showPersonalAssistantWindow() end
-            btn.onLongClick = function(v)
-                createShortcutForFeature("gemini_assistant", "المساعد الذكي", "🤖", "assistant")
-                return true
-            end
-            return btn
+
+            local sBtn = Button(service); sBtn.setText("📌"); styleButton(sBtn, "secondary"); sBtn.setContentDescription("إنشاء اختصار للمساعد الشخصي على الشاشة الرئيسية")
+            sBtn.onClick = function(v) createShortcutForFeature("gemini_assistant", "المساعد الذكي", "🤖", "assistant") end
+            return createFeatureRow(btn, sBtn)
         end,
         dictation = function()
             local btn = Button(service); btn.setText("🎙️ الإملاء والترجمة")
             btn.setContentDescription("فتح الإملاء الصوتي والترجمة")
             styleButton(btn, "primary")
             btn.onClick = function(v) hideMainWindow(); startVoiceRecognition(true) end
-            return btn
+            return createFeatureRow(btn, nil)
         end,
         geminiLive = function()
             local btn = Button(service); btn.setText("🎙️ البث المباشر (Gemini Live)")
             btn.setContentDescription("بدء بث صوتي مباشر مع المساعد الذكي")
             styleButton(btn, "primary")
             btn.onClick = function(v) hideMainWindow(); showGeminiLiveWindow() end
-            btn.onLongClick = function(v)
-                createShortcutForFeature("gemini_live", "البث المباشر", "🎙️", "geminiLive")
-                return true
-            end
-            return btn
+
+            local sBtn = Button(service); sBtn.setText("📌"); styleButton(sBtn, "secondary"); sBtn.setContentDescription("إنشاء اختصار للبث المباشر على الشاشة الرئيسية")
+            sBtn.onClick = function(v) createShortcutForFeature("gemini_live", "البث المباشر", "🎙️", "geminiLive") end
+            return createFeatureRow(btn, sBtn)
         end,
         reader = function()
             local btn = Button(service); btn.setText("📄 قارئ المستندات والفيديو")
@@ -3220,22 +3234,20 @@ function openMainWindow()
                 if #paths > 0 then startPath = paths[1].path end
                 openDocumentPickerWindow(startPath, function(selectedPath) loadDocumentAndShowViewer(selectedPath) end)
             end
-            btn.onLongClick = function(v)
-                createShortcutForFeature("gemini_reader", "قارئ المستندات", "📄", "reader")
-                return true
-            end
-            return btn
+
+            local sBtn = Button(service); sBtn.setText("📌"); styleButton(sBtn, "secondary"); sBtn.setContentDescription("إنشاء اختصار لقارئ المستندات على الشاشة الرئيسية")
+            sBtn.onClick = function(v) createShortcutForFeature("gemini_reader", "قارئ المستندات", "📄", "reader") end
+            return createFeatureRow(btn, sBtn)
         end,
         image = function()
             local btn = Button(service); btn.setText("🖼️ وصف الصور")
             btn.setContentDescription("التقاط الشاشة ووصف الصور")
             styleButton(btn, "secondary")
             btn.onClick = function(v) hideMainWindow(); runImageDescription() end
-            btn.onLongClick = function(v)
-                createShortcutForFeature("gemini_image", "وصف الصور", "🖼️", "image")
-                return true
-            end
-            return btn
+
+            local sBtn = Button(service); sBtn.setText("📌"); styleButton(sBtn, "secondary"); sBtn.setContentDescription("إنشاء اختصار لوصف الصور على الشاشة الرئيسية")
+            sBtn.onClick = function(v) createShortcutForFeature("gemini_image", "وصف الصور", "🖼️", "image") end
+            return createFeatureRow(btn, sBtn)
         end,
         transcription = function()
             local btn = Button(service); btn.setText("📁 تحويل الصوت إلى نص")
@@ -3251,11 +3263,10 @@ function openMainWindow()
                     end)
                 end)
             end
-            btn.onLongClick = function(v)
-                createShortcutForFeature("gemini_transcription", "تفريغ الصوت", "📁", "transcription")
-                return true
-            end
-            return btn
+
+            local sBtn = Button(service); sBtn.setText("📌"); styleButton(sBtn, "secondary"); sBtn.setContentDescription("إنشاء اختصار لتفريغ الصوت على الشاشة الرئيسية")
+            sBtn.onClick = function(v) createShortcutForFeature("gemini_transcription", "تفريغ الصوت", "📁", "transcription") end
+            return createFeatureRow(btn, sBtn)
         end,
         settings = function()
             local btn = Button(service); btn.setText("⚙️ الإعدادات المتقدمة")
