@@ -1,8 +1,6 @@
 require "import"
 if activity then activity.finish() end
 import "android.widget.*"
-import "android.Manifest"
-import "android.content.pm.PackageManager"
 import "android.speech.RecognizerIntent"
 import "android.speech.SpeechRecognizer"
 import "android.accessibilityservice.AccessibilityService"
@@ -11,7 +9,6 @@ import "android.content.Intent"
 import "android.view.WindowManager"
 import "android.graphics.PixelFormat"
 import "android.content.Context"
-import "android.hardware.camera2.CameraManager"
 import "android.view.View"
 import "android.content.SharedPreferences"
 import "android.net.Uri"
@@ -51,9 +48,6 @@ import "java.net.HttpURLConnection"
 import "java.io.InputStreamReader"
 import "java.io.BufferedReader"
 import "java.io.OutputStreamWriter"
-import "android.webkit.WebView"
-import "android.webkit.WebChromeClient"
-import "android.webkit.WebViewClient"
 import "android.graphics.BitmapFactory"
 import "android.graphics.Matrix"
 
@@ -164,7 +158,6 @@ local audioModels = {
 local defaultAudioModelId = "whisper-large-v3"
 
 -- **Supported Languages** (for dictation and translation)
-local geminiLiveWindow = nil
 local supportedLanguages = {
     { code = "ar", name = "العربية", human_readable_for_gemini = "Arabic" },
     { code = "en", name = "English", human_readable_for_gemini = "English" },
@@ -172,25 +165,6 @@ local supportedLanguages = {
 }
 local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
-
--- **Gemini Live Voices**
-local geminiLiveVoices = {
-    { id = "Zephyr", name = "Zephyr (مشرق - Bright)" },
-    { id = "Puck", name = "Puck (مبتهج - Upbeat)" },
-    { id = "Charon", name = "Charon (معلوماتي - Informative)" },
-    { id = "Kore", name = "Kore (حازم - Firm)" },
-    { id = "Fenrir", name = "Fenrir (متحمس - Excitable)" },
-    { id = "Leda", name = "Leda (شاب - Youthful)" },
-    { id = "Orus", name = "Orus (حازم - Firm)" },
-    { id = "Aoede", name = "Aoede (منعش - Breezy)" },
-    { id = "Callirrhoe", name = "Callirrhoe (هادئ - Easy-going)" },
-    { id = "Autonoe", name = "Autonoe (مشرق - Bright)" },
-    { id = "Enceladus", name = "Enceladus (لاهث - Breathy)" },
-    { id = "Iapetus", name = "Iapetus (واضح - Clear)" },
-    { id = "Umbriel", name = "Umbriel (هادئ - Easy-going)" },
-    { id = "Algieba", name = "Algieba (سلس - Smooth)" },
-    { id = "Despina", name = "Despina (سلس - Smooth)" }
-}
 
 -- **Load Settings with Defaults**
 local prefs = service.getSharedPreferences("voice_settings", Context.MODE_PRIVATE)
@@ -212,7 +186,6 @@ geminiCorrectionEnabled = prefs.getBoolean("geminiCorrectionEnabled", false)
 geminiApiKey = prefs.getString("geminiApiKey", "")
 groqApiKey = prefs.getString("groqApiKey", "")
 witApiKey = prefs.getString("witApiKey", "")
-tavilyApiKey = prefs.getString("tavilyApiKey", "")
 
 local loadedModelId = prefs.getString("geminiModelId", defaultGeminiModelId)
 local isValidModel = false
@@ -223,11 +196,8 @@ selectedGeminiModelId = isValidModel and loadedModelId or defaultGeminiModelId
 
 selectedGroqModelId = prefs.getString("groqModelId", defaultGroqModelId)
 selectedSearchModelId = prefs.getString("searchModelId", "compound-beta")
-dashboardOrder = prefs.getString("dashboardOrder", "assistant,dictation,geminiLive,reader,image,transcription,settings")
+dashboardOrder = prefs.getString("dashboardOrder", "assistant,dictation,reader,image,transcription,settings")
 selectedDictationMode = prefs.getString("selectedDictationMode", defaultDictationMode)
-if not dashboardOrder:match("geminiLive") then
-    dashboardOrder = dashboardOrder .. ",geminiLive"
-end
 selectedAudioModelId = prefs.getString("audioModelId", defaultAudioModelId)
 
 summarizeEnabled = prefs.getBoolean("summarizeEnabled", false)
@@ -237,9 +207,6 @@ showFloatingSettingsButtonEnabled = prefs.getBoolean("showFloatingSettingsButton
 newTranslationFeatureEnabled = prefs.getBoolean("newTranslationFeatureEnabled", false)
 translateToLanguage = prefs.getString("translateToLanguage", defaultTranslateTo)
 autoPunctuationEnabled = prefs.getBoolean("autoPunctuation", true)
-geminiLiveSystemInstruction = prefs.getString("geminiLiveSystemInstruction", "أنت مساعد صوتي ذكي. مهمتك الرد المباشر بصوتك فقط.")
-geminiLiveVoiceName = prefs.getString("geminiLiveVoiceName", "Puck")
-
 
 -- PDF TTS Settings
 pdfTtsEngine = prefs.getString("pdfTtsEngine", "")
@@ -264,7 +231,6 @@ local imageQueryRecognizer = nil
 local floatingSettingsBtn = nil
 local summaryWindow = nil
 local summaryQueryRecognizer = nil
-local isNativeFlashOn = false
 
 -- **Set Audio Focus** (for asyncSpeak)
 if service and service.setAsyncAudioFocus then
@@ -371,48 +337,6 @@ function createChatBubble(text, isUser)
 
     msgContainer.addView(tv)
     return msgContainer
-end
-
--- ### Native Flash Control Helper ###
-function toggleNativeFlashMode(enable, callback)
-    import "java.lang.Thread"
-    import "java.lang.Runnable"
-    local t = Thread(Runnable{
-        run = function()
-            local success, err = pcall(function()
-                local camManager = service.getSystemService(Context.CAMERA_SERVICE)
-                local camId = nil
-                local camList = camManager.getCameraIdList()
-                for i = 0, #camList - 1 do
-                    local characteristics = camManager.getCameraCharacteristics(camList[i])
-                    local facing = characteristics.get(luajava.bindClass("android.hardware.camera2.CameraCharacteristics").LENS_FACING)
-                    if facing == luajava.bindClass("android.hardware.camera2.CameraMetadata").LENS_FACING_BACK then
-                        local hasFlash = characteristics.get(luajava.bindClass("android.hardware.camera2.CameraCharacteristics").FLASH_INFO_AVAILABLE)
-                        if hasFlash then
-                            camId = camList[i]
-                            break
-                        end
-                    end
-                end
-
-                if camId then
-                    camManager.setTorchMode(camId, enable)
-                    isNativeFlashOn = enable
-                    if callback then
-                        mainHandler.post(luajava.createProxy("java.lang.Runnable", { run = function() callback(true, nil) end }))
-                    end
-                else
-                    if callback then
-                         mainHandler.post(luajava.createProxy("java.lang.Runnable", { run = function() callback(false, "لا يوجد فلاش في الكاميرا الخلفية") end }))
-                    end
-                end
-            end)
-            if not success and callback then
-                mainHandler.post(luajava.createProxy("java.lang.Runnable", { run = function() callback(false, tostring(err)) end }))
-            end
-        end
-    })
-    t.start()
 end
 
 -- ### Storage and Path Helpers
@@ -966,9 +890,9 @@ function makeAiRequest(prompt, systemInstruction, imageBase64, modelIdOverride, 
 end
 
 -- ### Feature Wrapper Functions
-function correctWithAi(text, callback)
+function correctWithGemini(text, callback)
     local instructions = {}
-    table.insert(instructions, "Clean fillers. FIX ARABIC SPELLING STRICTLY: (ة/ه, ي/ى, and Hamzas أ/إ/ء) keep dialect.")
+    table.insert(instructions, "Clean text by removing fillers (aaa, yaani, etc.).")
 
     if tashkeelEnabled then table.insert(instructions, "Add proper Arabic tashkeel (diacritics).") end
     if profanityFilterEnabled then table.insert(instructions, "Replace any profanity or offensive words with stars (***).") end
@@ -1074,7 +998,7 @@ function uploadFileToGemini(filePath, mimeType, apiKey, callback)
     local t = Thread(Runnable{
         run = function()
             local success, err = pcall(function()
-                local file = luajava.bindClass("java.io.File")(tostring(filePath))
+                local file = File(filePath)
                 local fileName = file.getName()
                 local fileSize = file.length()
                 local fileSizeStr = string.format("%.0f", fileSize)
@@ -1171,293 +1095,6 @@ function uploadFileToGemini(filePath, mimeType, apiKey, callback)
     t.start()
 end
 
-function transcribeWithGroq(filePath, callback, modelId)
-    local apiKey = groqApiKey
-    if not apiKey or apiKey == "" then
-        callback("Error: Groq API Key is missing", true)
-        return
-    end
-
-    local modId = modelId or "whisper-large-v3"
-
-    import "java.lang.Thread"
-    import "java.lang.Runnable"
-    import "java.net.URL"
-    import "java.io.File"
-    import "java.io.FileInputStream"
-    import "java.io.DataOutputStream"
-    import "java.io.InputStreamReader"
-    import "java.io.BufferedReader"
-    import "java.lang.System"
-    import "android.os.Handler"
-    import "android.os.Looper"
-    import "org.json.JSONObject"
-
-    local t = Thread(Runnable{
-        run = function()
-            local success, err = pcall(function()
-                local file = luajava.bindClass("java.io.File")(tostring(filePath))
-                if not file.exists() then error("File not found: " .. filePath) end
-
-                local apiUrl = "https://api.groq.com/openai/v1/audio/transcriptions"
-                local urlObj = luajava.bindClass("java.net.URL")(tostring(apiUrl))
-                local conn = urlObj.openConnection()
-
-                conn.setChunkedStreamingMode(8192)
-                local boundary = "*****" .. tostring(System.currentTimeMillis()) .. "*****"
-                conn.setDoInput(true)
-                conn.setDoOutput(true)
-                conn.setUseCaches(false)
-                conn.setRequestMethod("POST")
-                conn.setRequestProperty("Connection", "Keep-Alive")
-                conn.setRequestProperty("Authorization", "Bearer " .. apiKey)
-                conn.setRequestProperty("Content-Type", "multipart/form-data;boundary=" .. boundary)
-
-                local dos = DataOutputStream(conn.getOutputStream())
-
-                -- Add model part
-                dos.writeBytes("--" .. boundary .. "\r\n")
-                dos.writeBytes("Content-Disposition: form-data; name=\"model\"\r\n\r\n")
-                dos.writeBytes(tostring(modId) .. "\r\n")
-
-                -- Add file part
-                dos.writeBytes("--" .. boundary .. "\r\n")
-                dos.writeBytes("Content-Disposition: form-data; name=\"file\"; filename=\"" .. file.getName() .. "\"\r\n")
-                dos.writeBytes("Content-Type: application/octet-stream\r\n\r\n")
-
-                local fileInputStream = FileInputStream(file)
-                local bufferSize = 4096
-                local Byte = luajava.bindClass("java.lang.Byte")
-                local buffer = luajava.newArray(Byte.TYPE, bufferSize)
-                local bytesRead = fileInputStream.read(buffer)
-                while bytesRead > 0 do
-                    dos.write(buffer, 0, bytesRead)
-                    bytesRead = fileInputStream.read(buffer)
-                end
-                fileInputStream.close()
-
-                dos.writeBytes("\r\n")
-                dos.writeBytes("--" .. boundary .. "--\r\n")
-                dos.flush()
-                dos.close()
-
-                local responseCode = conn.getResponseCode()
-                local is = (responseCode == 200) and conn.getInputStream() or conn.getErrorStream()
-                local br = BufferedReader(InputStreamReader(is))
-                local response = ""
-                local line = br.readLine()
-                while line ~= nil do
-                    response = response .. line
-                    line = br.readLine()
-                end
-                br.close()
-
-                mainHandler.post(luajava.createProxy("java.lang.Runnable", {
-                    run = function()
-                        if responseCode == 200 then
-                            local s, j = pcall(function() return JSONObject(response) end)
-                            if s and j.has("text") then
-                                callback(j.getString("text"), true)
-                            else
-                                callback("Error Parsing Groq: " .. response, true)
-                            end
-                        else
-                            callback("Error Groq: " .. responseCode .. " - " .. response, true)
-                        end
-                    end
-                }))
-            end)
-            if not success then
-                mainHandler.post(luajava.createProxy("java.lang.Runnable", {
-                    run = function() callback("Error Exception Groq: " .. tostring(err), true) end
-                }))
-            end
-        end
-    })
-    t.start()
-end
-
-function transcribeWithGemini(filePath, callback, modelId)
-    local apiKey = geminiApiKey
-    if not apiKey or apiKey == "" then
-        callback("Error: Gemini API Key is missing", true)
-        return
-    end
-
-    local modId = modelId or "gemini-2.5-flash"
-    local ext = filePath:match("%.([^%.]+)$") or "mp3"
-    local mime = "audio/" .. ext
-    if ext == "mp3" then mime = "audio/mpeg" end
-    if ext == "m4a" then mime = "audio/mp4" end
-
-    uploadFileToGemini(filePath, mime, apiKey, function(fileUriOrError)
-        if fileUriOrError:match("^Error:") then
-            callback(fileUriOrError, true)
-            return
-        end
-
-        local prompt = "قم بتفريغ هذا الملف الصوتي بدقة. اكتب النص المستخرج فقط."
-        local url = "https://generativelanguage.googleapis.com/v1beta/models/" .. modId .. ":generateContent?key=" .. apiKey
-        local headers = {["Content-Type"] = "application/json"}
-
-        local root = JSONObject()
-        local contentObj = JSONObject()
-        local partsArray = JSONArray()
-
-        local filePart = JSONObject()
-        local fileData = JSONObject()
-        fileData.put("mime_type", mime)
-        fileData.put("file_uri", fileUriOrError)
-        filePart.put("file_data", fileData)
-        partsArray.put(filePart)
-
-        local textPart = JSONObject()
-        textPart.put("text", prompt)
-        partsArray.put(textPart)
-
-        contentObj.put("parts", partsArray)
-        local contentsArray = JSONArray()
-        contentsArray.put(contentObj)
-        root.put("contents", contentsArray)
-
-        Http.post(url, root.toString(), headers, function(status, response)
-            if status == 200 then
-                local s, j = pcall(function() return JSONObject(response) end)
-                if s and j.has("candidates") then
-                    local cands = j.getJSONArray("candidates")
-                    if cands.length() > 0 then
-                        local parts = cands.getJSONObject(0).getJSONObject("content").getJSONArray("parts")
-                        if parts.length() > 0 and parts.getJSONObject(0).has("text") then
-                            callback(parts.getJSONObject(0).getString("text"), true)
-                            return
-                        end
-                    end
-                end
-            end
-            callback("Error Gemini Response: " .. status .. " - " .. tostring(response), true)
-        end)
-    end)
-end
-
-function transcribeWithWitAI(filePath, callback)
-    local apiKey = witApiKey
-    if not apiKey or apiKey == "" then
-        callback("Error: Wit.ai API Key is missing", true)
-        return
-    end
-
-    import "java.lang.Thread"
-    import "java.lang.Runnable"
-    import "java.net.URL"
-    import "java.io.File"
-    import "java.io.FileInputStream"
-    import "java.io.DataOutputStream"
-    import "java.io.InputStreamReader"
-    import "java.io.BufferedReader"
-    import "java.lang.System"
-    import "android.os.Handler"
-    import "android.os.Looper"
-    import "org.json.JSONObject"
-
-    local t = Thread(Runnable{
-        run = function()
-            local success, err = pcall(function()
-                local ext = filePath:match("%.([^%.]+)$") or ""
-                ext = ext:lower()
-                local mime = "audio/wav"
-                if ext == "mp3" then mime = "audio/mpeg"
-                elseif ext == "ogg" then mime = "audio/ogg"
-                elseif ext == "m4a" or ext == "aac" then mime = "audio/aac"
-                elseif ext == "raw" then mime = "audio/raw" end
-
-                local apiUrl = "https://api.wit.ai/dictation?v=20240304"
-                local urlObj = luajava.bindClass("java.net.URL")(tostring(apiUrl))
-                local conn = urlObj.openConnection()
-
-                conn.setConnectTimeout(60000)
-                conn.setReadTimeout(300000)
-                conn.setDoInput(true)
-                conn.setDoOutput(true)
-                conn.setUseCaches(false)
-                conn.setRequestMethod("POST")
-                conn.setRequestProperty("Authorization", "Bearer " .. apiKey)
-                conn.setRequestProperty("Content-Type", mime)
-                conn.setChunkedStreamingMode(8192)
-
-                local dos = DataOutputStream(conn.getOutputStream())
-                local file = luajava.bindClass("java.io.File")(tostring(filePath))
-                local fileInputStream = FileInputStream(file)
-                local bufferSize = 8192
-                local Byte = luajava.bindClass("java.lang.Byte")
-                local buffer = luajava.newArray(Byte.TYPE, bufferSize)
-                local bytesRead = fileInputStream.read(buffer)
-                while bytesRead > 0 do
-                    dos.write(buffer, 0, bytesRead)
-                    bytesRead = fileInputStream.read(buffer)
-                end
-                fileInputStream.close()
-                dos.close()
-
-                local responseCode = conn.getResponseCode()
-                local is = (responseCode == 200) and conn.getInputStream() or conn.getErrorStream()
-                local br = BufferedReader(InputStreamReader(is))
-                local accumulatedFinals = ""
-                local lastText = ""
-
-                local line = br.readLine()
-                local jsonBuffer = ""
-                while line ~= nil do
-                    jsonBuffer = jsonBuffer .. line .. "\n"
-                    if line:match("}") then
-                        local s, j = pcall(function() return JSONObject(jsonBuffer) end)
-                        if s then
-                            if j.has("text") then
-                                local currentText = j.getString("text")
-                                lastText = currentText
-                                local isFinal = j.has("is_final") and j.getBoolean("is_final")
-
-                                local displayStr = accumulatedFinals
-                                if isFinal then
-                                    accumulatedFinals = accumulatedFinals .. (accumulatedFinals == "" and "" or " ") .. currentText
-                                    displayStr = accumulatedFinals
-                                else
-                                    displayStr = accumulatedFinals .. (accumulatedFinals == "" and "" or " ") .. currentText
-                                end
-
-                                mainHandler.post(luajava.createProxy("java.lang.Runnable", {
-                                    run = function() callback(displayStr, false) end
-                                }))
-                            end
-                            jsonBuffer = ""
-                        end
-                    end
-                    line = br.readLine()
-                end
-                br.close()
-
-                mainHandler.post(luajava.createProxy("java.lang.Runnable", {
-                    run = function()
-                        if responseCode == 200 then
-                            if accumulatedFinals == "" and lastText ~= "" then accumulatedFinals = lastText end
-                            if accumulatedFinals == "" then accumulatedFinals = "تم الانتهاء ولم يتم التعرف على أي نص." end
-                            callback(accumulatedFinals, true)
-                        else
-                            local errMsg = "Error Wit: " .. responseCode .. " - " .. (responseCode == 408 and "Timeout" or "Fail")
-                            callback(errMsg, true)
-                        end
-                    end
-                }))
-            end)
-            if not success then
-                mainHandler.post(luajava.createProxy("java.lang.Runnable", {
-                    run = function() callback("Error Exception Wit: " .. tostring(err), true) end
-                }))
-            end
-        end
-    })
-    t.start()
-end
-
 function transcribeAudio(filePath, callback)
     local provider = "groq"
     local modId = "whisper-large-v3"
@@ -1487,14 +1124,235 @@ function transcribeAudio(filePath, callback)
 
     service.asyncSpeak("استخدام مزود: " .. providerName .. ". موديل: " .. modId)
 
+    import "java.lang.Thread"
+    import "java.lang.Runnable"
+    import "java.net.URL"
+    import "java.io.File"
+    import "java.io.FileInputStream"
+    import "java.io.DataOutputStream"
+    import "java.io.InputStreamReader"
+    import "java.io.BufferedReader"
+    import "java.lang.System"
+    import "android.os.Handler"
+    import "android.os.Looper"
+    import "java.io.ByteArrayOutputStream"
+    import "android.util.Base64"
+
     if provider == "groq" then
-        transcribeWithGroq(filePath, callback, modId)
+        if groqApiKey == "" then callback("Error: Groq API Key is missing", true); return end
+        local t = Thread(Runnable{
+            run = function()
+                local success, err = pcall(function()
+                    local file = File(filePath)
+                    local url = URL(tostring("https://api.groq.com/openai/v1/audio/transcriptions"))
+                    local conn = url:openConnection()
+                    conn:setChunkedStreamingMode(8192)
+                    local boundary = "*****" .. tostring(System.currentTimeMillis()) .. "*****"
+                    conn:setDoInput(true)
+                    conn:setDoOutput(true)
+                    conn:setUseCaches(false)
+                    conn:setRequestMethod("POST")
+                    conn:setRequestProperty("Connection", "Keep-Alive")
+                    conn:setRequestProperty("Authorization", "Bearer " .. groqApiKey)
+                    conn:setRequestProperty("Content-Type", "multipart/form-data;boundary=" .. boundary)
+                    local dos = DataOutputStream(conn:getOutputStream())
+                    dos:writeBytes("--" .. boundary .. "\r\n")
+                    dos:writeBytes("Content-Disposition: form-data; name=\"model\"\r\n\r\n")
+                    dos:writeBytes(tostring(modId) .. "\r\n")
+                    dos:writeBytes("--" .. boundary .. "\r\n")
+                    dos:writeBytes("Content-Disposition: form-data; name=\"file\"; filename=\"" .. file:getName() .. "\"\r\n")
+                    dos:writeBytes("Content-Type: application/octet-stream\r\n\r\n")
+                    local fileInputStream = FileInputStream(file)
+                    local bufferSize = 4096
+                    local buffer = luajava.newArray(luajava.bindClass("java.lang.Byte").TYPE, bufferSize)
+                    local bytesRead = fileInputStream:read(buffer)
+                    while bytesRead > 0 do
+                        dos:write(buffer, 0, bytesRead)
+                        bytesRead = fileInputStream:read(buffer)
+                    end
+                    fileInputStream:close()
+                    dos:writeBytes("\r\n")
+                    dos:writeBytes("--" .. boundary .. "--\r\n")
+                    dos:flush()
+                    dos:close()
+                    local responseCode = conn:getResponseCode()
+                    local is = (responseCode == 200) and conn:getInputStream() or conn:getErrorStream()
+                    local br = BufferedReader(InputStreamReader(is))
+                    local response = ""
+                    local line = br:readLine()
+                    while line ~= nil do response = response .. line; line = br:readLine() end
+                    br:close()
+                    mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                        run = function()
+                            if responseCode == 200 then
+                                local s, j = pcall(function() return JSONObject(response) end)
+                                if s and j:has("text") then callback(j:getString("text"), true) else callback("Error: " .. response, true) end
+                            else callback("Error: " .. responseCode .. " - " .. response, true) end
+                        end
+                    }))
+                end)
+                if not success then
+                    mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                        run = function() callback("Error Exception: " .. tostring(err), true) end
+                    }))
+                end
+            end
+        })
+        t.start()
     elseif provider == "gemini" then
-        transcribeWithGemini(filePath, callback, modId)
+        if geminiApiKey == "" then callback("Error: Gemini API Key is missing", true); return end
+        local ext = filePath:match("%.([^%.]+)$") or "mp3"
+        local mime = "audio/" .. ext
+        if ext == "m4a" then mime = "audio/mp4" end
+
+        uploadFileToGemini(filePath, mime, geminiApiKey, function(fileUriOrError)
+            if fileUriOrError:match("^Error:") then
+                callback(fileUriOrError, true)
+                return
+            end
+
+            local prompt = "قم بتفريغ هذا الملف الصوتي بدقة. اكتب النص المستخرج فقط."
+            local url = "https://generativelanguage.googleapis.com/v1beta/models/" .. modId .. ":generateContent?key=" .. geminiApiKey
+            local headers = {["Content-Type"] = "application/json"}
+
+            local root = JSONObject()
+            local contentObj = JSONObject()
+            local partsArray = JSONArray()
+
+            local filePart = JSONObject()
+            local fileData = JSONObject()
+            fileData.put("mime_type", mime)
+            fileData.put("file_uri", fileUriOrError)
+            filePart.put("file_data", fileData)
+            partsArray.put(filePart)
+
+            local textPart = JSONObject()
+            textPart.put("text", prompt)
+            partsArray.put(textPart)
+
+            contentObj.put("parts", partsArray)
+            local contentsArray = JSONArray()
+            contentsArray.put(contentObj)
+            root.put("contents", contentsArray)
+
+            Http.post(url, root.toString(), headers, function(status, response)
+                if status == 200 then
+                    local s, j = pcall(function() return JSONObject(response) end)
+                    if s and j.has("candidates") then
+                        local cands = j.getJSONArray("candidates")
+                        if cands.length() > 0 then
+                            local parts = cands.getJSONObject(0).getJSONObject("content").getJSONArray("parts")
+                            if parts.length() > 0 and parts.getJSONObject(0).has("text") then
+                                callback(parts.getJSONObject(0).getString("text"), true)
+                                return
+                            end
+                        end
+                    end
+                end
+                callback("Error Gemini: " .. status .. " - " .. tostring(response), true)
+            end)
+        end)
     elseif provider == "wit" then
-        transcribeWithWitAI(filePath, callback)
-    else
-        callback("Error: Unknown provider " .. tostring(provider), true)
+        if witApiKey == "" then callback("Error: Wit.ai API Key is missing", true); return end
+        local t = Thread(Runnable{
+            run = function()
+                local success, err = pcall(function()
+                    local ext = filePath:match("%.([^%.]+)$") or ""
+                    ext = ext:lower()
+                    local mime = "audio/wav"
+                    if ext == "mp3" then mime = "audio/mpeg"
+                    elseif ext == "ogg" then mime = "audio/ogg"
+                    elseif ext == "m4a" or ext == "aac" then mime = "audio/aac"
+                    elseif ext == "raw" then mime = "audio/raw" end
+
+                    local url = URL(tostring("https://api.wit.ai/dictation?v=20240304"))
+                    local conn = url:openConnection()
+                    conn:setConnectTimeout(60000)
+                    conn:setReadTimeout(300000)
+                    conn:setDoInput(true)
+                    conn:setDoOutput(true)
+                    conn:setUseCaches(false)
+                    conn:setRequestMethod("POST")
+                    conn:setRequestProperty("Authorization", "Bearer " .. witApiKey)
+                    conn:setRequestProperty("Content-Type", mime)
+
+                    conn:setChunkedStreamingMode(8192)
+
+                    local dos = DataOutputStream(conn:getOutputStream())
+                    local file = File(filePath)
+                    local fileInputStream = FileInputStream(file)
+                    local bufferSize = 8192
+                    local buffer = luajava.newArray(luajava.bindClass("java.lang.Byte").TYPE, bufferSize)
+                    local bytesRead = fileInputStream:read(buffer)
+                    while bytesRead > 0 do
+                        dos:write(buffer, 0, bytesRead)
+                        dos:flush()
+                        bytesRead = fileInputStream:read(buffer)
+                    end
+                    fileInputStream:close()
+                    dos:close()
+
+                    local responseCode = conn:getResponseCode()
+                    local is = (responseCode == 200) and conn:getInputStream() or conn:getErrorStream()
+                    local br = BufferedReader(InputStreamReader(is))
+                    local accumulatedFinals = ""
+                    local lastText = ""
+
+                    local line = br:readLine()
+                    local jsonBuffer = ""
+                    while line ~= nil do
+                        jsonBuffer = jsonBuffer .. line .. "\n"
+                        if line:match("}") then
+                            local s, j = pcall(function() return JSONObject(jsonBuffer) end)
+                            if s then
+                                if j:has("text") then
+                                    local currentText = j:getString("text")
+                                    lastText = currentText
+                                    local isFinal = j:has("is_final") and j:getBoolean("is_final")
+
+                                    local displayStr = accumulatedFinals
+                                    if isFinal then
+                                        accumulatedFinals = accumulatedFinals .. (accumulatedFinals == "" and "" or " ") .. currentText
+                                        displayStr = accumulatedFinals
+                                    else
+                                        displayStr = accumulatedFinals .. (accumulatedFinals == "" and "" or " ") .. currentText
+                                    end
+
+                                    mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                                        run = function()
+                                            callback(displayStr, false)
+                                        end
+                                    }))
+                                end
+                                jsonBuffer = ""
+                            end
+                        end
+                        line = br.readLine()
+                    end
+                    br.close()
+
+                    mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                        run = function()
+                            if responseCode == 200 then
+                                if accumulatedFinals == "" and lastText ~= "" then accumulatedFinals = lastText end
+                                if accumulatedFinals == "" then accumulatedFinals = "تم الانتهاء ولم يتم التعرف على أي نص." end
+                                callback(accumulatedFinals, true)
+                            else
+                                local errMsg = "Error: " .. responseCode
+                                if responseCode == 408 or responseCode == 413 then errMsg = "خطأ: الملف كبير جداً (Timeout). تم استخدام البث المباشر بنجاح لكن سيرفر فيسبوك رفض طول الملف." end
+                                callback(errMsg, true)
+                            end
+                        end
+                    }))
+                end)
+                if not success then
+                    mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                        run = function() callback("Error Exception: " .. tostring(err), true) end
+                    }))
+                end
+            end
+        })
+        t.start()
     end
 end
 
@@ -3000,12 +2858,11 @@ function saveSettings()
     editor.putString("geminiApiKey", geminiApiKey or "")
     editor.putString("groqApiKey", groqApiKey or "")
     editor.putString("witApiKey", witApiKey or "")
-    editor.putString("tavilyApiKey", tavilyApiKey or "")
     editor.putString("geminiModelId", selectedGeminiModelId or defaultGeminiModelId)
     editor.putString("groqModelId", selectedGroqModelId or defaultGroqModelId)
     editor.putString("audioModelId", selectedAudioModelId or defaultAudioModelId)
     editor.putString("searchModelId", selectedSearchModelId or "compound-beta")
-editor.putString("dashboardOrder", dashboardOrder or "assistant,dictation,geminiLive,reader,image,transcription,settings")
+editor.putString("dashboardOrder", dashboardOrder or "assistant,dictation,reader,image,transcription,settings")
     editor.putString("selectedDictationMode", selectedDictationMode or defaultDictationMode)
 
     editor.putBoolean("summarizeEnabled", summarizeEnabled)
@@ -3020,9 +2877,6 @@ editor.putString("dashboardOrder", dashboardOrder or "assistant,dictation,gemini
     editor.putBoolean("profanityFilterEnabled", profanityFilterEnabled or false)
     editor.putBoolean("newLinePerSentenceEnabled", newLinePerSentenceEnabled or false)
     editor.putBoolean("convertNumbersEnabled", convertNumbersEnabled or false)
-    editor.putString("geminiLiveSystemInstruction", geminiLiveSystemInstruction or "أنت مساعد صوتي ذكي. مهمتك الرد المباشر بصوتك فقط.")
-    editor.putString("geminiLiveVoiceName", geminiLiveVoiceName or "Puck")
-
     editor.putBoolean("cleanExtraSpacesEnabled", cleanExtraSpacesEnabled or false)
     editor.putBoolean("forceDotAtEndEnabled", forceDotAtEndEnabled or false)
     editor.putBoolean("autoCommaEnabled", autoCommaEnabled or false)
@@ -3086,13 +2940,6 @@ function openMainWindow()
             btn.setOnClickListener(function() hideMainWindow(); startVoiceRecognition(true) end)
             return btn
         end,
-        geminiLive = function()
-            local btn = Button(service); btn.setText("🎙️ البث المباشر (Gemini Live)")
-            btn.setContentDescription("بدء بث صوتي مباشر مع المساعد الذكي")
-            styleButton(btn, "primary")
-            btn.setOnClickListener(function() hideMainWindow(); showGeminiLiveWindow() end)
-            return btn
-        end,
         reader = function()
             local btn = Button(service); btn.setText("📄 قارئ المستندات والفيديو")
             btn.setContentDescription("فتح قارئ الملفات والمستندات والفيديو")
@@ -3136,7 +2983,7 @@ function openMainWindow()
         end
     }
 
-    local orderStr = dashboardOrder or "assistant,dictation,geminiLive,reader,image,transcription,settings"
+    local orderStr = dashboardOrder or "assistant,dictation,reader,image,transcription,settings"
     for k in orderStr:gmatch("([^,]+)") do
         local key = k:gsub("^%s+", ""):gsub("%s+$", "")
         if buttons[key] then
@@ -3404,14 +3251,6 @@ function openSettings()
     witApiKeyIn.setOnTouchListener(View.OnTouchListener{ onTouch = function(v, event) if event.getAction() == MotionEvent.ACTION_UP then v.requestFocus(); local imm = service.getSystemService(Context.INPUT_METHOD_SERVICE); if imm then imm.showSoftInput(v, 1) end end return false end })
     apiCard.addView(witApiKeyIn)
 
-    apiCard.addView(createLabel("مفتاح Tavily Search API:"))
-    local tavilyApiKeyIn = EditText(service)
-    tavilyApiKeyIn.setText(tavilyApiKey or "")
-    styleEditText(tavilyApiKeyIn)
-    tavilyApiKeyIn.addTextChangedListener{onTextChanged=function(s) tavilyApiKey=s and s.toString() or "" end}
-    tavilyApiKeyIn.setOnTouchListener(View.OnTouchListener{ onTouch = function(v, event) if event.getAction() == MotionEvent.ACTION_UP then v.requestFocus(); local imm = service.getSystemService(Context.INPUT_METHOD_SERVICE); if imm then imm.showSoftInput(v, 1) end end return false end })
-    apiCard.addView(tavilyApiKeyIn)
-
     -- SECTION: Model Selection
     local modelCard = createCard(contentL)
     addSectionHeader("اختيار النماذج (Models)", modelCard)
@@ -3453,29 +3292,6 @@ function openSettings()
     modelCard.addView(gemSpinner)
 
     modelCard.addView(createLabel("اختر محرك البحث (AI Search Model):"))
-    -- SECTION: Gemini Live Settings
-    local liveCard = createCard(contentL)
-    addSectionHeader("إعدادات البث المباشر (Gemini Live) 🎙️", liveCard)
-
-    liveCard.addView(createLabel("التعليمات المخصصة للبث (System Instruction):"))
-    local liveSysIn = EditText(service)
-    liveSysIn.setText(geminiLiveSystemInstruction or "")
-    styleEditText(liveSysIn)
-    liveSysIn.addTextChangedListener{onTextChanged=function(s) geminiLiveSystemInstruction=s and s.toString() or "" end}
-    liveSysIn.setOnTouchListener(View.OnTouchListener{ onTouch = function(v, event) if event.getAction() == MotionEvent.ACTION_UP then v.requestFocus(); local imm = service.getSystemService(Context.INPUT_METHOD_SERVICE); if imm then imm.showSoftInput(v, 1) end end return false end })
-    liveCard.addView(liveSysIn)
-
-    liveCard.addView(createLabel("صوت المساعد (Voice):"))
-    local glvNames = ArrayList(); local glvIds = {}
-    for _, v in ipairs(geminiLiveVoices) do glvNames.add(v.name); table.insert(glvIds, v.id) end
-    local glvAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, glvNames); glvAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-    local glvSpinner = Spinner(service); glvSpinner.setAdapter(glvAdapter)
-    local currGlvIdx = -1; for i, id in ipairs(glvIds) do if id == geminiLiveVoiceName then currGlvIdx = i-1 break end end
-    if currGlvIdx ~= -1 then glvSpinner.setSelection(currGlvIdx) else glvSpinner.setSelection(0) end
-    glvSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener { onItemSelected = function(parent, view, position, id) geminiLiveVoiceName = glvIds[position + 1] end })
-    liveCard.addView(glvSpinner)
-
-
     local searchNames = ArrayList(); local searchIds = {}
     -- Only show compound models for search
     for _, m in ipairs(groqModels) do
@@ -3499,23 +3315,20 @@ function openSettings()
 
     local function refreshSortUI()
         sortContainer.removeAllViews()
+        local keys = {}
+        if not dashboardOrder then dashboardOrder = "assistant,dictation,reader,image,transcription,settings" end
+        for k in dashboardOrder:gmatch("([^,]+)") do
+            keys[#keys + 1] = k:gsub("^%%s+", ""):gsub("%%s+$", "")
+        end
+
         local keyNames = {
             assistant = "المساعد الشخصي",
             dictation = "الإملاء والترجمة",
             reader = "قارئ المستندات",
             image = "وصف الصور",
             transcription = "تفريغ الصوت",
-            settings = "الإعدادات", geminiLive = "البث المباشر (Gemini Live)"
+            settings = "الإعدادات"
         }
-
-        local keys = {}
-        if not dashboardOrder then dashboardOrder = "assistant,dictation,geminiLive,reader,image,transcription,settings" end
-        for k in dashboardOrder:gmatch("([^,]+)") do
-            local cleanKey = k:gsub("^%%s+", ""):gsub("%%s+$", "")
-            if keyNames[cleanKey] then
-                keys[#keys + 1] = cleanKey
-            end
-        end
 
         for i, k in ipairs(keys) do
             local row = LinearLayout(service)
@@ -3657,7 +3470,6 @@ function openSettings()
         groqApiKey = groqApiKeyIn.getText().toString()
         geminiApiKey = gemApiKeyIn.getText().toString()
         witApiKey = witApiKeyIn.getText().toString()
-        tavilyApiKey = tavilyApiKeyIn.getText().toString()
         saveSettings()
     end)
     btnL.addView(saveBtn)
@@ -3811,7 +3623,7 @@ function startVoiceRecognition(fromDashboard)
                     local function handleCorrection(textToCorrect, callback)
                         local needsCorrection = geminiCorrectionEnabled or (selectedDictationMode and selectedDictationMode ~= "none")
                         if needsCorrection then
-                            correctWithAi(textToCorrect, callback)
+                            correctWithGemini(textToCorrect, callback)
                         else
                             callback(textToCorrect)
                         end
@@ -3870,6 +3682,7 @@ function onDestroy()
     cleanupResources()
 end
 
+-- **Start the Service**
 mainHandler.post(luajava.createProxy("java.lang.Runnable", {
     run = function()
         createAndShowFloatingButton()
@@ -3984,511 +3797,3 @@ function showPersonalAssistantWindow()
     wm.addView(layout, params)
     personalAssistantWindow = layout
 end
-
-function showGeminiLiveWindow()
-    if geminiLiveWindow then return end
-
-    local layout = LinearLayout(service)
-    layout.setOrientation(LinearLayout.VERTICAL)
-    layout.setBackgroundColor(0xFF000000)
-
-    -- Header with Close Button
-    local header = LinearLayout(service)
-    header.setOrientation(LinearLayout.HORIZONTAL)
-    header.setPadding(20, 20, 20, 20)
-    header.setGravity(Gravity.CENTER_VERTICAL)
-
-    local title = TextView(service)
-    title.setText("🎙️ Gemini Live (Audio-to-Audio)")
-    title.setTextColor(0xFF00FFCC)
-    title.setTextSize(18)
-    title.setTypeface(nil, Typeface.BOLD)
-    local titleLp = LinearLayout.LayoutParams(0, -2, 1.0)
-    header.addView(title, titleLp)
-
-    local closeBtn = Button(service)
-    closeBtn.setText("❌")
-    styleButton(closeBtn, "secondary")
-    closeBtn.setOnClickListener(function()
-        if geminiLiveWindow then
-            wm.removeView(geminiLiveWindow)
-            geminiLiveWindow = nil
-        end
-    end)
-    header.addView(closeBtn)
-    layout.addView(header)
-
-    local webview = WebView(service)
-    local settings = webview.getSettings()
-    settings.setJavaScriptEnabled(true)
-    settings.setDomStorageEnabled(true)
-    settings.setMediaPlaybackRequiresUserGesture(false)
-
-    local webChromeClient = luajava.override(WebChromeClient, {
-        onPermissionRequest = function(super, request)
-            request.grant(request.getResources())
-        end,
-        onConsoleMessage = function(super, consoleMessage)
-            print("JS Console: " .. consoleMessage.message())
-            return true
-        end,
-        onJsPrompt = function(super, view, url, message, defaultValue, result)
-            if message == "TOGGLE_FLASH_NATIVE" then
-                local enable = defaultValue == "true"
-                -- Delay slightly to ensure WebRTC has released the camera hardware
-                mainHandler.postDelayed(luajava.createProxy("java.lang.Runnable", {
-                    run = function()
-                        toggleNativeFlashMode(enable, function(success, err)
-                            if success then
-                                view.evaluateJavascript("window.onFlashToggled(true);", nil)
-                            else
-                                print("Flash error: " .. tostring(err))
-                                service.asyncSpeak("خطأ في تشغيل الفلاش")
-                                view.evaluateJavascript("window.onFlashToggled(false);", nil)
-                            end
-                        end)
-                    end
-                }), 300)
-                result.confirm("Handled")
-                return true
-            elseif message == "TOGGLE_FLASH_NATIVE_SILENT" then
-                local enable = defaultValue == "true"
-                mainHandler.postDelayed(luajava.createProxy("java.lang.Runnable", {
-                    run = function()
-                        toggleNativeFlashMode(enable, function(success, err)
-                            if not success then
-                                print("Silent Flash error: " .. tostring(err))
-                            end
-                        end)
-                    end
-                }), 100)
-                result.confirm("Handled")
-                return true
-            end
-            return super.onJsPrompt(view, url, message, defaultValue, result)
-        end
-    })
-    webview.setWebChromeClient(webChromeClient)
-
-    local webViewClient = luajava.override(WebViewClient, {
-        onReceivedSslError = function(super, view, handler, error)
-            handler.proceed()
-        end
-    })
-    webview.setWebViewClient(webViewClient)
-
-    layout.addView(webview, LinearLayout.LayoutParams(-1, -1))
-
-    -- Prepare Tools Configuration
-    local toolsConfig = [[
-    [{
-        "functionDeclarations": [
-            {
-                "name": "tavily_search",
-                "description": "استخدم هذه الأداة للبحث في الإنترنت عن أحدث المعلومات، الأخبار، أو الإجابة على أسئلة المستخدم التي تتطلب معلومات محدثة. قم بتمرير استعلام البحث (query) المناسب.",
-                "parameters": {
-                    "type": "OBJECT",
-                    "properties": {
-                        "query": {
-                            "type": "STRING",
-                            "description": "نص استعلام البحث الذي سيتم إرساله لمحرك البحث."
-                        }
-                    },
-                    "required": ["query"]
-                }
-            }
-        ]
-    }]
-    ]]
-
-    local sysInstr = (geminiLiveSystemInstruction or "أنت مساعد صوتي ذكي. مهمتك الرد المباشر بصوتك فقط.") .. " (لديك الآن القدرة على رؤية ما تعرضه الكاميرا في بث مباشر. ساعد المستخدم، وهو كفيف، في وصف البيئة أو قراءة النصوص أو التعرف على المنتجات عند سؤاله. ركز على الدقة والإيجاز في الوصف. أيضاً لديك أداة بحث في الإنترنت 'tavily_search' يمكنك استدعاؤها متى احتجت لمعلومات محدثة أو للبحث عن إجابة.)"
-
-    sysInstr = escapeJsonString(sysInstr)
-
-    local html = [[
-<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<style>
-    body { font-family: sans-serif; text-align: center; background: #000; color: #fff; padding: 0; margin: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
-    #status { font-size: 18px; color: #00ffcc; font-weight: bold; padding: 10px; background: rgba(0,0,0,0.6); position: absolute; top: 0; width: 100%; z-index: 10; }
-    .camera-container { flex: 1; position: relative; display: flex; justify-content: center; align-items: center; background: #111; overflow: hidden; }
-    #videoPreview { width: 100%; height: 100%; object-fit: cover; display: none; transform: scaleX(-1); } /* Mirror for front camera */
-    #videoPreview.rear { transform: scaleX(1); }
-    .controls { padding: 15px; display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; background: #000; }
-    button { padding: 12px 20px; font-size: 16px; border-radius: 25px; border: none; font-weight: bold; cursor: pointer; transition: 0.3s; }
-    #startBtn { background: #00ffcc; color: #000; box-shadow: 0 0 15px rgba(0, 255, 204, 0.4); }
-    #stopBtn { background: #ff4444; color: #fff; display: none; }
-    #toggleCamBtn { background: #444; color: #fff; display: none; }
-    #switchCamBtn { background: #444; color: #fff; display: none; }
-    #log { font-size: 10px; color: #aaa; text-align: left; height: 80px; overflow-y: auto; background: #0a0a0a; padding: 10px; border-top: 1px solid #222; direction: ltr; font-family: monospace; }
-    .sys { color: #00ffcc; } .err { color: #ff4444; }
-    #canvasHelper { display: none; }
-</style></head><body>
-    <div id="status">جاهز للبث 🚀</div>
-    <div class="camera-container">
-        <video id="videoPreview" autoplay playsinline></video>
-        <canvas id="canvasHelper"></canvas>
-    </div>
-    <div class="controls">
-        <button id="startBtn">ابدأ المحادثة الآن</button>
-        <button id="toggleCamBtn">📷 فتح الكاميرا</button>
-        <button id="switchCamBtn">🔄 تبديل الكاميرا</button>
-        <button id="flashBtn" style="display: none; background: #FFD700; color: #000;">🔦 الفلاش</button>
-        <button id="stopBtn">إنهاء المكالمة 🛑</button>
-    </div>
-    <div id="log">Logs:</div>
-    <script>
-
-        const video = document.getElementById('videoPreview');
-        const canvas = document.getElementById('canvasHelper');
-        const toggleCamBtn = document.getElementById('toggleCamBtn');
-        const switchCamBtn = document.getElementById('switchCamBtn');
-        const flashBtn = document.getElementById('flashBtn');
-        let camStream = null, currentFacingMode = 'environment', videoInterval = null;
-        let isFlashActive = false;
-        let isFlashTransitioning = false;
-
-        async function toggleCamera() {
-            if (camStream) {
-                stopCamera();
-                toggleCamBtn.innerText = '📷 فتح الكاميرا';
-                toggleCamBtn.style.background = '#444';
-            } else {
-                const started = await startCamera();
-                if (started) {
-                    toggleCamBtn.innerText = '🚫 غلق الكاميرا';
-                    toggleCamBtn.style.background = '#ff8800';
-                }
-            }
-        }
-
-        async function startCamera() {
-            try {
-                const constraints = { video: { facingMode: currentFacingMode, width: { ideal: 640 }, height: { ideal: 480 } } };
-                camStream = await navigator.mediaDevices.getUserMedia(constraints);
-                video.srcObject = camStream;
-                video.style.display = 'block';
-                video.className = currentFacingMode === 'user' ? '' : 'rear';
-                log('📷 تم تشغيل الكاميرا بنجاح', 'sys');
-
-                if (currentFacingMode === 'environment') {
-                    flashBtn.style.display = 'inline-block';
-                } else {
-                    flashBtn.style.display = 'none';
-                    if (isFlashActive) {
-                        isFlashActive = false;
-                        window.prompt("TOGGLE_FLASH_NATIVE_SILENT", "false"); // Turn off flash safely
-                    }
-                }
-
-                startVideoPusher();
-                return true;
-            } catch (err) {
-                log('خطأ في الكاميرا: ' + err.message, 'err');
-                return false;
-            }
-        }
-
-        async function toggleFlash() {
-            if (isFlashTransitioning || currentFacingMode !== 'environment') return;
-            isFlashTransitioning = true;
-            const newState = !isFlashActive;
-
-            // 1. Stop current camera track to release hardware
-            if (camStream) {
-                camStream.getTracks().forEach(t => t.stop());
-                camStream = null;
-                video.style.display = 'none';
-                if (videoInterval) clearInterval(videoInterval);
-                log('إيقاف الكاميرا مؤقتاً لتشغيل الفلاش...', 'sys');
-            }
-
-            // 2. Request Native Lua to toggle torch
-            window.prompt("TOGGLE_FLASH_NATIVE", newState.toString());
-        }
-
-        // 3. Callback from Lua when native torch is set
-        window.onFlashToggled = async function(success) {
-            if (success) {
-                isFlashActive = !isFlashActive;
-                log('الفلاش الآن: ' + (isFlashActive ? 'مضاء' : 'مطفأ'), 'sys');
-                flashBtn.innerText = isFlashActive ? '🔦 الفلاش (شغال)' : '🔦 الفلاش';
-            } else {
-                log('فشل في تشغيل الفلاش من النظام', 'err');
-            }
-
-            // 4. Restart Camera
-            await startCamera();
-            isFlashTransitioning = false;
-        };
-
-        flashBtn.onclick = toggleFlash;
-
-        function stopCamera() {
-            if (camStream) camStream.getTracks().forEach(t => t.stop());
-            camStream = null;
-            video.style.display = 'none';
-            if (videoInterval) clearInterval(videoInterval);
-            log('🚫 تم إيقاف الكاميرا', 'sys');
-        }
-
-        async function switchCamera() {
-            currentFacingMode = (currentFacingMode === 'environment') ? 'user' : 'environment';
-            if (camStream) {
-                stopCamera();
-                await startCamera();
-            }
-        }
-
-        function startVideoPusher() {
-            if (videoInterval) clearInterval(videoInterval);
-            videoInterval = setInterval(() => {
-                if (ws && ws.readyState === WebSocket.OPEN && camStream) {
-                    captureAndSendFrame();
-                }
-            }, 1500);
-        }
-
-        function captureAndSendFrame() {
-            const context = canvas.getContext('2d');
-            canvas.width = video.videoWidth / 2; // Resize for efficiency
-            canvas.height = video.videoHeight / 2;
-            context.drawImage(video, 0, 0, canvas.width, canvas.height);
-            const base64Image = canvas.toDataURL('image/jpeg', 0.6).split(',')[1];
-            ws.send(JSON.stringify({ realtimeInput: { video: { data: base64Image, mimeType: 'image/jpeg' } } }));
-        }
-
-        toggleCamBtn.onclick = toggleCamera;
-        switchCamBtn.onclick = switchCamera;
-        const statusText = document.getElementById('status');
-        const startBtn = document.getElementById('startBtn');
-        const stopBtn = document.getElementById('stopBtn');
-        const logBox = document.getElementById('log');
-        let audioCtx, nextStart = 0, ws = null, micStream = null;
-        let activeSources = [];
-
-        function log(m, type="norm") {
-            let c = type === "sys" ? "#00ffcc" : type === "err" ? "#ff4444" : "#aaa";
-            logBox.innerHTML += `<div style="color:${c};">> ${m}</div>`;
-            logBox.scrollTop = logBox.scrollHeight;
-        }
-
-        function stopAllAudio() {
-            activeSources.forEach(s => { try { s.stop(); } catch(e) {} });
-            activeSources = [];
-            if (audioCtx) nextStart = audioCtx.currentTime;
-        }
-
-        function playAudio(base64) {
-            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
-            try {
-                const pcm16 = new Int16Array(Uint8Array.from(atob(base64), c => c.charCodeAt(0)).buffer);
-                const f32 = new Float32Array(pcm16.length);
-                for (let i = 0; i < pcm16.length; i++) f32[i] = pcm16[i] / 32768;
-                const buffer = audioCtx.createBuffer(1, f32.length, 24000);
-                buffer.getChannelData(0).set(f32);
-                const source = audioCtx.createBufferSource();
-                source.buffer = buffer;
-                source.connect(audioCtx.destination);
-
-                const now = audioCtx.currentTime;
-                if (nextStart < now) nextStart = now;
-                source.start(nextStart);
-                nextStart += buffer.duration;
-
-                activeSources.push(source);
-                source.onended = () => {
-                    const idx = activeSources.indexOf(source);
-                    if (idx > -1) activeSources.splice(idx, 1);
-                };
-            } catch (e) { log("خطأ صوت: " + e.message, "err"); }
-        }
-
-        async function startMic() {
-            try {
-                micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                const micCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-                const source = micCtx.createMediaStreamSource(micStream);
-                const processor = micCtx.createScriptProcessor(2048, 1, 1);
-                source.connect(processor); processor.connect(micCtx.destination);
-                processor.onaudioprocess = (e) => {
-                    if (ws && ws.readyState === WebSocket.OPEN) {
-                        const input = e.inputBuffer.getChannelData(0);
-                        const pcm = new Int16Array(input.length);
-                        for (let i = 0; i < input.length; i++) pcm[i] = input[i] * 0x7FFF;
-                        const b64 = btoa(String.fromCharCode(...new Uint8Array(pcm.buffer)));
-                        ws.send(JSON.stringify({ realtimeInput: { audio: { data: b64, mimeType: "audio/pcm;rate=16000" } } }));
-                    }
-                };
-                log("🎙️ المايك متصل وبدأ البث!", "sys");
-            } catch (err) { log("خطأ مايك: " + err.message, "err"); }
-        }
-
-        function endSession() {
-            stopCamera();
-            toggleCamBtn.style.display = "none";
-            switchCamBtn.style.display = "none";
-            flashBtn.style.display = "none";
-            if (isFlashActive) {
-                isFlashActive = false;
-                window.prompt("TOGGLE_FLASH_NATIVE_SILENT", "false"); // Ensure flash turns off safely
-            }
-            if (ws) ws.close();
-            if (micStream) micStream.getTracks().forEach(t => t.stop());
-            stopAllAudio();
-            stopBtn.style.display = "none";
-            startBtn.style.display = "inline-block";
-            startBtn.disabled = false;
-            statusText.innerText = "تم إنهاء الجلسة ⏹️";
-            log("تم إغلاق الاتصال يدوياً", "sys");
-        }
-
-        stopBtn.onclick = endSession;
-
-        async function executeTavilySearch(functionName, callId, query) {
-            const tavilyKey = "]] .. (tavilyApiKey or "") .. [[";
-            if (!tavilyKey) {
-                log("❌ مفتاح Tavily API مفقود. إرسال خطأ للمساعد.", "err");
-                sendFunctionResponse(functionName, callId, { error: "Tavily API Key is missing. Tell the user to add it in settings." });
-                return;
-            }
-
-            try {
-                const response = await fetch("https://api.tavily.com/search", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        api_key: tavilyKey,
-                        query: query,
-                        include_answer: true,
-                        max_results: 3
-                    })
-                });
-
-                if (!response.ok) {
-                    throw new Error("HTTP error " + response.status);
-                }
-
-                const data = await response.json();
-                let searchResult = data.answer || "";
-                if (data.results && data.results.length > 0) {
-                     searchResult += "\n\n" + data.results.map(r => r.content).join("\n");
-                }
-
-                log("✅ تم جلب نتائج البحث", "sys");
-                sendFunctionResponse(functionName, callId, { result: searchResult });
-
-            } catch (err) {
-                log("خطأ في بحث Tavily: " + err.message, "err");
-                sendFunctionResponse(functionName, callId, { error: "Search failed: " + err.message });
-            }
-        }
-
-        function sendFunctionResponse(name, id, responseObj) {
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                const msg = {
-                    toolResponse: {
-                        functionResponses: [{
-                            name: name,
-                            id: id,
-                            response: responseObj
-                        }]
-                    }
-                };
-                ws.send(JSON.stringify(msg));
-                log("تم إرسال نتيجة البحث للمساعد 📤", "sys");
-            }
-        }
-
-        startBtn.onclick = () => {
-            const key = "]] .. (geminiApiKey or "") .. [[";
-            if (!key) { statusText.innerText = "❌ مفتاح API مفقود"; return; }
-            startBtn.disabled = true; statusText.innerText = "⏳ جاري الاتصال...";
-            const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${key}`;
-            ws = new WebSocket(wsUrl);
-            ws.onopen = () => {
-                log("تم الاتصال بالسيرفر ✅", "sys");
-                const tools = ]] .. toolsConfig .. [[;
-                const setupMsg = {
-                    setup: {
-                        model: "models/gemini-3.1-flash-live-preview",
-                        systemInstruction: { parts: [{ text: "]] .. sysInstr .. [[" }] },
-                        generationConfig: {
-                            responseModalities: ["AUDIO"],
-                            speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "]] .. (geminiLiveVoiceName or "Puck") .. [[" } } }
-                        }
-                    }
-                };
-                if (tools) {
-                    setupMsg.setup.tools = tools;
-                    log("تم إرسال إعدادات البحث للسيرفر 🔍", "sys");
-                }
-                ws.send(JSON.stringify(setupMsg));
-            };
-            ws.onmessage = async (event) => {
-                try {
-                    let textData = event.data;
-                    if (event.data instanceof Blob) textData = await event.data.text();
-                    const msg = JSON.parse(textData);
-
-                    if (msg.setupComplete) {
-                        statusText.innerText = "🚀 البث مباشر الآن!";
-                        toggleCamBtn.style.display = "inline-block";
-                        switchCamBtn.style.display = "inline-block";
-                        startBtn.style.display = "none";
-                        stopBtn.style.display = "inline-block";
-                        startMic();
-                    }
-
-                    if (msg.serverContent && msg.serverContent.interrupted) {
-                        log("تمت المقاطعة ⏹️", "sys");
-                        stopAllAudio();
-                    }
-
-                    if (msg.serverContent && msg.serverContent.modelTurn) {
-                        const parts = msg.serverContent.modelTurn.parts || [];
-                        parts.forEach(p => {
-                            if (p.inlineData && p.inlineData.data) playAudio(p.inlineData.data);
-                        });
-                    }
-
-                    if (msg.toolCall && msg.toolCall.functionCalls) {
-                        msg.toolCall.functionCalls.forEach(fc => {
-                            log("طلب المساعد بحثاً: " + fc.name, "sys");
-                            if (fc.name === "tavily_search") {
-                                const query = fc.args.query;
-                                log("جاري البحث عن: " + query, "sys");
-                                executeTavilySearch(fc.name, fc.id || "", query);
-                            }
-                        });
-                    }
-
-                    if (msg.error) log("خطأ سيرفر: " + JSON.stringify(msg.error), "err");
-                } catch (e) { log("خطأ قراءة: " + e.message, "err"); }
-            };
-            ws.onclose = (e) => {
-                statusText.innerText = "❌ انقطع الاتصال";
-                log(`إغلاق: ${e.code} - ${e.reason}`, "err");
-                startBtn.disabled = false;
-                stopBtn.style.display = "none";
-                startBtn.style.display = "inline-block";
-                if (micStream) micStream.getTracks().forEach(t => t.stop());
-                stopAllAudio();
-            };
-        };
-    </script>
-</body></html>
-    ]]
-
-    webview.loadDataWithBaseURL("https://localhost", html, "text/html", "UTF-8", nil)
-
-    local params = WindowManager.LayoutParams(
-        WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
-        WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-        WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
-        PixelFormat.TRANSLUCENT
-    )
-    wm.addView(layout, params)
-    geminiLiveWindow = layout
-end
-
--- Integration of Gemini Live (Audio-to-Audio) Complete.
