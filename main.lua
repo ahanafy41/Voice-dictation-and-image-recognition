@@ -223,10 +223,13 @@ selectedGeminiModelId = isValidModel and loadedModelId or defaultGeminiModelId
 
 selectedGroqModelId = prefs.getString("groqModelId", defaultGroqModelId)
 selectedSearchModelId = prefs.getString("searchModelId", "compound-beta")
-dashboardOrder = prefs.getString("dashboardOrder", "assistant,dictation,geminiLive,reader,image,transcription,settings")
+dashboardOrder = prefs.getString("dashboardOrder", "assistant,dictation,geminiLive,youtubeAudio,reader,image,transcription,settings")
 selectedDictationMode = prefs.getString("selectedDictationMode", defaultDictationMode)
 if not dashboardOrder:match("geminiLive") then
     dashboardOrder = dashboardOrder .. ",geminiLive"
+end
+if not dashboardOrder:match("youtubeAudio") then
+    dashboardOrder = dashboardOrder .. ",youtubeAudio"
 end
 selectedAudioModelId = prefs.getString("audioModelId", defaultAudioModelId)
 
@@ -3005,7 +3008,7 @@ function saveSettings()
     editor.putString("groqModelId", selectedGroqModelId or defaultGroqModelId)
     editor.putString("audioModelId", selectedAudioModelId or defaultAudioModelId)
     editor.putString("searchModelId", selectedSearchModelId or "compound-beta")
-editor.putString("dashboardOrder", dashboardOrder or "assistant,dictation,geminiLive,reader,image,transcription,settings")
+editor.putString("dashboardOrder", dashboardOrder or "assistant,dictation,geminiLive,youtubeAudio,reader,image,transcription,settings")
     editor.putString("selectedDictationMode", selectedDictationMode or defaultDictationMode)
 
     editor.putBoolean("summarizeEnabled", summarizeEnabled)
@@ -3047,6 +3050,180 @@ local mainWindowDialog = nil
 
 function hideMainWindow()
     if mainWindowDialog then pcall(function() wm.removeView(mainWindowDialog) end); mainWindowDialog = nil end
+end
+
+
+-- ==========================================
+-- YouTube Audio Player Feature
+-- ==========================================
+local youtubeAudioWindow = nil
+local youtubeWebView = nil
+
+function hideYoutubeAudioWindow()
+    if youtubeAudioWindow then
+        pcall(function() wm.removeView(youtubeAudioWindow) end)
+        youtubeAudioWindow = nil
+        if youtubeWebView then
+            youtubeWebView.destroy()
+            youtubeWebView = nil
+        end
+    end
+end
+
+-- JavaScript Control Functions
+local function ytPlayPause()
+    if youtubeWebView then
+        local js = [[
+            javascript:(function() {
+                var v = document.querySelector('video');
+                if(v) {
+                    if(v.paused) v.play();
+                    else v.pause();
+                }
+            })();
+        ]]
+        youtubeWebView.evaluateJavascript(js, nil)
+    end
+end
+
+local function ytSeek(seconds)
+    if youtubeWebView then
+        local js = "javascript:(function() { var v = document.querySelector('video'); if(v) v.currentTime += " .. seconds .. "; })();"
+        youtubeWebView.evaluateJavascript(js, nil)
+    end
+end
+
+function showYoutubeAudioWindow()
+    if youtubeAudioWindow then return end
+
+    youtubeAudioWindow = LinearLayout(service)
+    youtubeAudioWindow.setOrientation(LinearLayout.VERTICAL)
+    youtubeAudioWindow.setBackgroundColor(0xFF000000)
+
+    -- Header (Close button)
+    local headerL = LinearLayout(service)
+    headerL.setOrientation(LinearLayout.HORIZONTAL)
+    headerL.setGravity(Gravity.CENTER)
+    headerL.setPadding(20, 20, 20, 20)
+    headerL.setBackgroundColor(0xFF111111)
+
+    local closeBtn = Button(service)
+    closeBtn.setText("❌ إغلاق اليوتيوب")
+    closeBtn.setContentDescription("إغلاق نافذة اليوتيوب")
+    styleButton(closeBtn, "danger")
+    closeBtn.setOnClickListener(function()
+        hideYoutubeAudioWindow()
+        openMainWindow()
+    end)
+
+    local cParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+    headerL.addView(closeBtn, cParams)
+    youtubeAudioWindow.addView(headerL)
+
+    -- WebView Container (Takes most of the space)
+    local webContainer = LinearLayout(service)
+    webContainer.setOrientation(LinearLayout.VERTICAL)
+    local wcParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0)
+    webContainer.setLayoutParams(wcParams)
+
+    youtubeWebView = WebView(service)
+    local webSettings = youtubeWebView.getSettings()
+    webSettings.setJavaScriptEnabled(true)
+    webSettings.setDomStorageEnabled(true)
+    webSettings.setMediaPlaybackRequiresUserGesture(false)
+    webSettings.setLoadsImagesAutomatically(false)
+    webSettings.setBlockNetworkImage(true)
+
+    local webViewClient = luajava.override(WebViewClient, {
+        onPageFinished = function(view, url)
+            if not youtubeWebView then return end
+            local js = [[
+                javascript:(function() {
+                    Object.defineProperty(document, 'visibilityState', { get: function() { return 'visible'; } });
+                    Object.defineProperty(document, 'hidden', { get: function() { return false; } });
+
+                    var style = document.createElement('style');
+                    style.innerHTML = `
+                        /* Hide video visually */
+                        video { opacity: 0.001 !important; width: 1px !important; height: 1px !important; pointer-events: none !important; }
+                        .html5-video-container { width: 1px !important; height: 1px !important; }
+
+                        /* Hide images and ads */
+                        ytm-thumbnail-overlay-time-status-renderer,
+                        .thumbnail-container, img, .ytm-channel-avatar, ytm-standalone-badge-supported-renderer { display: none !important; }
+                        ytm-promoted-sparkles-web-renderer, ad-slot-renderer, .ad-showing { display: none !important; }
+                    `;
+                    document.head.appendChild(style);
+
+                    setInterval(function() {
+                        document.dispatchEvent(new Event('visibilitychange'));
+                    }, 2000);
+                })();
+            ]]
+            youtubeWebView.evaluateJavascript(js, nil)
+        end
+    })
+    youtubeWebView.setWebViewClient(webViewClient)
+
+    local wParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT)
+    youtubeWebView.setLayoutParams(wParams)
+    webContainer.addView(youtubeWebView)
+    youtubeAudioWindow.addView(webContainer)
+
+    -- Media Controls (Bottom fixed area)
+    local controlsL = LinearLayout(service)
+    controlsL.setOrientation(LinearLayout.HORIZONTAL)
+    controlsL.setGravity(Gravity.CENTER)
+    controlsL.setPadding(20, 30, 20, 30)
+    controlsL.setBackgroundColor(0xFF222222)
+
+    local seekBackBtn = Button(service)
+    seekBackBtn.setText("⏪ إرجاع")
+    seekBackBtn.setContentDescription("إرجاع الفيديو عشر ثواني")
+    styleButton(seekBackBtn, "secondary")
+    seekBackBtn.setOnClickListener(function() ytSeek(-10) end)
+
+    local playPauseBtn = Button(service)
+    playPauseBtn.setText("⏯️ تشغيل / إيقاف")
+    playPauseBtn.setContentDescription("تشغيل أو إيقاف الفيديو")
+    styleButton(playPauseBtn, "primary")
+    playPauseBtn.setOnClickListener(function() ytPlayPause() end)
+
+    local seekFwdBtn = Button(service)
+    seekFwdBtn.setText("تقديم ⏩")
+    seekFwdBtn.setContentDescription("تقديم الفيديو عشر ثواني")
+    styleButton(seekFwdBtn, "secondary")
+    seekFwdBtn.setOnClickListener(function() ytSeek(10) end)
+
+    local sp1 = View(service); sp1.setLayoutParams(LinearLayout.LayoutParams(20, 0))
+    local sp2 = View(service); sp2.setLayoutParams(LinearLayout.LayoutParams(20, 0))
+
+    controlsL.addView(seekBackBtn)
+    controlsL.addView(sp1)
+    controlsL.addView(playPauseBtn)
+    controlsL.addView(sp2)
+    controlsL.addView(seekFwdBtn)
+
+    local cpParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+    controlsL.setLayoutParams(cpParams)
+    youtubeAudioWindow.addView(controlsL)
+
+    -- Window Params
+    local p = WindowManager.LayoutParams()
+    p.width = WindowManager.LayoutParams.MATCH_PARENT
+    p.height = math.floor(service.getResources().getDisplayMetrics().heightPixels * 0.85)
+    p.type = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
+    p.flags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+    p.format = PixelFormat.TRANSLUCENT
+    p.gravity = Gravity.CENTER
+
+    local success, err = pcall(function() wm.addView(youtubeAudioWindow, p) end)
+    if not success then
+        service.asyncSpeak("خطأ في الواجهة")
+        print("Error opening Youtube: " .. tostring(err))
+    end
+
+    youtubeWebView.loadUrl("https://m.youtube.com")
 end
 
 function openMainWindow()
@@ -3093,6 +3270,13 @@ function openMainWindow()
             btn.setOnClickListener(function() hideMainWindow(); showGeminiLiveWindow() end)
             return btn
         end,
+        youtubeAudio = function()
+            local btn = Button(service); btn.setText("🎵 يوتيوب (صوت فقط)")
+            btn.setContentDescription("فتح مشغل اليوتيوب الصوتي")
+            styleButton(btn, "primary")
+            btn.setOnClickListener(function() hideMainWindow(); showYoutubeAudioWindow() end)
+            return btn
+        end,
         reader = function()
             local btn = Button(service); btn.setText("📄 قارئ المستندات والفيديو")
             btn.setContentDescription("فتح قارئ الملفات والمستندات والفيديو")
@@ -3136,7 +3320,7 @@ function openMainWindow()
         end
     }
 
-    local orderStr = dashboardOrder or "assistant,dictation,geminiLive,reader,image,transcription,settings"
+    local orderStr = dashboardOrder or "assistant,dictation,geminiLive,youtubeAudio,reader,image,transcription,settings"
     for k in orderStr:gmatch("([^,]+)") do
         local key = k:gsub("^%s+", ""):gsub("%s+$", "")
         if buttons[key] then
@@ -3505,11 +3689,11 @@ function openSettings()
             reader = "قارئ المستندات",
             image = "وصف الصور",
             transcription = "تفريغ الصوت",
-            settings = "الإعدادات", geminiLive = "البث المباشر (Gemini Live)"
+            settings = "الإعدادات", geminiLive = "البث المباشر (Gemini Live)", youtubeAudio = "يوتيوب (صوت فقط)"
         }
 
         local keys = {}
-        if not dashboardOrder then dashboardOrder = "assistant,dictation,geminiLive,reader,image,transcription,settings" end
+        if not dashboardOrder then dashboardOrder = "assistant,dictation,geminiLive,youtubeAudio,reader,image,transcription,settings" end
         for k in dashboardOrder:gmatch("([^,]+)") do
             local cleanKey = k:gsub("^%%s+", ""):gsub("%%s+$", "")
             if keyNames[cleanKey] then
