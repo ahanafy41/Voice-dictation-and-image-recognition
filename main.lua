@@ -1126,7 +1126,7 @@ function uploadFileToGemini(filePath, mimeType, apiKey, callback)
 
                 local os = putConn.getOutputStream()
                 local fis = FileInputStream(file)
-                local buffer = luajava.newArray(luajava.bindClass("java.lang.Byte").TYPE, 8192)
+                local buffer = luajava.newArray(luajava.bindClass("java.lang.Byte").TYPE, 65536)
                 local read = fis.read(buffer)
 
                 local totalRead = 0
@@ -1149,9 +1149,11 @@ function uploadFileToGemini(filePath, mimeType, apiKey, callback)
                 })
                 mainHandler.postDelayed(announceRunnable, 10000)
 
+                local ThreadClass = luajava.bindClass("java.lang.Thread")
                 while read ~= -1 do
                     os.write(buffer, 0, read)
                     totalRead = totalRead + read
+                    pcall(function() ThreadClass.sleep(2) end)
                     read = fis.read(buffer)
                 end
                 uploadFinished = true
@@ -1249,7 +1251,7 @@ function transcribeWithGroq(filePath, callback, modelId)
                 dos.writeBytes("Content-Type: application/octet-stream\r\n\r\n")
 
                 local fileInputStream = FileInputStream(file)
-                local bufferSize = 4096
+                local bufferSize = 65536
                 local Byte = luajava.bindClass("java.lang.Byte")
                 local buffer = luajava.newArray(Byte.TYPE, bufferSize)
                 local bytesRead = fileInputStream.read(buffer)
@@ -1275,9 +1277,11 @@ function transcribeWithGroq(filePath, callback, modelId)
                 })
                 mainHandler.postDelayed(announceRunnable, 10000)
 
+                local ThreadClass = luajava.bindClass("java.lang.Thread")
                 while bytesRead > 0 do
                     dos.write(buffer, 0, bytesRead)
                     totalRead = totalRead + bytesRead
+                    pcall(function() ThreadClass.sleep(2) end)
                     bytesRead = fileInputStream.read(buffer)
                 end
                 uploadFinished = true
@@ -1434,7 +1438,7 @@ function transcribeWithWitAI(filePath, callback)
                 local dos = DataOutputStream(conn.getOutputStream())
                 local file = luajava.bindClass("java.io.File")(tostring(filePath))
                 local fileInputStream = FileInputStream(file)
-                local bufferSize = 8192
+                local bufferSize = 65536
                 local Byte = luajava.bindClass("java.lang.Byte")
                 local buffer = luajava.newArray(Byte.TYPE, bufferSize)
                 local bytesRead = fileInputStream.read(buffer)
@@ -1460,9 +1464,11 @@ function transcribeWithWitAI(filePath, callback)
                 })
                 mainHandler.postDelayed(announceRunnable, 10000)
 
+                local ThreadClass = luajava.bindClass("java.lang.Thread")
                 while bytesRead > 0 do
                     dos.write(buffer, 0, bytesRead)
                     totalRead = totalRead + bytesRead
+                    pcall(function() ThreadClass.sleep(2) end)
                     bytesRead = fileInputStream.read(buffer)
                 end
                 uploadFinished = true
