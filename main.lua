@@ -223,13 +223,10 @@ selectedGeminiModelId = isValidModel and loadedModelId or defaultGeminiModelId
 
 selectedGroqModelId = prefs.getString("groqModelId", defaultGroqModelId)
 selectedSearchModelId = prefs.getString("searchModelId", "compound-beta")
-dashboardOrder = prefs.getString("dashboardOrder", "assistant,dictation,geminiLive,youtubeAudio,reader,image,transcription,settings")
+dashboardOrder = prefs.getString("dashboardOrder", "assistant,dictation,geminiLive,reader,image,transcription,settings")
 selectedDictationMode = prefs.getString("selectedDictationMode", defaultDictationMode)
 if not dashboardOrder:match("geminiLive") then
     dashboardOrder = dashboardOrder .. ",geminiLive"
-end
-if not dashboardOrder:match("youtubeAudio") then
-    dashboardOrder = dashboardOrder .. ",youtubeAudio"
 end
 selectedAudioModelId = prefs.getString("audioModelId", defaultAudioModelId)
 
@@ -3008,7 +3005,7 @@ function saveSettings()
     editor.putString("groqModelId", selectedGroqModelId or defaultGroqModelId)
     editor.putString("audioModelId", selectedAudioModelId or defaultAudioModelId)
     editor.putString("searchModelId", selectedSearchModelId or "compound-beta")
-editor.putString("dashboardOrder", dashboardOrder or "assistant,dictation,geminiLive,youtubeAudio,reader,image,transcription,settings")
+editor.putString("dashboardOrder", dashboardOrder or "assistant,dictation,geminiLive,reader,image,transcription,settings")
     editor.putString("selectedDictationMode", selectedDictationMode or defaultDictationMode)
 
     editor.putBoolean("summarizeEnabled", summarizeEnabled)
@@ -3050,259 +3047,6 @@ local mainWindowDialog = nil
 
 function hideMainWindow()
     if mainWindowDialog then pcall(function() wm.removeView(mainWindowDialog) end); mainWindowDialog = nil end
-end
-
-
--- ==========================================
--- YouTube Custom Clean Audio Frontend
--- ==========================================
-local youtubeAudioWindow = nil
-local youtubeWebView = nil
-
-function hideYoutubeAudioWindow()
-    if youtubeAudioWindow then
-        pcall(function() wm.removeView(youtubeAudioWindow) end)
-        youtubeAudioWindow = nil
-        if youtubeWebView then
-            youtubeWebView.destroy()
-            youtubeWebView = nil
-        end
-
-    end
-end
-
-
-
-function showYoutubeAudioWindow()
-    if youtubeAudioWindow then return end
-
-    youtubeAudioWindow = LinearLayout(service)
-    youtubeAudioWindow.setOrientation(LinearLayout.VERTICAL)
-    youtubeAudioWindow.setBackgroundColor(0xFF000000)
-
-    -- Header (Close button only)
-    local headerL = LinearLayout(service)
-    headerL.setOrientation(LinearLayout.HORIZONTAL)
-    headerL.setGravity(Gravity.CENTER)
-    headerL.setPadding(20, 20, 20, 20)
-    headerL.setBackgroundColor(0xFF111111)
-
-    local closeBtn = Button(service)
-    closeBtn.setText("❌ إغلاق اليوتيوب")
-    closeBtn.setContentDescription("إغلاق نافذة اليوتيوب")
-    styleButton(closeBtn, "danger")
-    closeBtn.setOnClickListener(function()
-        hideYoutubeAudioWindow()
-        openMainWindow()
-    end)
-
-    local cParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-    headerL.addView(closeBtn, cParams)
-    youtubeAudioWindow.addView(headerL)
-
-    -- WebView Container
-    local webContainer = LinearLayout(service)
-    webContainer.setOrientation(LinearLayout.VERTICAL)
-    local wcParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0)
-    webContainer.setLayoutParams(wcParams)
-
-    youtubeWebView = WebView(service)
-    local webSettings = youtubeWebView.getSettings()
-    webSettings.setJavaScriptEnabled(true)
-    webSettings.setDomStorageEnabled(true)
-    webSettings.setMediaPlaybackRequiresUserGesture(false)
-
-    local webChromeClient = luajava.override(WebChromeClient, {
-        onJsPrompt = function(view, url, message, defaultValue, result)
-            local prefix = "yt_search:"
-            if message:sub(1, #prefix) == prefix then
-                local query = message:sub(#prefix + 1)
-                performYoutubeHiddenSearch(query)
-                result.confirm()
-                return true
-            end
-            return false
-        end
-    })
-    youtubeWebView.setWebChromeClient(webChromeClient)
-
-    local webViewClient = luajava.override(WebViewClient, {
-        shouldOverrideUrlLoading = function(view, url)
-            return false
-        end
-    })
-    youtubeWebView.setWebViewClient(webViewClient)
-
-    local wParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT)
-    youtubeWebView.setLayoutParams(wParams)
-    webContainer.addView(youtubeWebView)
-    youtubeAudioWindow.addView(webContainer)
-
-    -- Window Params
-    local p = WindowManager.LayoutParams()
-    p.width = WindowManager.LayoutParams.MATCH_PARENT
-    p.height = math.floor(service.getResources().getDisplayMetrics().heightPixels * 0.85)
-    p.type = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
-    p.flags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
-    p.format = PixelFormat.TRANSLUCENT
-    p.gravity = Gravity.CENTER
-
-    local success, err = pcall(function() wm.addView(youtubeAudioWindow, p) end)
-    if not success then
-        service.asyncSpeak("خطأ في الواجهة")
-        print("Error opening Youtube: " .. tostring(err))
-    end
-
-    -- local HTML/JS Frontend that acts as a custom client
-    local html = [[
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>مشغل يوتيوب النظيف</title>
-<style>
-    body { background-color: #000; color: #fff; font-family: sans-serif; padding: 20px; margin: 0; }
-    input { width: 100%; padding: 15px; font-size: 18px; border-radius: 10px; border: none; margin-bottom: 10px; box-sizing: border-box; }
-    button { background-color: #1e88e5; color: white; border: none; padding: 15px 20px; font-size: 18px; border-radius: 10px; cursor: pointer; width: 100%; margin-bottom: 20px; }
-    .result-item { background-color: #222; padding: 15px; margin-bottom: 10px; border-radius: 10px; }
-    .result-title { font-size: 18px; font-weight: bold; margin-bottom: 10px; }
-    .play-btn { background-color: #4CAF50; width: auto; padding: 10px 20px; margin-bottom: 0;}
-    #controls { display: none; background-color: #111; padding: 20px; border-radius: 10px; position: fixed; bottom: 0; left: 0; right: 0; text-align: center; }
-    #controls button { width: 30%; display: inline-block; margin: 0 1%; background-color: #444; }
-    #status { margin-bottom: 15px; color: #aaa; }
-    /* Hidden iframe for official YouTube Iframe API to stream audio */
-    #player { position: absolute; top: -9999px; left: -9999px; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
-</style>
-<script src="https://www.youtube.com/iframe_api"></script>
-</head>
-<body>
-
-<input type="text" id="searchInput" placeholder="ابحث في يوتيوب...">
-<button onclick="searchYoutube()">🔍 بحث</button>
-<div id="status"></div>
-<div id="results"></div>
-
-<!-- YouTube Player (Invisible) -->
-<div id="player"></div>
-
-<div id="controls">
-    <div id="nowPlaying" style="margin-bottom:15px; font-weight:bold; font-size:16px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"></div>
-    <button onclick="seek(-10)">⏪ إرجاع</button>
-    <button id="playPauseBtn" onclick="togglePlay()">⏸️ إيقاف</button>
-    <button onclick="seek(10)">تقديم ⏩</button>
-</div>
-
-<script>
-    var player;
-    var isPlaying = false;
-
-    function onYouTubeIframeAPIReady() {
-        player = new YT.Player('player', {
-            height: '1',
-            width: '1',
-            videoId: '',
-            playerVars: {
-                'playsinline': 1,
-                'controls': 0,
-                'disablekb': 1,
-                'fs': 0,
-                'modestbranding': 1,
-                'rel': 0
-            },
-            events: {
-                'onReady': onPlayerReady,
-                'onStateChange': onPlayerStateChange
-            }
-        });
-    }
-
-    function onPlayerReady(event) {
-        console.log("Player ready");
-    }
-
-    function onPlayerStateChange(event) {
-        if (event.data == YT.PlayerState.PLAYING) {
-            isPlaying = true;
-            document.getElementById('playPauseBtn').innerText = "⏸️ إيقاف";
-        } else if (event.data == YT.PlayerState.PAUSED) {
-            isPlaying = false;
-            document.getElementById('playPauseBtn').innerText = "▶️ تشغيل";
-        }
-    }
-
-    function togglePlay() {
-        if(player && player.getPlayerState) {
-            if(isPlaying) {
-                player.pauseVideo();
-            } else {
-                player.playVideo();
-            }
-        }
-    }
-
-    function seek(seconds) {
-        if(player && player.getCurrentTime) {
-            var currentTime = player.getCurrentTime();
-            player.seekTo(currentTime + seconds, true);
-        }
-    }
-
-    function playAudio(videoId, title) {
-        if(player && player.loadVideoById) {
-            document.getElementById('nowPlaying').innerText = title;
-            document.getElementById('controls').style.display = 'block';
-            player.loadVideoById({videoId: videoId, suggestedQuality: 'small'});
-        } else {
-            alert("المشغل لم يكتمل تحميله بعد، حاول مرة أخرى.");
-        }
-    }
-
-    async function searchYoutube() {
-        const query = document.getElementById('searchInput').value;
-        if(!query) return;
-
-        document.getElementById('status').innerText = "جاري البحث...";
-        document.getElementById('results').innerHTML = "";
-
-        try {
-            // We use Piped API (a privacy-friendly YouTube frontend API) to get pure JSON results, no images needed!
-            const res = await fetch("https://pipedapi.kavin.rocks/search?q=" + encodeURIComponent(query) + "&filter=videos");
-            const data = await res.json();
-
-            if(data && data.items && data.items.length > 0) {
-                document.getElementById('status').innerText = "نتائج البحث:";
-                let html = "";
-                for(let i=0; i<Math.min(15, data.items.length); i++) {
-                    const item = data.items[i];
-                    // item.url is usually like /watch?v=...
-                    const vidId = item.url.split('v=')[1];
-                    if(vidId) {
-                        html += "<div class='result-item'>";
-                        html += "<div class='result-title'>" + item.title + "</div>";
-                        html += "<button class='play-btn' onclick='playAudio("" + vidId + "", "" + item.title.replace(/'/g, "") + "")'>▶️ تشغيل الصوت</button>";
-                        html += "</div>";
-                    }
-                }
-                document.getElementById('results').innerHTML = html;
-            } else {
-                document.getElementById('status').innerText = "لم يتم العثور على نتائج.";
-            }
-        } catch(e) {
-            document.getElementById('status').innerText = "حدث خطأ أثناء البحث. يرجى التحقق من اتصالك بالإنترنت.";
-        }
-    }
-
-    // Prevent pausing when screen is off
-    Object.defineProperty(document, 'visibilityState', { get: function() { return 'visible'; } });
-    Object.defineProperty(document, 'hidden', { get: function() { return false; } });
-    setInterval(function() { document.dispatchEvent(new Event('visibilitychange')); }, 2000);
-</script>
-</body>
-</html>
-    ]]
-
-    youtubeWebView.loadDataWithBaseURL("https://youtube.com", html, "text/html", "UTF-8", nil)
 end
 
 function openMainWindow()
@@ -3349,13 +3093,6 @@ function openMainWindow()
             btn.setOnClickListener(function() hideMainWindow(); showGeminiLiveWindow() end)
             return btn
         end,
-        youtubeAudio = function()
-            local btn = Button(service); btn.setText("🎵 يوتيوب (صوت فقط)")
-            btn.setContentDescription("فتح مشغل اليوتيوب الصوتي")
-            styleButton(btn, "primary")
-            btn.setOnClickListener(function() hideMainWindow(); showYoutubeAudioWindow() end)
-            return btn
-        end,
         reader = function()
             local btn = Button(service); btn.setText("📄 قارئ المستندات والفيديو")
             btn.setContentDescription("فتح قارئ الملفات والمستندات والفيديو")
@@ -3399,7 +3136,7 @@ function openMainWindow()
         end
     }
 
-    local orderStr = dashboardOrder or "assistant,dictation,geminiLive,youtubeAudio,reader,image,transcription,settings"
+    local orderStr = dashboardOrder or "assistant,dictation,geminiLive,reader,image,transcription,settings"
     for k in orderStr:gmatch("([^,]+)") do
         local key = k:gsub("^%s+", ""):gsub("%s+$", "")
         if buttons[key] then
@@ -3768,11 +3505,11 @@ function openSettings()
             reader = "قارئ المستندات",
             image = "وصف الصور",
             transcription = "تفريغ الصوت",
-            settings = "الإعدادات", geminiLive = "البث المباشر (Gemini Live)", youtubeAudio = "يوتيوب (صوت فقط)"
+            settings = "الإعدادات", geminiLive = "البث المباشر (Gemini Live)"
         }
 
         local keys = {}
-        if not dashboardOrder then dashboardOrder = "assistant,dictation,geminiLive,youtubeAudio,reader,image,transcription,settings" end
+        if not dashboardOrder then dashboardOrder = "assistant,dictation,geminiLive,reader,image,transcription,settings" end
         for k in dashboardOrder:gmatch("([^,]+)") do
             local cleanKey = k:gsub("^%%s+", ""):gsub("%%s+$", "")
             if keyNames[cleanKey] then
