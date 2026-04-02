@@ -253,11 +253,32 @@ mainHandler = Handler(Looper.getMainLooper())
 
 -- **Edge TTS Voices (Arabic)**
 -- **Google Free TTS Voices (Arabic)**
-local freeOnlineTtsVoices = {
-    { id = "ar", name = "عربي (قياسي)" },
-    { id = "ar-EG", name = "عربي (مصر)" },
-    { id = "ar-SA", name = "عربي (السعودية)" },
-    { id = "ar-AE", name = "عربي (الإمارات)" }
+-- **Edge TTS Voices (Arabic)**
+local edgeTtsVoices = {
+    { id = "ar-EG-SalmaNeural", name = "سلمى (مصر - أنثى)" },
+    { id = "ar-EG-ShakirNeural", name = "شاكر (مصر - ذكر)" },
+    { id = "ar-SA-ZariyahNeural", name = "زارية (السعودية - أنثى)" },
+    { id = "ar-SA-HamedNeural", name = "حامد (السعودية - ذكر)" },
+    { id = "ar-AE-FatimaNeural", name = "فاطمة (الإمارات - أنثى)" },
+    { id = "ar-AE-HamdanNeural", name = "حمدان (الإمارات - ذكر)" },
+    { id = "ar-JO-SanaNeural", name = "سناء (الأردن - أنثى)" },
+    { id = "ar-JO-TaimNeural", name = "تيم (الأردن - ذكر)" },
+    { id = "ar-QA-AmalNeural", name = "أمل (قطر - أنثى)" },
+    { id = "ar-QA-MoazNeural", name = "معاذ (قطر - ذكر)" },
+    { id = "ar-KW-NouraNeural", name = "نورة (الكويت - أنثى)" },
+    { id = "ar-KW-FahedNeural", name = "فهد (الكويت - ذكر)" },
+    { id = "ar-OM-AyshaNeural", name = "عائشة (عُمان - أنثى)" },
+    { id = "ar-OM-AbdullahNeural", name = "عبدالله (عُمان - ذكر)" },
+    { id = "ar-BH-LailaNeural", name = "ليلى (البحرين - أنثى)" },
+    { id = "ar-BH-AliNeural", name = "علي (البحرين - ذكر)" },
+    { id = "ar-IQ-RanaNeural", name = "رنا (العراق - أنثى)" },
+    { id = "ar-IQ-BasselNeural", name = "باسل (العراق - ذكر)" },
+    { id = "ar-MA-MounaNeural", name = "منى (المغرب - أنثى)" },
+    { id = "ar-MA-JamalNeural", name = "جمال (المغرب - ذكر)" },
+    { id = "ar-DZ-AminaNeural", name = "أمينة (الجزائر - أنثى)" },
+    { id = "ar-DZ-IsmaelNeural", name = "إسماعيل (الجزائر - ذكر)" },
+    { id = "ar-TN-ReemNeural", name = "ريم (تونس - أنثى)" },
+    { id = "ar-TN-HediNeural", name = "الهادي (تونس - ذكر)" }
 }
 
 -- **Global Variables**
@@ -275,78 +296,275 @@ local summaryWindow = nil
 local summaryQueryRecognizer = nil
 local isNativeFlashOn = false
 
--- **Online Free TTS Global Player**
-local onlineTtsPlayer = nil
+-- **Edge TTS Global**
+local edgeTtsWebView = nil
+local isEdgeTtsInit = false
+local edgeTtsHtml = [[
+<!DOCTYPE html>
+<html>
+<head>
+<script>
+    let ws = null;
+    let audioContext = null;
+    let currentSource = null;
+    let audioChunks = [];
 
-function stopOnlineTts()
-    if onlineTtsPlayer then
-        pcall(function()
-            if onlineTtsPlayer.isPlaying() then
-                onlineTtsPlayer.stop()
-            end
-            onlineTtsPlayer.release()
-        end)
-        onlineTtsPlayer = nil
-    end
-end
+    const TRUSTED_CLIENT_TOKEN = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
+    const WIN_EPOCH = 11644473600;
+    const S_TO_NS = 1e9;
+    const CHROMIUM_FULL_VERSION = "143.0.3650.75";
+    const SEC_MS_GEC_VERSION = `1-${CHROMIUM_FULL_VERSION}`;
 
-function speakOnlineTts(text, langCode, speed)
-    stopOnlineTts()
-    import "android.media.MediaPlayer"
-    import "android.net.Uri"
-    import "java.net.URLEncoder"
+    function sha256(ascii) {
+        function rightRotate(value, amount) { return (value>>>amount) | (value<<(32 - amount)); };
+        var mathPow = Math.pow;
+        var maxWord = mathPow(2, 32);
+        var lengthProperty = 'length'
+        var i, j;
+        var result = ''
+        var words = [];
+        var asciiBitLength = ascii[lengthProperty]*8;
+        var hash = [], k = [];
+        var primeCounter = 2;
+        var isComposite = {};
+        for (var candidate = 2; primeCounter < 64; candidate++) {
+            if (!isComposite[candidate]) {
+                for (i = 0; i < 313; i += candidate) { isComposite[i] = candidate; }
+                hash[primeCounter - 2] = (mathPow(candidate, .5)*maxWord)|0;
+                k[primeCounter++ - 2] = (mathPow(candidate, 1/3)*maxWord)|0;
+            }
+        }
+        ascii += '\x80'
+        while (ascii[lengthProperty]%64 - 56) ascii += '\x00'
+        for (i = 0; i < ascii[lengthProperty]; i++) {
+            j = ascii.charCodeAt(i);
+            if (j>>8) return;
+            words[i>>2] |= j << ((3 - i)%4)*8;
+        }
 
-    local s, encodedText = pcall(function() return URLEncoder.encode(text, "UTF-8") end)
-    if not s or not encodedText then return end
+        words[words.length] = ((asciiBitLength/maxWord)|0);
+        words[words.length] = asciiBitLength;
 
-    local url = "https://translate.google.com/translate_tts?ie=UTF-8&q=" .. encodedText .. "&tl=" .. langCode .. "&client=tw-ob"
+        for (j = 0; j < words.length;) {
+            var w = words.slice(j, j += 16);
+            var oldHash = hash;
+            hash = hash.slice(0, 8);
+            for (i = 0; i < 64; i++) {
+                var w15 = w[i - 15], w2 = w[i - 2];
+                var a = hash[0], e = hash[4];
+                var temp1 = hash[7]
+                    + (rightRotate(e, 6) ^ rightRotate(e, 11) ^ rightRotate(e, 25))
+                    + ((e&hash[5])^((~e)&hash[6]))
+                    + k[i]
+                    + (w[i] = (i < 16) ? w[i] : (
+                            w[i - 16]
+                            + (rightRotate(w15, 7) ^ rightRotate(w15, 18) ^ (w15>>>3))
+                            + w[i - 7]
+                            + (rightRotate(w2, 17) ^ rightRotate(w2, 19) ^ (w2>>>10))
+                        )|0
+                    );
+                var temp2 = (rightRotate(a, 2) ^ rightRotate(a, 13) ^ rightRotate(a, 22))
+                    + ((a&hash[1])^(a&hash[2])^(hash[1]&hash[2]));
+                hash = [(temp1 + temp2)|0].concat(hash);
+                hash[4] = (hash[4] + temp1)|0;
+            }
+            for (i = 0; i < 8; i++) { hash[i] = (hash[i] + oldHash[i])|0; }
+        }
+        for (i = 0; i < 8; i++) {
+            for (j = 3; j + 1; j--) {
+                var b = (hash[i]>>(j*8))&255;
+                result += ((b < 16) ? 0 : '') + b.toString(16);
+            }
+        }
+        return result.toUpperCase();
+    }
 
+    function generateSecMsGec() {
+        let ticksBig = BigInt(Math.floor(Date.now() / 1000));
+        ticksBig += BigInt(WIN_EPOCH);
+        ticksBig -= ticksBig % BigInt(300);
+        ticksBig *= BigInt(S_TO_NS / 100);
+        const strToHash = ticksBig.toString() + TRUSTED_CLIENT_TOKEN;
+        return sha256(strToHash);
+    }
+
+    function uuidv4() {
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+            var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+            return v.toString(16);
+        }).replace(/-/g, '');
+    }
+
+    function initAudio() {
+        if (!audioContext) {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+        }
+    }
+
+    async function playAudioChunk(arrayBuffer) {
+        if (!audioContext) return;
+        try {
+            const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+            currentSource = audioContext.createBufferSource();
+            currentSource.buffer = audioBuffer;
+            currentSource.connect(audioContext.destination);
+            currentSource.onended = () => {
+                window.prompt("EDGE_TTS_ENDED", "");
+            };
+            currentSource.start();
+        } catch (e) {
+            console.error("Audio decode error", e);
+            window.prompt("EDGE_TTS_ERROR", "Audio decode error");
+        }
+    }
+
+    function generateSSML(text, voice, rate, pitch) {
+        return `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='en-US'>
+            <voice name='${voice}'>
+                <prosody rate='${rate}' pitch='${pitch}'>${text}</prosody>
+            </voice>
+        </speak>`;
+    }
+
+    function stopTts() {
+        if (ws) {
+            ws.close();
+            ws = null;
+        }
+        if (currentSource) {
+            currentSource.stop();
+            currentSource = null;
+        }
+        audioChunks = [];
+    }
+
+    function speakText(text, voice, speed) {
+        stopTts();
+        initAudio();
+
+        let rateStr = "+0%";
+        if (speed && speed !== 1.0) {
+           let ratePct = Math.round((speed - 1.0) * 100);
+           rateStr = ratePct >= 0 ? `+${ratePct}%` : `${ratePct}%`;
+        }
+
+        const secMsGec = generateSecMsGec();
+        const connectionId = uuidv4();
+
+        // Edge TTS WebSocket URL with proper DRM
+        const url = `wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=${TRUSTED_CLIENT_TOKEN}&ConnectionId=${connectionId}&Sec-MS-GEC=${secMsGec}&Sec-MS-GEC-Version=${SEC_MS_GEC_VERSION}`;
+
+        ws = new WebSocket(url);
+
+        ws.onopen = () => {
+            const configMsg = "X-Timestamp:" + new Date().toUTCString() + "\r\nContent-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n" +
+                              "{\"context\":{\"synthesis\":{\"audio\":{\"metadataoptions\":{\"sentenceBoundaryEnabled\":\"false\",\"wordBoundaryEnabled\":\"false\"},\"outputFormat\":\"audio-24khz-48kbitrate-mono-mp3\"}}}}";
+            ws.send(configMsg);
+
+            const requestId = uuidv4();
+            const ssml = generateSSML(text, voice, rateStr, "default");
+            const payload = "X-RequestId:" + requestId + "\r\nContent-Type:application/ssml+xml\r\nX-Timestamp:" + new Date().toUTCString() + "\r\nPath:ssml\r\n\r\n" + ssml;
+
+            ws.send(payload);
+        };
+
+        ws.onmessage = async (event) => {
+            if (typeof event.data === "string") {
+                if (event.data.includes("Path:turn.end")) {
+                    ws.close();
+                    if (audioChunks.length > 0) {
+                        const blob = new Blob(audioChunks);
+                        const arrayBuffer = await blob.arrayBuffer();
+                        playAudioChunk(arrayBuffer);
+                        audioChunks = [];
+                    } else {
+                         window.prompt("EDGE_TTS_ENDED", "");
+                    }
+                }
+            } else if (event.data instanceof Blob) {
+                const arrayBuffer = await event.data.arrayBuffer();
+                const view = new DataView(arrayBuffer);
+                let headerEnd = 0;
+                for (let i = 0; i < arrayBuffer.byteLength - 1; i++) {
+                     if (view.getUint8(i) === 0x0D && view.getUint8(i+1) === 0x0A &&
+                         view.getUint8(i+2) === 0x0D && view.getUint8(i+3) === 0x0A) {
+                         headerEnd = i + 4;
+                         break;
+                     }
+                }
+                const audioData = event.data.slice(headerEnd);
+                audioChunks.push(audioData);
+            }
+        };
+
+        ws.onerror = (e) => {
+            window.prompt("EDGE_TTS_ERROR", "WebSocket error");
+        };
+    }
+</script>
+</head>
+<body></body>
+</html>
+]]
+
+
+function initEdgeTtsWebView()
+    if edgeTtsWebView then return end
     mainHandler.post(luajava.createProxy("java.lang.Runnable", {
         run = function()
-            local success, err = pcall(function()
-                onlineTtsPlayer = MediaPlayer()
+            local WebView = luajava.bindClass("android.webkit.WebView")
+            local WebChromeClient = luajava.bindClass("android.webkit.WebChromeClient")
 
-                -- Set playback speed if supported (Android 6.0+)
-                if speed and speed ~= 1.0 then
-                    local pcallSuccess, _ = pcall(function()
-                        local params = onlineTtsPlayer.getPlaybackParams()
-                        params.setSpeed(speed)
-                        onlineTtsPlayer.setPlaybackParams(params)
-                    end)
-                end
+            edgeTtsWebView = WebView(service)
+            edgeTtsWebView.getSettings().setJavaScriptEnabled(true)
+            edgeTtsWebView.getSettings().setMediaPlaybackRequiresUserGesture(false)
 
-                onlineTtsPlayer.setDataSource(url)
+            -- We must mock user-agent and origin to bypass 403 Forbidden in Edge WebSockets
+            edgeTtsWebView.getSettings().setUserAgentString("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0")
 
-                onlineTtsPlayer.setOnCompletionListener(luajava.createProxy("android.media.MediaPlayer$OnCompletionListener", {
-                    onCompletion = function(mp)
-                        if _G.onOnlineTtsSentenceEnded then
-                            _G.onOnlineTtsSentenceEnded()
+            local webChromeClient = luajava.override(WebChromeClient, {
+                onJsPrompt = function(super, view, url, message, defaultValue, result)
+                    if message == "EDGE_TTS_ENDED" then
+                        result.confirm("handled")
+                        if _G.onEdgeTtsSentenceEnded then
+                            _G.onEdgeTtsSentenceEnded()
                         end
-                        stopOnlineTts()
-                    end
-                }))
-
-                onlineTtsPlayer.setOnErrorListener(luajava.createProxy("android.media.MediaPlayer$OnErrorListener", {
-                    onError = function(mp, what, extra)
-                        if _G.onOnlineTtsError then
-                            _G.onOnlineTtsError("MediaPlayer Error: " .. tostring(what))
+                        return true
+                    elseif message == "EDGE_TTS_ERROR" then
+                        result.confirm("handled")
+                        if _G.onEdgeTtsError then
+                             _G.onEdgeTtsError(defaultValue)
                         end
-                        stopOnlineTts()
                         return true
                     end
-                }))
+                    return super.onJsPrompt(view, url, message, defaultValue, result)
+                end
+            })
+            edgeTtsWebView.setWebChromeClient(webChromeClient)
 
-                onlineTtsPlayer.prepareAsync()
-                onlineTtsPlayer.setOnPreparedListener(luajava.createProxy("android.media.MediaPlayer$OnPreparedListener", {
-                    onPrepared = function(mp)
-                        mp.start()
-                    end
-                }))
-            end)
+            -- Load with chrome extension Origin
+            edgeTtsWebView.loadDataWithBaseURL("chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold", edgeTtsHtml, "text/html", "UTF-8", nil)
+            isEdgeTtsInit = true
+        end
+    }))
+end
 
-            if not success and _G.onOnlineTtsError then
-                _G.onOnlineTtsError(tostring(err))
-            end
+function speakEdgeTts(text, voiceName, speed)
+    if not edgeTtsWebView or not isEdgeTtsInit then return end
+    mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+        run = function()
+            local escapedText = text:gsub("'", "\\'"):gsub("\n", " "):gsub("\r", "")
+            local js = string.format("speakText('%s', '%s', %f);", escapedText, voiceName, speed or 1.0)
+            edgeTtsWebView.evaluateJavascript(js, nil)
+        end
+    }))
+end
+
+function stopEdgeTts()
+     if not edgeTtsWebView or not isEdgeTtsInit then return end
+     mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+        run = function()
+            edgeTtsWebView.evaluateJavascript("stopTts();", nil)
         end
     }))
 end
@@ -780,9 +998,9 @@ function openPdfTtsSettings(onSaved)
     local engineNames = ArrayList()
     local enginePackages = {}
 
-    -- Add Online Free TTS Option First
-    engineNames.add("🎙️ القارئ الذكي السحابي (جوجل - مجاني)")
-    table.insert(enginePackages, "online_free_tts")
+    -- Add Edge TTS Option First
+    engineNames.add("🎙️ أصوات الذكاء الاصطناعي (Edge TTS - جودة فائقة)")
+    table.insert(enginePackages, "edge_tts")
 
     local tempTts = TextToSpeech(service, nil)
     local engines = tempTts.getEngines()
@@ -814,8 +1032,8 @@ function openPdfTtsSettings(onSaved)
         local voiceNames = ArrayList()
         currentVoices = {}
 
-        if enginePkg == "online_free_tts" then
-            for _, v in ipairs(freeOnlineTtsVoices) do
+        if enginePkg == "edge_tts" then
+            for _, v in ipairs(edgeTtsVoices) do
                 voiceNames.add(v.name)
                 table.insert(currentVoices, v.id)
             end
@@ -2198,13 +2416,13 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
         }))
     end
 
-    _G.onOnlineTtsSentenceEnded = function()
+    _G.onEdgeTtsSentenceEnded = function()
         if isPlaying then handleNextSentence() end
     end
 
-    _G.onOnlineTtsError = function(errStr)
+    _G.onEdgeTtsError = function(errStr)
         if isPlaying then
-             service.asyncSpeak("عذراً، حدث خطأ في الاتصال بالسيرفر السحابي.")
+             service.asyncSpeak("عذراً، حدث خطأ في تشغيل الصوت.")
              stopReading()
         end
     end
@@ -2357,8 +2575,8 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
 
     stopReading = function()
         isPlaying = false
-        if pdfTtsEngine == "online_free_tts" then
-            stopOnlineTts()
+        if pdfTtsEngine == "edge_tts" then
+            stopEdgeTts()
         end
         if docTts then pcall(function() docTts.stop() end) end
         playBtn.setText("▶️")
@@ -2390,7 +2608,8 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
     initDocTts = function(callback)
         mainHandler.post(luajava.createProxy("java.lang.Runnable", {
             run = function()
-                if pdfTtsEngine == "online_free_tts" then
+                if pdfTtsEngine == "edge_tts" then
+                    initEdgeTtsWebView()
                     isDocTtsInit = true
                     if callback then callback(true) end
                     return
@@ -2447,10 +2666,10 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
         isPlaying = true
         playBtn.setText("⏸️")
         local function startSpeak()
-            if pdfTtsEngine == "online_free_tts" then
+            if pdfTtsEngine == "edge_tts" then
                 local voice = pdfTtsVoiceName
-                if not voice or voice == "" then voice = "ar" end
-                speakOnlineTts(text, voice, pdfTtsSpeed or 1.0)
+                if not voice or voice == "" then voice = "ar-EG-SalmaNeural" end
+                speakEdgeTts(text, voice, pdfTtsSpeed or 1.0)
             elseif docTts and isDocTtsInit then
                 local s_s, err = pcall(function() docTts.speak(tostring(text), TextToSpeech.QUEUE_FLUSH, nil, "doc_seg") end)
                 if not s_s then
@@ -2459,7 +2678,7 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
                 end
             else service.asyncSpeak(tostring(text)) end
         end
-        if not isDocTtsInit or (pdfTtsEngine ~= "online_free_tts" and not docTts) then initDocTts(function(success) if success then startSpeak() else stopReading() end end)
+        if not isDocTtsInit or (pdfTtsEngine ~= "edge_tts" and not docTts) then initDocTts(function(success) if success then startSpeak() else stopReading() end end)
         else startSpeak() end
     end
 
