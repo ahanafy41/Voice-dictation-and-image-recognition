@@ -3067,64 +3067,92 @@ function hideYoutubeAudioWindow()
             youtubeWebView.destroy()
             youtubeWebView = nil
         end
+        if hiddenYoutubeSearchWebView then
+            hiddenYoutubeSearchWebView.destroy()
+            hiddenYoutubeSearchWebView = nil
+        end
     end
 end
 
-function performLuaYoutubeSearch(query)
-    local encodedQuery = luajava.bindClass("java.net.URLEncoder").encode(query, "UTF-8")
-    local url = "https://m.youtube.com/results?search_query=" .. encodedQuery
+local hiddenYoutubeSearchWebView = nil
 
-    local headers = luajava.newInstance("java.util.HashMap")
-    headers.put("User-Agent", "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.120 Mobile Safari/537.36")
-    headers.put("Accept-Language", "ar-EG,ar;q=0.9,en-US;q=0.8,en;q=0.7")
+local function performYoutubeHiddenSearch(query)
+    if not hiddenYoutubeSearchWebView then
+        hiddenYoutubeSearchWebView = WebView(service)
+        local webSettings = hiddenYoutubeSearchWebView.getSettings()
+        webSettings.setJavaScriptEnabled(true)
+        webSettings.setLoadsImagesAutomatically(false)
+        webSettings.setBlockNetworkImage(true)
 
-    Http.get(url, nil, "UTF-8", headers, function(code, content)
-        service.post(Runnable({
-            run = function()
-                if code == 200 and content and content ~= "" then
-                    -- Scrape official YouTube initial data
-                    local ytInitialData = content:match("ytInitialData%s*=%s*({.-});%s*</script>")
-                    if not ytInitialData then
-                        ytInitialData = content:match('window%["ytInitialData"%]%s*=%s*({.-});%s*</script>')
-                    end
-
-                    if ytInitialData then
-                        local resultsArr = {}
-                        -- Basic regex extraction since full JSON parse is heavy in pure lua
-                        -- We look for videoRenderer or compactVideoRenderer
-                        for videoId, title in string.gmatch(ytInitialData, '"videoId":"([^"]+)".-title":{"runs":%[{"text":"(.-)"}') do
-                            -- Avoid duplicates and short strings
-                            local isDup = false
-                            for _, v in ipairs(resultsArr) do if v.videoId == videoId then isDup = true break end end
-
-                            if not isDup and #title > 2 then
-                                -- clean title
-                                title = title:gsub('"', '\"'):gsub("\n", " ")
-                                table.insert(resultsArr, '{"type":"video","videoId":"' .. videoId .. '","title":"' .. title .. '"}')
-                            end
-                            if #resultsArr >= 15 then break end
-                        end
-
-                        local jsonArr = "[" .. table.concat(resultsArr, ",") .. "]"
-                        local safeContent = jsonArr:gsub("\\", "\\\\"):gsub("'", "\\'"):gsub("\n", "\\n"):gsub("\r", "")
-
-                        if youtubeWebView then
-                            local js = "receiveResults('" .. safeContent .. "');"
-                            youtubeWebView.evaluateJavascript(js, nil)
-                        end
-                    else
-                        if youtubeWebView then
-                            youtubeWebView.evaluateJavascript("document.getElementById('status').innerText = 'لم نتمكن من قراءة بيانات يوتيوب الرسمية.';", nil)
-                        end
-                    end
-                else
+        hiddenYoutubeSearchWebView.setWebChromeClient(luajava.override(WebChromeClient, {
+            onJsPrompt = function(view, url, message, defaultValue, result)
+                local prefix = "hidden_yt_results:"
+                if message:sub(1, #prefix) == prefix then
+                    local jsonStr = message:sub(#prefix + 1)
                     if youtubeWebView then
-                        youtubeWebView.evaluateJavascript("document.getElementById('status').innerText = 'حدث خطأ في الاتصال بموقع يوتيوب.';", nil)
+                        local safeJson = jsonStr:gsub("\\", "\\\\"):gsub("'", "\\'"):gsub("\n", "\\n"):gsub("\r", "")
+                        youtubeWebView.evaluateJavascript("receiveResults('" .. safeJson .. "');", nil)
                     end
+                    result.confirm()
+                    return true
+                end
+                return false
+            end
+        }))
+
+        hiddenYoutubeSearchWebView.setWebViewClient(luajava.override(WebViewClient, {
+            onPageFinished = function(view, url)
+                if string.find(url, "search_query") then
+                    mainHandler.postDelayed(luajava.createProxy("java.lang.Runnable", {
+                        run = function()
+                            local js = [[
+                                javascript:(function() {
+                                    var links = document.querySelectorAll('a');
+                                    var results = [];
+                                    var seen = {};
+                                    for(var i=0; i<links.length; i++) {
+                                        var link = links[i];
+                                        var href = link.getAttribute('href');
+                                        if (href && href.indexOf('/watch?v=') !== -1) {
+                                            var vidId = href.split('v=')[1].split('&')[0];
+                                            if (seen[vidId]) continue;
+
+                                            var title = link.innerText.trim();
+                                            if (!title) {
+                                                var heading = link.querySelector('h3, h4, .compact-media-item-headline');
+                                                if (heading) title = heading.innerText.trim();
+                                            }
+                                            if (!title) title = link.getAttribute('title') || link.getAttribute('aria-label') || "";
+
+                                            // Make sure we don't grab garbage links
+                                            if (title.length > 2 && vidId) {
+                                                seen[vidId] = true;
+                                                // Clean up title for JSON
+                                                title = title.replace(/"/g, '\\"').replace(/\n/g, ' ');
+                                                results.push('{"type":"video","videoId":"' + vidId + '","title":"' + title + '"}');
+                                                if(results.length >= 15) break;
+                                            }
+                                        }
+                                    }
+                                    if(results.length > 0) {
+                                        var jsonArr = "[" + results.join(',') + "]";
+                                        prompt("hidden_yt_results:" + jsonArr, "");
+                                    } else {
+                                        prompt("hidden_yt_results:[]", "");
+                                    }
+                                })();
+                            ]]
+                            view.evaluateJavascript(js, nil)
+                        end
+                    }), 3000) -- wait 3s for content to render
                 end
             end
         }))
-    end)
+    end
+
+    local encodedQuery = luajava.bindClass("java.net.URLEncoder").encode(query, "UTF-8")
+    local searchUrl = "https://m.youtube.com/results?search_query=" .. encodedQuery
+    hiddenYoutubeSearchWebView.loadUrl(searchUrl)
 end
 
 function showYoutubeAudioWindow()
@@ -3171,7 +3199,7 @@ function showYoutubeAudioWindow()
             local prefix = "yt_search:"
             if message:sub(1, #prefix) == prefix then
                 local query = message:sub(#prefix + 1)
-                performLuaYoutubeSearch(query)
+                performYoutubeHiddenSearch(query)
                 result.confirm()
                 return true
             end
