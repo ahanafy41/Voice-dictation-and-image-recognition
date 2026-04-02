@@ -3071,27 +3071,27 @@ function hideYoutubeAudioWindow()
 end
 
 function performLuaYoutubeSearch(query)
-    service.post(Runnable({
-        run = function()
-            local Http = luajava.bindClass("com.nirenr.screendesigner.net.Http")
-            -- Use invidious API for fast, pure JSON results without CORS issues since we call from Lua backend
-            local url = "https://vid.puffyan.us/api/v1/search?q=" .. luajava.bindClass("java.net.URLEncoder").encode(query, "UTF-8")
-            local code, content = Http.get(url)
+    local url = "https://vid.puffyan.us/api/v1/search?q=" .. luajava.bindClass("java.net.URLEncoder").encode(query, "UTF-8")
 
-            if code == 200 and content and content ~= "" then
-                -- Send the stringified JSON directly to JS to parse it
-                local safeContent = content:gsub("\\", "\\\\"):gsub("'", "\\'"):gsub("\n", "\\n"):gsub("\r", "")
-                if youtubeWebView then
-                    local js = "receiveResults('" .. safeContent .. "');"
-                    youtubeWebView.evaluateJavascript(js, nil)
-                end
-            else
-                if youtubeWebView then
-                    youtubeWebView.evaluateJavascript("document.getElementById('status').innerText = 'حدث خطأ في البحث أو لا توجد نتائج.';", nil)
+    -- Jieshuo Http.get signature: get(url, cookie, charset, headers, callback)
+    Http.get(url, nil, "UTF-8", nil, function(code, content)
+        service.post(Runnable({
+            run = function()
+                if code == 200 and content and content ~= "" then
+                    -- Parse Invidious API results
+                    local safeContent = content:gsub("\\", "\\\\"):gsub("'", "\\'"):gsub("\n", "\\n"):gsub("\r", "")
+                    if youtubeWebView then
+                        local js = "receiveResults('" .. safeContent .. "');"
+                        youtubeWebView.evaluateJavascript(js, nil)
+                    end
+                else
+                    if youtubeWebView then
+                        youtubeWebView.evaluateJavascript("document.getElementById('status').innerText = 'حدث خطأ في البحث. تأكد من اتصالك بالإنترنت.';", nil)
+                    end
                 end
             end
-        end
-    }))
+        }))
+    end)
 end
 
 function showYoutubeAudioWindow()
