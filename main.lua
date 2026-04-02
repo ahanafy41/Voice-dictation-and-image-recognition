@@ -3186,70 +3186,62 @@ function openMainWindow()
             local btn = Button(service); btn.setText("🤖 المساعد الشخصي")
             btn.setContentDescription("فتح المساعد الشخصي والبحث الذكي")
             styleButton(btn, "primary")
-            btn.setOnClickListener(showPersonalAssistantWindow)
-            btn.setOnLongClickListener(luajava.createProxy("android.view.View$OnLongClickListener", {
-                onLongClick = function(v)
-                    createShortcutForFeature("gemini_assistant", "المساعد الذكي", "🤖", "assistant")
-                    return true
-                end
-            }))
+            btn.onClick = function(v) showPersonalAssistantWindow() end
+            btn.onLongClick = function(v)
+                createShortcutForFeature("gemini_assistant", "المساعد الذكي", "🤖", "assistant")
+                return true
+            end
             return btn
         end,
         dictation = function()
             local btn = Button(service); btn.setText("🎙️ الإملاء والترجمة")
             btn.setContentDescription("فتح الإملاء الصوتي والترجمة")
             styleButton(btn, "primary")
-            btn.setOnClickListener(function() hideMainWindow(); startVoiceRecognition(true) end)
+            btn.onClick = function(v) hideMainWindow(); startVoiceRecognition(true) end
             return btn
         end,
         geminiLive = function()
             local btn = Button(service); btn.setText("🎙️ البث المباشر (Gemini Live)")
             btn.setContentDescription("بدء بث صوتي مباشر مع المساعد الذكي")
             styleButton(btn, "primary")
-            btn.setOnClickListener(function() hideMainWindow(); showGeminiLiveWindow() end)
-            btn.setOnLongClickListener(luajava.createProxy("android.view.View$OnLongClickListener", {
-                onLongClick = function(v)
-                    createShortcutForFeature("gemini_live", "البث المباشر", "🎙️", "geminiLive")
-                    return true
-                end
-            }))
+            btn.onClick = function(v) hideMainWindow(); showGeminiLiveWindow() end
+            btn.onLongClick = function(v)
+                createShortcutForFeature("gemini_live", "البث المباشر", "🎙️", "geminiLive")
+                return true
+            end
             return btn
         end,
         reader = function()
             local btn = Button(service); btn.setText("📄 قارئ المستندات والفيديو")
             btn.setContentDescription("فتح قارئ الملفات والمستندات والفيديو")
             styleButton(btn, "secondary")
-            btn.setOnClickListener(function()
+            btn.onClick = function(v)
                 hideMainWindow(); local paths = getStoragePaths(); local startPath = "/storage/emulated/0"
                 if #paths > 0 then startPath = paths[1].path end
                 openDocumentPickerWindow(startPath, function(selectedPath) loadDocumentAndShowViewer(selectedPath) end)
-            end)
-            btn.setOnLongClickListener(luajava.createProxy("android.view.View$OnLongClickListener", {
-                onLongClick = function(v)
-                    createShortcutForFeature("gemini_reader", "قارئ المستندات", "📄", "reader")
-                    return true
-                end
-            }))
+            end
+            btn.onLongClick = function(v)
+                createShortcutForFeature("gemini_reader", "قارئ المستندات", "📄", "reader")
+                return true
+            end
             return btn
         end,
         image = function()
             local btn = Button(service); btn.setText("🖼️ وصف الصور")
             btn.setContentDescription("التقاط الشاشة ووصف الصور")
             styleButton(btn, "secondary")
-            btn.setOnClickListener(function() hideMainWindow(); runImageDescription() end)
-            btn.setOnLongClickListener(luajava.createProxy("android.view.View$OnLongClickListener", {
-                onLongClick = function(v)
-                    createShortcutForFeature("gemini_image", "وصف الصور", "🖼️", "image")
-                    return true
-                end
-            }))
+            btn.onClick = function(v) hideMainWindow(); runImageDescription() end
+            btn.onLongClick = function(v)
+                createShortcutForFeature("gemini_image", "وصف الصور", "🖼️", "image")
+                return true
+            end
             return btn
         end,
         transcription = function()
             local btn = Button(service); btn.setText("📁 تحويل الصوت إلى نص")
             btn.setContentDescription("اختيار ملف صوتي وتحويله إلى نص")
             styleButton(btn, "secondary")
-            btn.setOnClickListener(function()
+            btn.onClick = function(v)
                 hideMainWindow(); local paths = getStoragePaths(); local startPath = "/storage/emulated/0"
                 if #paths > 0 then startPath = paths[1].path end
                 openFilePickerWindow(startPath, function(selectedPath)
@@ -3258,13 +3250,11 @@ function openMainWindow()
                         showResultWindow("نتيجة التحويل", result); if isDone then service.asyncSpeak("اكتمل التحويل.") end
                     end)
                 end)
-            end)
-            btn.setOnLongClickListener(luajava.createProxy("android.view.View$OnLongClickListener", {
-                onLongClick = function(v)
-                    createShortcutForFeature("gemini_transcription", "تفريغ الصوت", "📁", "transcription")
-                    return true
-                end
-            }))
+            end
+            btn.onLongClick = function(v)
+                createShortcutForFeature("gemini_transcription", "تفريغ الصوت", "📁", "transcription")
+                return true
+            end
             return btn
         end,
         settings = function()
