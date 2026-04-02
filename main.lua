@@ -1,5 +1,17 @@
 require "import"
-if activity then activity.finish() end
+import "android.content.Intent"
+if activity then
+    local intent = activity.getIntent()
+    if intent then
+        local action = intent.getStringExtra("shortcut_action")
+        if action and action ~= "" then
+            local brIntent = Intent("com.a11y.gemini.SHORTCUT_ACTION")
+            brIntent.putExtra("action", action)
+            activity.sendBroadcast(brIntent)
+        end
+    end
+    activity.finish()
+end
 import "android.widget.*"
 import "android.Manifest"
 import "android.content.pm.PackageManager"
@@ -612,6 +624,68 @@ function removeFloatingButton()
     if floatingSettingsBtn then
         local success, err = pcall(function() wm.removeView(floatingSettingsBtn) end)
         floatingSettingsBtn = nil
+    end
+end
+
+-- **Create Shortcut Function**
+function createShortcutForFeature(id, label, iconText, action)
+    local success, err = pcall(function()
+        local ShortcutManager = luajava.bindClass("android.content.pm.ShortcutManager")
+        local ShortcutInfo = luajava.bindClass("android.content.pm.ShortcutInfo")
+        local Icon = luajava.bindClass("android.graphics.drawable.Icon")
+        local Intent = luajava.bindClass("android.content.Intent")
+
+        -- Create a simple bitmap for the icon based on text
+        local bmp = Bitmap.createBitmap(128, 128, Bitmap.Config.ARGB_8888)
+        local canvas = luajava.bindClass("android.graphics.Canvas")(bmp)
+        canvas.drawColor(0xFF1E1E1E) -- Dark background
+        local paint = luajava.bindClass("android.graphics.Paint")()
+        paint.setColor(0xFFFFFFFF)
+        paint.setTextSize(64)
+        paint.setTextAlign(luajava.bindClass("android.graphics.Paint$Align").CENTER)
+        canvas.drawText(iconText, 64, 85, paint)
+
+        local icon = Icon.createWithBitmap(bmp)
+
+        -- The intent to launch (safe for Service context)
+        local ctx = service or activity
+        local pkgManager = ctx.getPackageManager()
+        local launchIntent = pkgManager.getLaunchIntentForPackage(ctx.getPackageName())
+        if not launchIntent then
+            service.asyncSpeak("تعذر العثور على التطبيق لإنشاء الاختصار.")
+            return
+        end
+        launchIntent.setAction(Intent.ACTION_MAIN)
+        launchIntent.putExtra("shortcut_action", action)
+
+        if android.os.Build.VERSION.SDK_INT >= 26 then
+            local shortcutManager = ctx.getSystemService(ShortcutManager.class)
+            if shortcutManager.isRequestPinShortcutSupported() then
+                local pinShortcutInfo = ShortcutInfo.Builder(ctx, id)
+                    .setShortLabel(label)
+                    .setIcon(icon)
+                    .setIntent(launchIntent)
+                    .build()
+                local pinnedShortcutCallbackIntent = shortcutManager.createShortcutResultIntent(pinShortcutInfo)
+                local successIntent = luajava.bindClass("android.app.PendingIntent").getBroadcast(ctx, 0, pinnedShortcutCallbackIntent, luajava.bindClass("android.app.PendingIntent").FLAG_IMMUTABLE)
+                shortcutManager.requestPinShortcut(pinShortcutInfo, successIntent.getIntentSender())
+                service.asyncSpeak("تم طلب إضافة اختصار " .. label .. " إلى الشاشة الرئيسية.")
+            else
+                service.asyncSpeak("إضافة الاختصارات غير مدعومة على هذا الجهاز.")
+            end
+        else
+            -- Legacy shortcut creation
+            local addIntent = Intent()
+            addIntent.putExtra(Intent.EXTRA_SHORTCUT_INTENT, launchIntent)
+            addIntent.putExtra(Intent.EXTRA_SHORTCUT_NAME, label)
+            addIntent.putExtra(Intent.EXTRA_SHORTCUT_ICON, bmp)
+            addIntent.setAction("com.android.launcher.action.INSTALL_SHORTCUT")
+            ctx.sendBroadcast(addIntent)
+            service.asyncSpeak("تم إضافة اختصار " .. label .. " إلى الشاشة الرئيسية.")
+        end
+    end)
+    if not success then
+        service.asyncSpeak("حدث خطأ أثناء إنشاء الاختصار: " .. tostring(err))
     end
 end
 
@@ -3077,6 +3151,12 @@ function openMainWindow()
             btn.setContentDescription("فتح المساعد الشخصي والبحث الذكي")
             styleButton(btn, "primary")
             btn.setOnClickListener(showPersonalAssistantWindow)
+            btn.setOnLongClickListener(luajava.createProxy("android.view.View$OnLongClickListener", {
+                onLongClick = function(v)
+                    createShortcutForFeature("gemini_assistant", "المساعد الذكي", "🤖", "assistant")
+                    return true
+                end
+            }))
             return btn
         end,
         dictation = function()
@@ -3091,6 +3171,12 @@ function openMainWindow()
             btn.setContentDescription("بدء بث صوتي مباشر مع المساعد الذكي")
             styleButton(btn, "primary")
             btn.setOnClickListener(function() hideMainWindow(); showGeminiLiveWindow() end)
+            btn.setOnLongClickListener(luajava.createProxy("android.view.View$OnLongClickListener", {
+                onLongClick = function(v)
+                    createShortcutForFeature("gemini_live", "البث المباشر", "🎙️", "geminiLive")
+                    return true
+                end
+            }))
             return btn
         end,
         reader = function()
@@ -3102,6 +3188,12 @@ function openMainWindow()
                 if #paths > 0 then startPath = paths[1].path end
                 openDocumentPickerWindow(startPath, function(selectedPath) loadDocumentAndShowViewer(selectedPath) end)
             end)
+            btn.setOnLongClickListener(luajava.createProxy("android.view.View$OnLongClickListener", {
+                onLongClick = function(v)
+                    createShortcutForFeature("gemini_reader", "قارئ المستندات", "📄", "reader")
+                    return true
+                end
+            }))
             return btn
         end,
         image = function()
@@ -3109,6 +3201,12 @@ function openMainWindow()
             btn.setContentDescription("التقاط الشاشة ووصف الصور")
             styleButton(btn, "secondary")
             btn.setOnClickListener(function() hideMainWindow(); runImageDescription() end)
+            btn.setOnLongClickListener(luajava.createProxy("android.view.View$OnLongClickListener", {
+                onLongClick = function(v)
+                    createShortcutForFeature("gemini_image", "وصف الصور", "🖼️", "image")
+                    return true
+                end
+            }))
             return btn
         end,
         transcription = function()
@@ -3125,6 +3223,12 @@ function openMainWindow()
                     end)
                 end)
             end)
+            btn.setOnLongClickListener(luajava.createProxy("android.view.View$OnLongClickListener", {
+                onLongClick = function(v)
+                    createShortcutForFeature("gemini_transcription", "تفريغ الصوت", "📁", "transcription")
+                    return true
+                end
+            }))
             return btn
         end,
         settings = function()
@@ -3867,11 +3971,69 @@ end
 
 -- **On Destroy Cleanup**
 function onDestroy()
+    if shortcutReceiver then
+        pcall(function() service.unregisterReceiver(shortcutReceiver) end)
+        shortcutReceiver = nil
+    end
     cleanupResources()
+end
+
+-- **Setup Shortcut Broadcast Receiver**
+local shortcutReceiver = nil
+function setupShortcutReceiver()
+    if shortcutReceiver then return end
+    local BroadcastReceiver = luajava.bindClass("android.content.BroadcastReceiver")
+    local IntentFilter = luajava.bindClass("android.content.IntentFilter")
+
+    shortcutReceiver = luajava.override(BroadcastReceiver, {
+        onReceive = function(super, ctx, intent)
+            if intent.getAction() == "com.a11y.gemini.SHORTCUT_ACTION" then
+                local action = intent.getStringExtra("action")
+                if action == "assistant" then
+                    mainHandler.post(luajava.createProxy("java.lang.Runnable", { run = function() hideMainWindow(); showPersonalAssistantWindow() end }))
+                elseif action == "geminiLive" then
+                    mainHandler.post(luajava.createProxy("java.lang.Runnable", { run = function() hideMainWindow(); showGeminiLiveWindow() end }))
+                elseif action == "reader" then
+                    mainHandler.post(luajava.createProxy("java.lang.Runnable", { run = function()
+                        hideMainWindow()
+                        local paths = getStoragePaths()
+                        local startPath = "/storage/emulated/0"
+                        if #paths > 0 then startPath = paths[1].path end
+                        openDocumentPickerWindow(startPath, function(selectedPath) loadDocumentAndShowViewer(selectedPath) end)
+                    end }))
+                elseif action == "image" then
+                    mainHandler.post(luajava.createProxy("java.lang.Runnable", { run = function() hideMainWindow(); runImageDescription() end }))
+                elseif action == "transcription" then
+                    mainHandler.post(luajava.createProxy("java.lang.Runnable", { run = function()
+                        hideMainWindow()
+                        local paths = getStoragePaths()
+                        local startPath = "/storage/emulated/0"
+                        if #paths > 0 then startPath = paths[1].path end
+                        openFilePickerWindow(startPath, function(selectedPath)
+                            service.asyncSpeak("جاري الرفع والمعالجة...")
+                            showResultWindow("نتيجة التحويل", "⏳ جاري الرفع والمعالجة...")
+                            transcribeAudio(selectedPath, function(result, isDone)
+                                showResultWindow("نتيجة التحويل", result)
+                                if isDone then service.asyncSpeak("اكتمل التحويل.") end
+                            end)
+                        end)
+                    end }))
+                end
+            end
+        end
+    })
+
+    local filter = IntentFilter("com.a11y.gemini.SHORTCUT_ACTION")
+    if android.os.Build.VERSION.SDK_INT >= 33 then
+        service.registerReceiver(shortcutReceiver, filter, luajava.bindClass("android.content.Context").RECEIVER_NOT_EXPORTED)
+    else
+        service.registerReceiver(shortcutReceiver, filter)
+    end
 end
 
 mainHandler.post(luajava.createProxy("java.lang.Runnable", {
     run = function()
+        pcall(function() setupShortcutReceiver() end)
         createAndShowFloatingButton()
         if startWithDictation then startVoiceRecognition(false) else openMainWindow() end
     end
