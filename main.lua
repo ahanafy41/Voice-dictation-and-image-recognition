@@ -262,13 +262,18 @@ function loadLibraryData()
             local book = {}
             local it = item.keys()
             while it.hasNext() do
-                local k = it.next()
-                if item.get(k).getClass().getSimpleName() == "Boolean" then
-                     book[k] = item.getBoolean(k)
-                elseif item.get(k).getClass().getSimpleName() == "Integer" then
-                     book[k] = item.getInt(k)
+                local k = tostring(it.next())
+                local valStr = ""
+                pcall(function() valStr = item.getString(k) end)
+
+                if valStr == "true" then
+                    book[k] = true
+                elseif valStr == "false" then
+                    book[k] = false
+                elseif tonumber(valStr) and not valStr:match("^0") then
+                    book[k] = tonumber(valStr)
                 else
-                     book[k] = item.getString(k)
+                    book[k] = valStr
                 end
             end
             table.insert(libraryData, book)
