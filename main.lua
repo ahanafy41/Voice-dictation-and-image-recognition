@@ -223,10 +223,13 @@ selectedGeminiModelId = isValidModel and loadedModelId or defaultGeminiModelId
 
 selectedGroqModelId = prefs.getString("groqModelId", defaultGroqModelId)
 selectedSearchModelId = prefs.getString("searchModelId", "compound-beta")
-dashboardOrder = prefs.getString("dashboardOrder", "assistant,dictation,geminiLive,library,video_analyzer,image,transcription,settings")
+dashboardOrder = prefs.getString("dashboardOrder", "assistant,dictation,geminiLive,library,video_analyzer,video_editor,image,transcription,settings")
 selectedDictationMode = prefs.getString("selectedDictationMode", defaultDictationMode)
 if not dashboardOrder:match("geminiLive") then
     dashboardOrder = dashboardOrder .. ",geminiLive"
+end
+if not dashboardOrder:match("video_editor") then
+    dashboardOrder = dashboardOrder .. ",video_editor"
 end
 selectedAudioModelId = prefs.getString("audioModelId", defaultAudioModelId)
 
@@ -3182,7 +3185,7 @@ function saveSettings()
     editor.putString("groqModelId", selectedGroqModelId or defaultGroqModelId)
     editor.putString("audioModelId", selectedAudioModelId or defaultAudioModelId)
     editor.putString("searchModelId", selectedSearchModelId or "compound-beta")
-editor.putString("dashboardOrder", dashboardOrder or "assistant,dictation,geminiLive,library,video_analyzer,image,transcription,settings")
+editor.putString("dashboardOrder", dashboardOrder or "assistant,dictation,geminiLive,library,video_analyzer,video_editor,image,transcription,settings")
     editor.putString("selectedDictationMode", selectedDictationMode or defaultDictationMode)
 
     editor.putBoolean("summarizeEnabled", summarizeEnabled)
@@ -3513,6 +3516,16 @@ function openMainWindow()
             end)
             return btn
         end,
+        video_editor = function()
+            local btn = Button(service); btn.setText("✂️ محرر الفيديو الذكي")
+            btn.setContentDescription("فتح محرر الفيديو لإنشاء مشاهد وانتقالات")
+            styleButton(btn, "secondary")
+            btn.setOnClickListener(function()
+                hideMainWindow()
+                if showVideoEditorWindow then showVideoEditorWindow() end
+            end)
+            return btn
+        end,
         image = function()
             local btn = Button(service); btn.setText("🖼️ وصف الصور")
             btn.setContentDescription("التقاط الشاشة ووصف الصور")
@@ -3547,8 +3560,10 @@ function openMainWindow()
 
 
     -- Refresh from prefs in case it was modified
-    local orderStr = prefs.getString("dashboardOrder", "assistant,dictation,geminiLive,library,video_analyzer,image,transcription,settings")
+    local orderStr = prefs.getString("dashboardOrder", "assistant,dictation,geminiLive,library,video_analyzer,video_editor,image,transcription,settings")
     if orderStr:match("reader") then orderStr = orderStr:gsub("reader", "library,video_analyzer") end
+    if not orderStr:match("geminiLive") then orderStr = orderStr .. ",geminiLive" end
+    if not orderStr:match("video_editor") then orderStr = orderStr .. ",video_editor" end
 
     for k in orderStr:gmatch("([^,]+)") do
         local key = k:gsub("^%s+", ""):gsub("%s+$", "")
@@ -3915,7 +3930,7 @@ function openSettings()
         local keyNames = {
             assistant = "المساعد الشخصي",
             dictation = "الإملاء والترجمة",
-            library = "المكتبة والقارئ", video_analyzer = "محلل الفيديو",
+            library = "المكتبة والقارئ", video_analyzer = "محلل الفيديو", video_editor = "محرر الفيديو الذكي",
             image = "وصف الصور",
             transcription = "تفريغ الصوت",
             settings = "الإعدادات", geminiLive = "البث المباشر (Gemini Live)"
@@ -3923,8 +3938,10 @@ function openSettings()
 
         local keys = {}
 
-        dashboardOrder = prefs.getString("dashboardOrder", "assistant,dictation,geminiLive,library,video_analyzer,image,transcription,settings")
+        dashboardOrder = prefs.getString("dashboardOrder", "assistant,dictation,geminiLive,library,video_analyzer,video_editor,image,transcription,settings")
         if dashboardOrder:match("reader") then dashboardOrder = dashboardOrder:gsub("reader", "library,video_analyzer") end
+        if not dashboardOrder:match("geminiLive") then dashboardOrder = dashboardOrder .. ",geminiLive" end
+        if not dashboardOrder:match("video_editor") then dashboardOrder = dashboardOrder .. ",video_editor" end
         for k in dashboardOrder:gmatch("([^,]+)")
  do
             local cleanKey = k:gsub("^%%s+", ""):gsub("%%s+$", "")
@@ -4401,7 +4418,1010 @@ function showPersonalAssistantWindow()
     personalAssistantWindow = layout
 end
 
+
+local videoEditorWindowDialog = nil
+
+function showVideoEditorWindow()
+    if videoEditorWindowDialog then return end
+
+    local layout = LinearLayout(service)
+    layout.setOrientation(LinearLayout.VERTICAL)
+    layout.setBackgroundColor(0xFF000000)
+
+    -- Header with Close Button
+    local header = LinearLayout(service)
+    header.setOrientation(LinearLayout.HORIZONTAL)
+    header.setPadding(20, 20, 20, 20)
+    header.setGravity(Gravity.CENTER_VERTICAL)
+
+    local title = TextView(service)
+    title.setText("✂️ محرر الفيديو الذكي")
+    title.setTextColor(0xFF00FFCC)
+    title.setTextSize(18)
+    title.setTypeface(nil, Typeface.BOLD)
+    local titleLp = LinearLayout.LayoutParams(0, -2, 1.0)
+    header.addView(title, titleLp)
+
+    local closeBtn = Button(service)
+    closeBtn.setText("❌ إغلاق")
+    styleButton(closeBtn, "danger")
+    closeBtn.setOnClickListener(function()
+        if videoEditorWindowDialog then
+            wm.removeView(videoEditorWindowDialog)
+            videoEditorWindowDialog = nil
+        end
+    end)
+    header.addView(closeBtn)
+    layout.addView(header)
+
+    local webview = WebView(service)
+    local settings = webview.getSettings()
+    settings.setJavaScriptEnabled(true)
+    settings.setDomStorageEnabled(true)
+    settings.setMediaPlaybackRequiresUserGesture(false)
+    settings.setAllowFileAccessFromFileURLs(true)
+    settings.setAllowUniversalAccessFromFileURLs(true)
+
+    local webChromeClient = luajava.override(WebChromeClient, {
+        onPermissionRequest = function(super, request)
+            request.grant(request.getResources())
+        end,
+        onConsoleMessage = function(super, consoleMessage)
+            print("JS Console: " .. consoleMessage.message())
+            return true
+        end,
+        onJsPrompt = function(super, view, url, message, defaultValue, result)
+            if message == "PICK_FILE" then
+                -- Open Lua custom file picker
+                local paths = getStoragePaths()
+                local startPath = "/storage/emulated/0"
+                if #paths > 0 then startPath = paths[1].path end
+
+                local function anyFileFilter(fname) return true end
+
+                showUniversalFilePicker("اختر ملف (فيديو، صورة، صوت) 📁", startPath, anyFileFilter, function(selectedPath)
+                    -- Pass back the selected file path to JS
+                    local escapedPath = escapeJsonString(selectedPath)
+                    mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                        run = function()
+                            view.evaluateJavascript("window.onFileSelectedNative('" .. escapedPath .. "', '" .. defaultValue .. "');", nil)
+                        end
+                    }))
+                end)
+                result.confirm("Handled")
+                return true
+            elseif message == "GENERATE_SCENES" then
+                -- Handle Gemini API call natively to avoid CORS
+                local prompt = defaultValue
+                local systemPrompt = "أنت مخرج وكاتب. قم بتقسيم الموضوع إلى مشاهد متسلسلة بصيغة JSON فقط: [ { \"scene_number\": 1, \"narration\": \"نص\", \"visual_description\": \"وصف دقيق\" } ]"
+
+                makeAiRequest(prompt, systemPrompt, nil, nil, function(aiResult)
+                    local escapedResult = escapeJsonString(aiResult)
+                    mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                        run = function()
+                            view.evaluateJavascript("window.onScenesGeneratedNative('" .. escapedResult .. "');", nil)
+                        end
+                    }))
+                end)
+                result.confirm("Handled")
+                return true
+            elseif message == "GENERATE_IMAGE" then
+                local indexStr, promptStr = defaultValue:match("^(.-)|(.*)$")
+                local url = "https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-001:predict?key=" .. (geminiApiKey or "")
+                local headers = {["Content-Type"] = "application/json"}
+                local payload = JSONObject()
+                local instances = JSONObject()
+                instances.put("prompt", promptStr)
+                payload.put("instances", JSONArray().put(instances))
+                local params = JSONObject()
+                params.put("sampleCount", 1)
+                payload.put("parameters", params)
+
+                Http.post(url, payload.toString(), headers, function(status, response)
+                    local b64 = "Error"
+                    if status == 200 then
+                        pcall(function()
+                            local j = JSONObject(response)
+                            b64 = j.getJSONArray("predictions").getJSONObject(0).getString("bytesBase64Encoded")
+                        end)
+                    end
+                    mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                        run = function() view.evaluateJavascript("window.onSceneImageGeneratedNative('" .. b64 .. "', " .. indexStr .. ");", nil) end
+                    }))
+                end)
+                result.confirm("Handled")
+                return true
+            elseif message == "GENERATE_AUDIO" then
+                local indexStr, voiceName, textStr = defaultValue:match("^(.-)|(.-)|(.*)$")
+                local url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=" .. (geminiApiKey or "")
+                local headers = {["Content-Type"] = "application/json"}
+
+                local payload = JSONObject()
+                local contents = JSONArray()
+                local contentObj = JSONObject()
+                local partsArray = JSONArray()
+                local textPart = JSONObject()
+                textPart.put("text", textStr)
+                partsArray.put(textPart)
+                contentObj.put("parts", partsArray)
+                contents.put(contentObj)
+                payload.put("contents", contents)
+
+                local genConfig = JSONObject()
+                local modalities = JSONArray(); modalities.put("AUDIO")
+                genConfig.put("responseModalities", modalities)
+
+                local speechConfig = JSONObject()
+                local voiceConfig = JSONObject()
+                local prebuilt = JSONObject()
+                prebuilt.put("voiceName", voiceName)
+                voiceConfig.put("prebuiltVoiceConfig", prebuilt)
+                speechConfig.put("voiceConfig", voiceConfig)
+                genConfig.put("speechConfig", speechConfig)
+
+                payload.put("generationConfig", genConfig)
+
+                Http.post(url, payload.toString(), headers, function(status, response)
+                    local b64 = "Error"
+                    local sampleRate = "24000"
+                    if status == 200 then
+                        pcall(function()
+                            local j = JSONObject(response)
+                            local inlineData = j.getJSONArray("candidates").getJSONObject(0).getJSONObject("content").getJSONArray("parts").getJSONObject(0).getJSONObject("inlineData")
+                            b64 = inlineData.getString("data")
+                            local mime = inlineData.getString("mimeType")
+                            local srMatch = mime:match("rate=(%d+)")
+                            if srMatch then sampleRate = srMatch end
+                        end)
+                    end
+                    mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                        run = function() view.evaluateJavascript("window.onSceneAudioGeneratedNative('" .. b64 .. "', " .. indexStr .. ", " .. sampleRate .. ");", nil) end
+                    }))
+                end)
+                result.confirm("Handled")
+                return true
+            end
+            return super.onJsPrompt(view, url, message, defaultValue, result)
+        end
+    })
+    webview.setWebChromeClient(webChromeClient)
+
+    local webViewClient = luajava.override(WebViewClient, {
+        onReceivedSslError = function(super, view, handler, error)
+            handler.proceed()
+        end
+    })
+    webview.setWebViewClient(webViewClient)
+
+    layout.addView(webview, LinearLayout.LayoutParams(-1, -1))
+
+    local htmlCode = [[
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>محرر الفيديو الذكي للمكفوفين (إصدار الانتقالات والمشاهد)</title>
+        <!-- Fix ReferenceError: exports and require are not defined -->
+    <script>
+        var exports = {};
+        function require(module) {
+            if (module === '@ffmpeg/ffmpeg' && window.FFmpegWASM) {
+                return window.FFmpegWASM;
+            }
+            console.warn('Dummy require called for:', module);
+            return {};
+        }
+    </script>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- مكتبات FFmpeg للتصدير MP4 -->
+    <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
+    <script src="https://unpkg.com/@ffmpeg/util@0.12.2/dist/umd/index.js"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;800&display=swap');
+        body { font-family: 'Cairo', sans-serif; background-color: #f3f4f6; color: #1f2937; }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+        .toast { transition: opacity 0.3s ease-in-out, transform 0.3s ease-in-out; transform: translateY(20px); opacity: 0; }
+        .toast.show { transform: translateY(0); opacity: 1; }
+        *:focus-visible { outline: 3px solid #3b82f6 !important; outline-offset: 2px !important; }
+
+        #mp4-progress-container { display: none; }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+    <!-- شريط الإشعارات المتوافق -->
+    <div aria-live="assertive" id="toast-container" class="fixed bottom-4 left-1/2 transform -translate-x-1/2 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+    <!-- شريط التنقل -->
+    <header class="bg-indigo-700 text-white p-4 shadow-md flex justify-between items-center z-10 flex-wrap gap-4">
+        <h1 class="text-xl md:text-2xl font-bold" tabindex="0">محرر الفيديو الاحترافي (المشاهد والانتقالات)</h1>
+
+        <div class="flex items-center gap-4">
+            <div id="mp4-progress-container" class="items-center gap-2 bg-indigo-800 px-3 py-1 rounded" aria-live="polite">
+                <i class="fa-solid fa-circle-notch fa-spin"></i>
+                <span id="mp4-progress-text" class="text-sm font-mono">0%</span>
+            </div>
+            <button onclick="exportVideo()" id="export-btn" class="bg-green-500 hover:bg-green-600 px-4 py-2 rounded font-semibold transition flex items-center gap-2" aria-label="تصدير الفيديو النهائي بصيغة إم بي فور">
+                <i class="fa-solid fa-file-video" aria-hidden="true"></i> <span>تصدير الفيديو</span>
+            </button>
+        </div>
+    </header>
+
+    <main class="flex-1 p-4 grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+        <!-- القسم الأيمن: مساعد المشاهد -->
+        <div class="lg:col-span-5 flex flex-col gap-6">
+            <section class="bg-white rounded-lg shadow p-4 border border-gray-200">
+                <h2 class="text-xl font-bold mb-4 flex items-center gap-2 text-indigo-700" tabindex="0">
+                    <i class="fa-solid fa-clapperboard"></i> 1. مساعد بناء المشاهد
+                </h2>
+
+                <div class="space-y-3 mb-4">
+                    <label for="script-prompt" class="block font-semibold">موضوع الفيديو:</label>
+                    <input type="text" id="script-prompt" class="w-full border rounded p-2 focus:ring-2 focus:ring-indigo-500" placeholder="مثال: قصة بناء الأهرامات..." aria-label="أدخل موضوع الفيديو لإنشاء المشاهد">
+                    <button id="btn-generate-script" class="w-full bg-indigo-100 hover:bg-indigo-200 text-indigo-800 p-2 rounded font-semibold transition flex items-center justify-center gap-2" onclick="generateScenes()">
+                        <i class="fa-solid fa-wand-magic-sparkles"></i> توليد المشاهد
+                    </button>
+                </div>
+
+                <div id="scenes-container" class="space-y-4 max-h-[500px] overflow-y-auto pr-2" role="list" aria-label="قائمة المشاهد المولدة">
+                    <div class="text-center text-gray-400 py-4" tabindex="0">لم يتم توليد أي مشاهد بعد. قم بإدخال موضوع لتوليدها.</div>
+                </div>
+            </section>
+
+            <!-- إضافة موسيقى خلفية عامة (Soundtrack) -->
+            <section class="bg-white rounded-lg shadow p-4 border border-gray-200">
+                <h2 class="text-lg font-bold mb-2 flex items-center gap-2" tabindex="0">
+                    <i class="fa-solid fa-music"></i> 2. إضافة موسيقى خلفية (Soundtrack)
+                </h2>
+                <div class="space-y-2">
+                    <label for="upload-bg-music" class="sr-only">رفع موسيقى من جهازك</label>
+                    <button onclick="window.prompt('PICK_FILE', 'bg_music');" class="w-full bg-gray-200 hover:bg-gray-300 text-gray-800 p-2 rounded font-semibold transition">
+                        <i class="fa-solid fa-upload"></i> إضافة كخلفية للفيديو بالكامل
+                    </button>
+                </div>
+            </section>
+        </div>
+
+        <!-- القسم الأيسر: المعاينة والتايم لاين -->
+        <div class="lg:col-span-7 flex flex-col gap-6">
+            <section class="bg-black rounded-lg shadow overflow-hidden relative flex items-center justify-center border-4 border-gray-800" style="aspect-ratio: 16/9;" aria-label="شاشة معاينة الفيديو">
+                <canvas id="preview-canvas" width="1280" height="720" class="w-full h-full object-contain" aria-hidden="true"></canvas>
+
+                <div class="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-gray-900 bg-opacity-80 rounded-full px-6 py-2 flex items-center gap-4 text-white z-10">
+                    <button id="btn-play-pause" onclick="togglePlay()" class="hover:text-indigo-400 text-xl transition" aria-label="تشغيل أو إيقاف المعاينة">
+                        <i class="fa-solid fa-play" id="play-icon"></i>
+                    </button>
+                    <div class="flex items-center gap-2 font-mono text-sm" aria-live="polite">
+                        <span id="time-current">0.0</span> / <span id="time-total">0.0</span> ثانية
+                    </div>
+                </div>
+            </section>
+
+            <section class="bg-white rounded-lg shadow p-3 flex flex-wrap gap-4 items-center text-sm">
+                <div class="flex items-center gap-2">
+                    <label for="voice-style" class="font-semibold">صوت المعلق (للذكاء الاصطناعي):</label>
+                    <select id="voice-style" class="border rounded p-1" aria-label="اختيار صوت المعلق لجميع المشاهد">
+                        <option value="Zephyr">Zephyr (رجالي قوي)</option>
+                        <option value="Kore">Kore (هادئ)</option>
+                        <option value="Aoede">Aoede (وثائقي)</option>
+                    </select>
+                </div>
+            </section>
+
+            <section class="bg-white rounded-lg shadow border border-gray-200 flex-1 flex flex-col">
+                <div class="bg-gray-100 p-3 border-b flex justify-between items-center">
+                    <h2 class="text-lg font-bold flex items-center gap-2" tabindex="0">
+                        <i class="fa-solid fa-layer-group"></i> شريط الوقت (Timeline)
+                    </h2>
+                    <button onclick="addTextLayer()" class="text-sm bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 rounded transition" aria-label="إضافة طبقة نص حر">
+                        + نص جديد
+                    </button>
+                </div>
+
+                <div class="p-4 flex-1 overflow-y-auto" style="max-height: 500px;">
+                    <p class="text-xs text-gray-500 mb-4" tabindex="0">
+                        يمكنك تعديل وقت البداية والنهاية، اختيار "تأثير الانتقال"، وتفعيل "صوت الانتقال" لكل مشهد بصري من القوائم أدناه.
+                    </p>
+                    <div id="timeline-items" class="space-y-4" role="list" aria-label="عناصر الفيديو والطبقات">
+                        <div class="text-center text-gray-400 py-8" id="empty-timeline-msg" tabindex="0">
+                            شريط الوقت فارغ.
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <script>
+        const apiKey = "]] .. (geminiApiKey or "") .. [[";
+        const appState = {
+            timeline: [], duration: 0, currentTime: 0, isPlaying: false, scenes: [],
+            lastItemEndTimes: { audio: 0, visual: 0 }
+        };
+
+        let animationFrameId; let lastTimestamp = 0;
+        const canvas = document.getElementById('preview-canvas'); const ctx = canvas.getContext('2d');
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+        // العقدة الصوتية للتصدير (سيتم استخدامها لدمج كل الأصوات بما فيها مؤثرات الانتقال)
+        let audioDest = null;
+
+        // إعداد FFmpeg
+        let ffmpeg = null;
+        let FFmpegUtil = null;
+
+        async function initFFmpeg() {
+            if (ffmpeg) return ffmpeg;
+            if (!window.FFmpegWASM) throw new Error("مكتبة التحويل لم يتم تحميلها.");
+            const { FFmpeg } = window.FFmpegWASM;
+            FFmpegUtil = window.FFmpegUtil;
+            ffmpeg = new FFmpeg();
+            ffmpeg.on('progress', ({ progress }) => {
+                const percent = Math.round(progress * 100);
+                const progressText = document.getElementById('mp4-progress-text');
+                if (progressText) progressText.innerText = `جاري التحويل: ${percent}%`;
+            });
+            await ffmpeg.load({
+                coreURL: 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js',
+                wasmURL: 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm'
+            });
+            return ffmpeg;
+        }
+
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            const bg = type === 'error' ? 'bg-red-600' : (type === 'success' ? 'bg-green-600' : 'bg-blue-600');
+            toast.className = `${bg} text-white px-4 py-2 rounded shadow-lg flex items-center gap-2 toast pointer-events-auto`;
+            toast.innerHTML = `<i class="fa-solid fa-info-circle"></i> <span>${message}</span>`;
+            container.appendChild(toast);
+            setTimeout(() => toast.classList.add('show'), 10);
+            setTimeout(() => { toast.classList.remove('show'); setTimeout(() => toast.remove(), 300); }, 5000);
+        }
+
+        function pcmToWav(pcmData, sampleRate) {
+            const numChannels = 1, bitsPerSample = 16;
+            const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
+            const blockAlign = numChannels * (bitsPerSample / 8);
+            const buffer = new ArrayBuffer(44 + pcmData.length);
+            const view = new DataView(buffer);
+            const writeStr = (offset, string) => { for (let i = 0; i < string.length; i++) view.setUint8(offset + i, string.charCodeAt(i)); };
+            writeStr(0, 'RIFF'); view.setUint32(4, 36 + pcmData.length, true);
+            writeStr(8, 'WAVE'); writeStr(12, 'fmt '); view.setUint32(16, 16, true);
+            view.setUint16(20, 1, true); view.setUint16(22, numChannels, true);
+            view.setUint32(24, sampleRate, true); view.setUint32(28, byteRate, true);
+            view.setUint16(32, blockAlign, true); view.setUint16(34, bitsPerSample, true);
+            writeStr(36, 'data'); view.setUint32(40, pcmData.length, true);
+            for (let i = 0; i < pcmData.length; i++) view.setUint8(44 + i, pcmData[i]);
+            return new Blob([buffer], { type: 'audio/wav' });
+        }
+
+        // --- نظام المؤثرات الصوتية للانتقالات (SFX Synthesizer) ---
+        function playTransitionSFX() {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+
+            // توصيل الصوت للسماعات
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+
+            // توصيل الصوت لمسار التسجيل إذا كان التصدير يعمل الآن
+            if (audioDest) gain.connect(audioDest);
+
+            const now = audioCtx.currentTime;
+
+            // تأثير صوتي (Swoosh/Wind) يتناسب مع الانتقالات
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(800, now);
+            osc.frequency.exponentialRampToValueAtTime(100, now + 0.4);
+            gain.gain.setValueAtTime(0.5, now);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+
+            osc.start(now);
+            osc.stop(now + 0.4);
+        }
+
+        // --- الذكاء الاصطناعي وتوليد المشاهد ---
+
+        window.onScenesGeneratedNative = function(resultStr) {
+            const btn = document.getElementById('btn-generate-script');
+            btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> توليد المشاهد'; btn.disabled = false;
+
+            if (!resultStr || resultStr.indexOf("Error") > -1) {
+                showToast('حدث خطأ في التوليد.', 'error');
+                return;
+            }
+
+            try {
+                // Strip markdown formatting if Gemini added it
+                let cleanJson = resultStr.replace(/```json/g, "").replace(/```/g, "").trim();
+                appState.scenes = JSON.parse(cleanJson);
+                renderScenesUI();
+                showToast('تم تجهيز المشاهد بنجاح.', 'success');
+            } catch (e) {
+                console.error("Parse Error:", e, resultStr);
+                showToast('حدث خطأ في قراءة النتيجة.', 'error');
+            }
+        };
+
+        async function generateScenes() {
+            if (!apiKey) {
+                showToast('مفتاح API مفقود، يرجى إضافته من إعدادات التطبيق', 'error');
+                return;
+            }
+            const prompt = document.getElementById('script-prompt').value.trim();
+            if (!prompt) return showToast('يرجى إدخال الموضوع.', 'error');
+
+            const btn = document.getElementById('btn-generate-script');
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري التوليد...'; btn.disabled = true;
+
+            // Call Lua directly via prompt to bypass CORS and load efficiently
+            window.prompt("GENERATE_SCENES", prompt);
+
+            // Note: The rest is handled asynchronously by window.onScenesGeneratedNative
+        }
+
+        function renderScenesUI() {
+            const container = document.getElementById('scenes-container'); container.innerHTML = '';
+            if (appState.scenes.length === 0) return container.innerHTML = '<div class="text-center text-gray-400 py-4" tabindex="0">لا توجد مشاهد.</div>';
+
+            appState.scenes.forEach((scene, index) => {
+                const div = document.createElement('div'); div.className = 'bg-gray-50 border border-gray-200 rounded p-4 relative mb-4'; div.setAttribute('role', 'listitem');
+                div.innerHTML = `
+                    <h3 class="font-bold text-indigo-800 mb-2 border-b pb-1" tabindex="0">المشهد ${index+1}</h3>
+
+                    <div class="mb-3">
+                        <label class="block text-sm font-semibold text-gray-700">التعليق الصوتي:</label>
+                        <textarea id="narration-${index}" rows="2" class="w-full text-sm border p-1 rounded focus:ring-1 focus:ring-indigo-500" aria-label="النص الصوتي">${scene.narration}</textarea>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="block text-sm font-semibold text-gray-700">الصورة/المشهد المرئي:</label>
+                        <textarea id="visual-${index}" rows="2" class="w-full text-sm border p-1 rounded focus:ring-1 focus:ring-indigo-500" aria-label="الوصف المرئي">${scene.visual_description}</textarea>
+                    </div>
+
+                    <p class="text-xs text-gray-500 mb-1">أدوات المشهد:</p>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        <button onclick="generateSceneImage(${index})" class="bg-purple-100 hover:bg-purple-200 text-purple-800 py-1.5 rounded text-sm font-semibold transition flex items-center justify-center gap-1" aria-label="توليد صورة بالذكاء الاصطناعي للمشهد ${index+1}"><i class="fa-solid fa-wand-magic"></i> AI صورة</button>
+
+                        <button onclick="window.prompt('PICK_FILE', 'scene_visual_${index}');" class="bg-gray-200 hover:bg-gray-300 text-gray-800 py-1.5 rounded text-sm font-semibold transition flex items-center justify-center gap-1"><i class="fa-solid fa-upload"></i> رفع صورة/فيديو</button>
+
+                        <button onclick="generateSceneAudio(${index})" class="bg-blue-100 hover:bg-blue-200 text-blue-800 py-1.5 rounded text-sm font-semibold transition flex items-center justify-center gap-1" aria-label="توليد صوت بالذكاء الاصطناعي للمشهد ${index+1}"><i class="fa-solid fa-robot"></i> AI صوت</button>
+
+                        <button onclick="window.prompt('PICK_FILE', 'scene_audio_${index}');" class="bg-gray-200 hover:bg-gray-300 text-gray-800 py-1.5 rounded text-sm font-semibold transition flex items-center justify-center gap-1"><i class="fa-solid fa-upload"></i> رفع صوت</button>
+                    </div>`;
+                container.appendChild(div);
+            });
+        }
+
+        // --- دوال الرفع والتوليد لكل مشهد ---
+
+        async function generateSceneAudio(index) {
+            const text = document.getElementById(`narration-${index}`).value.trim();
+            if (!text) return showToast('النص فارغ.', 'error');
+            const voiceName = document.getElementById('voice-style').value;
+            showToast(`جاري تسجيل الصوت للمشهد ${index+1}...`, 'info');
+            window.prompt("GENERATE_AUDIO", index + "|" + voiceName + "|" + text);
+        }
+
+        async function generateSceneImage(index) {
+            const prompt = document.getElementById(`visual-${index}`).value.trim();
+            if (!prompt) return showToast('الوصف فارغ.', 'error');
+            showToast(`جاري توليد الصورة للمشهد ${index+1}...`, 'info');
+            window.prompt("GENERATE_IMAGE", index + "|" + prompt);
+        }
+
+        // دالة مخصصة لرفع الملفات اليدوية لكل مشهد
+        function handleSceneUpload(event, index, mediaType) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const url = URL.createObjectURL(file);
+            const actualType = file.type.split('/')[0];
+
+            if (mediaType === 'visual' && (actualType === 'image' || actualType === 'video')) {
+                const start = appState.lastItemEndTimes.visual;
+                if (actualType === 'image') {
+                    const img = new Image(); img.src = url;
+                    img.onload = () => {
+                        addToTimeline({ id: `up-${Date.now()}`, type: 'image', name: file.name, src: url, start, end: start+5, layer: 1, scale: 100, transition: 'none', transSound: false, imageElement: img });
+                        appState.lastItemEndTimes.visual = start + 5;
+                    };
+                } else {
+                    const vid = document.createElement('video'); vid.src = url; vid.muted = true;
+                    vid.onloadedmetadata = () => {
+                        addToTimeline({ id: `up-${Date.now()}`, type: 'video', name: file.name, src: url, start, end: start+vid.duration, layer: 1, scale: 100, transition: 'none', transSound: false, videoElement: vid });
+                        appState.lastItemEndTimes.visual = start + vid.duration;
+                    };
+                }
+            } else if (mediaType === 'audio' && actualType === 'audio') {
+                const start = appState.lastItemEndTimes.audio;
+                const audObj = new Audio(url);
+                audObj.onloadedmetadata = () => {
+                    addToTimeline({ id: `audio-${Date.now()}`, type: 'audio', name: file.name, src: url, start, end: start+audObj.duration, audioElement: audObj });
+                    appState.lastItemEndTimes.audio = start + audObj.duration;
+                };
+            } else {
+                showToast('نوع الملف غير متطابق مع الزر.', 'error');
+            }
+            event.target.value = ''; // Reset
+        }
+
+        // دالة لإضافة موسيقى خلفية تمتد عبر الفيديو
+
+
+        window.onSceneImageGeneratedNative = function(base64Data, index) {
+            if (!base64Data || base64Data.indexOf("Error") > -1) {
+                showToast('خطأ أثناء توليد الصورة.', 'error');
+                return;
+            }
+            const imageUrl = `data:image/png;base64,${base64Data}`;
+            const imgObj = new Image();
+            imgObj.src = imageUrl;
+            imgObj.onload = () => {
+                const startTime = appState.lastItemEndTimes.visual;
+                const endTime = startTime + 5;
+                appState.lastItemEndTimes.visual = endTime;
+                addToTimeline({
+                    id: `img-${Date.now()}`, type: 'image', src: imageUrl, name: `صورة م.${index+1}`,
+                    start: startTime, end: endTime, layer: 1, scale: 100, transition: 'none', transSound: false, imageElement: imgObj
+                });
+                showToast(`تمت إضافة الصورة بنجاح.`, 'success');
+            };
+        };
+
+        window.onSceneAudioGeneratedNative = function(base64Data, index, sampleRate) {
+            if (!base64Data || base64Data.indexOf("Error") > -1) {
+                showToast('خطأ أثناء توليد الصوت.', 'error');
+                return;
+            }
+            try {
+                const binaryStr = window.atob(base64Data);
+                const bytes = new Uint8Array(binaryStr.length);
+                for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+
+                const sr = parseInt(sampleRate) || 24000;
+                const wavBlob = pcmToWav(bytes, sr);
+                const urlBlob = URL.createObjectURL(wavBlob);
+                const duration = Math.max(bytes.length / (sr * 2), 1);
+                const audioObj = new Audio(urlBlob);
+
+                const startTime = appState.lastItemEndTimes.audio;
+                const endTime = startTime + parseFloat(duration.toFixed(1));
+                appState.lastItemEndTimes.audio = endTime;
+
+                addToTimeline({ id: `audio-${Date.now()}`, type: 'audio', src: urlBlob, name: `صوت م.${index+1}`, start: startTime, end: endTime, audioElement: audioObj });
+                showToast(`تمت إضافة الصوت بنجاح.`, 'success');
+            } catch (e) {
+                showToast('فشل قراءة الملف الصوتي المولد.', 'error');
+            }
+        };
+
+        window.onFileSelectedNative = function(filePath, sourceId) {
+            if (!filePath) return;
+            // Native paths like /storage/emulated/0/... can be loaded using file:// prefix
+            // if WebSettings.setAllowFileAccessFromFileURLs(true) is set
+            const url = "file://" + filePath;
+            const ext = filePath.split('.').pop().toLowerCase();
+
+            if (sourceId === "bg_music") {
+                const audObj = new Audio(url);
+                audObj.onloadedmetadata = () => {
+                    const end = Math.max(appState.duration, audObj.duration);
+                    addToTimeline({ id: `bgm-${Date.now()}`, type: 'audio', name: '🎵 موسيقى خلفية', src: url, start: 0, end: end, audioElement: audObj });
+                    showToast('تمت إضافة موسيقى الخلفية.', 'success');
+                };
+                audObj.onerror = () => showToast('فشل تحميل الملف الصوتي.', 'error');
+            }
+            else if (sourceId.startsWith("scene_visual_")) {
+                const index = parseInt(sourceId.split("_")[2]);
+                const start = appState.lastItemEndTimes.visual;
+
+                if (ext === 'jpg' || ext === 'jpeg' || ext === 'png' || ext === 'webp' || ext === 'gif') {
+                    const img = new Image();
+                    img.src = url;
+                    img.onload = () => {
+                        addToTimeline({ id: `up-${Date.now()}`, type: 'image', name: filePath.split('/').pop(), src: url, start, end: start+5, layer: 1, scale: 100, transition: 'none', transSound: false, imageElement: img });
+                        appState.lastItemEndTimes.visual = start + 5;
+                    };
+                    img.onerror = () => showToast('فشل تحميل الصورة.', 'error');
+                } else if (ext === 'mp4' || ext === 'webm' || ext === 'mkv' || ext === 'mov') {
+                    const vid = document.createElement('video');
+                    vid.src = url;
+                    vid.muted = true;
+                    vid.onloadedmetadata = () => {
+                        addToTimeline({ id: `up-${Date.now()}`, type: 'video', name: filePath.split('/').pop(), src: url, start, end: start+vid.duration, layer: 1, scale: 100, transition: 'none', transSound: false, videoElement: vid });
+                        appState.lastItemEndTimes.visual = start + vid.duration;
+                    };
+                    vid.onerror = () => showToast('فشل تحميل الفيديو.', 'error');
+                } else {
+                    showToast('صيغة ملف غير مدعومة للصور/الفيديو.', 'error');
+                }
+            }
+            else if (sourceId.startsWith("scene_audio_")) {
+                const index = parseInt(sourceId.split("_")[2]);
+                const start = appState.lastItemEndTimes.audio;
+
+                if (ext === 'mp3' || ext === 'wav' || ext === 'm4a' || ext === 'ogg' || ext === 'aac') {
+                    const audObj = new Audio(url);
+                    audObj.onloadedmetadata = () => {
+                        addToTimeline({ id: `audio-${Date.now()}`, type: 'audio', name: filePath.split('/').pop(), src: url, start, end: start+audObj.duration, audioElement: audObj });
+                        appState.lastItemEndTimes.audio = start + audObj.duration;
+                    };
+                    audObj.onerror = () => showToast('فشل تحميل الصوت.', 'error');
+                } else {
+                    showToast('صيغة ملف غير مدعومة للصوت.', 'error');
+                }
+            }
+        };
+
+        function handleGlobalMusicUpload() {
+            const fileInput = document.getElementById('upload-bg-music');
+            if (!fileInput.files.length) return;
+            const file = fileInput.files[0]; const url = URL.createObjectURL(file);
+
+            const audObj = new Audio(url);
+            audObj.onloadedmetadata = () => {
+                // نضبط طول الموسيقى ليكون من 0 وحتى مدة الفيديو الحالية أو مدة الملف أيهما أطول
+                const end = Math.max(appState.duration, audObj.duration);
+                addToTimeline({ id: `bgm-${Date.now()}`, type: 'audio', name: '🎵 موسيقى خلفية', src: url, start: 0, end: end, audioElement: audObj });
+                showToast('تمت إضافة موسيقى الخلفية للتايم لاين.', 'success');
+            };
+            fileInput.value = '';
+        }
+
+        function addTextLayer() { addToTimeline({ id: `txt-${Date.now()}`, type: 'text', name: 'نص', text: 'اكتب نصك هنا', start: 0, end: 5, layer: 3, size: 60 }); }
+
+        // --- إدارة التايم لاين ---
+
+        function addToTimeline(item) { appState.timeline.push(item); recalculateDuration(); renderTimelineUI(); drawFrame(); }
+        function removeFromTimeline(id) { appState.timeline = appState.timeline.filter(i => i.id !== id); recalculateDuration(); renderTimelineUI(); drawFrame(); }
+
+        function updateItemProperty(id, field, value) {
+            const item = appState.timeline.find(i => i.id === id);
+            if (item) {
+                if(field === 'text' || field === 'transition') item[field] = value;
+                else if (field === 'transSound') item[field] = value === 'true';
+                else { item[field] = parseFloat(value); if (field === 'start' && item.start >= item.end) item.end = item.start + 1; }
+
+                recalculateDuration();
+                // إعادة التهيئة لضمان عمل المؤثرات الصوتية عند تغييرها
+                item.sfxPlayed = false;
+                drawFrame();
+            }
+        }
+
+        function recalculateDuration() {
+            let max = 5; appState.timeline.forEach(i => { if (i.end > max) max = i.end; });
+            appState.duration = max; document.getElementById('time-total').innerText = appState.duration.toFixed(1);
+        }
+
+        function renderTimelineUI() {
+            const container = document.getElementById('timeline-items');
+            if (!appState.timeline.length) return container.innerHTML = '<div class="text-center text-gray-400 py-8" tabindex="0">شريط الوقت فارغ.</div>';
+            container.innerHTML = '';
+            const sortedItems = [...appState.timeline].sort((a, b) => a.start - b.start);
+
+            sortedItems.forEach(item => {
+                const el = document.createElement('div'); el.className = 'bg-gray-50 p-3 rounded border border-gray-200 flex flex-col md:flex-row gap-3 md:items-center';
+                let icon = 'fa-image', color = 'text-purple-600 bg-purple-100', typeStr='صورة';
+                if(item.type === 'audio') { icon = 'fa-music'; color = 'text-blue-600 bg-blue-100'; typeStr='صوت'; }
+                if(item.type === 'video') { icon = 'fa-video'; color = 'text-red-600 bg-red-100'; typeStr='فيديو'; }
+                if(item.type === 'text') { icon = 'fa-font'; color = 'text-green-600 bg-green-100'; typeStr='نص'; }
+
+                let visualControls = '';
+                if (item.type === 'image' || item.type === 'video') {
+                    // قائمة الانتقالات المطلوبة
+                    const transitions = [
+                        {val: 'none', label: 'لا يوجد'}, {val: 'flash', label: 'فلاش'}, {val: 'blink', label: 'وميض'},
+                        {val: 'zigzag', label: 'زجزاج'}, {val: 'pageTurn', label: 'تقليب صفحة'},
+                        {val: 'zoomIn', label: 'تكبير'}, {val: 'zoomOut', label: 'تصغير'},
+                        {val: 'rotateCCW', label: 'دوران عكس عقارب'}, {val: 'rotateCW', label: 'دوران مع عقارب'}
+                    ];
+                    let transOptions = transitions.map(t => `<option value="${t.val}" ${item.transition === t.val ? 'selected' : ''}>${t.label}</option>`).join('');
+
+                    visualControls = `
+                    <div class="flex flex-wrap gap-2 mt-2 md:mt-0 bg-gray-100 p-2 rounded w-full md:w-auto">
+                        <div class="flex flex-col"><label class="text-xs text-gray-600 font-bold">انتقال الدخول</label><select onchange="updateItemProperty('${item.id}', 'transition', this.value)" class="border p-1 rounded text-sm w-28" aria-label="اختر نوع الانتقال لعنصر ${item.name}">${transOptions}</select></div>
+                        <div class="flex flex-col"><label class="text-xs text-gray-600 font-bold">صوت الانتقال؟</label><select onchange="updateItemProperty('${item.id}', 'transSound', this.value)" class="border p-1 rounded text-sm w-20" aria-label="تفعيل أو تعطيل صوت الانتقال"><option value="false" ${!item.transSound ? 'selected' : ''}>إيقاف</option><option value="true" ${item.transSound ? 'selected' : ''}>تفعيل</option></select></div>
+                        <div class="flex flex-col"><label class="text-xs text-gray-600 font-bold">الطبقة(Z)</label><input type="number" value="${item.layer || 1}" onchange="updateItemProperty('${item.id}', 'layer', this.value)" class="border p-1 rounded w-16 text-sm text-center" aria-label="طبقة عنصر ${item.name}"></div>
+                        <div class="flex flex-col"><label class="text-xs text-gray-600 font-bold">الحجم(%)</label><input type="number" value="${item.scale || 100}" onchange="updateItemProperty('${item.id}', 'scale', this.value)" class="border p-1 rounded w-16 text-sm text-center" aria-label="حجم عنصر ${item.name}"></div>
+                    </div>`;
+                }
+
+                let textInput = item.type === 'text' ? `<input type="text" value="${item.text}" onchange="updateItemProperty('${item.id}', 'text', this.value)" class="w-full border p-1 rounded mt-2">` : '';
+
+                el.innerHTML = `
+                    <div class="flex items-center gap-2 w-full md:w-1/4"><span class="w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${color}"><i class="fa-solid ${icon}"></i></span><div class="font-bold text-sm truncate" tabindex="0" title="${item.name}">${typeStr}: ${item.name}</div></div>
+                    <div class="flex items-center gap-2">
+                        <div class="flex flex-col"><label class="text-xs text-gray-500">بداية (ث)</label><input type="number" value="${item.start}" step="0.5" onchange="updateItemProperty('${item.id}', 'start', this.value)" class="border p-1 rounded w-16 text-sm"></div>
+                        <div class="flex flex-col"><label class="text-xs text-gray-500">نهاية (ث)</label><input type="number" value="${item.end}" step="0.5" onchange="updateItemProperty('${item.id}', 'end', this.value)" class="border p-1 rounded w-16 text-sm"></div>
+                    </div>
+                    ${visualControls}
+                    ${textInput}
+                    <button onclick="removeFromTimeline('${item.id}')" class="text-red-500 hover:text-red-700 p-2 ml-auto" aria-label="حذف العنصر"><i class="fa-solid fa-trash"></i></button>`;
+                container.appendChild(el);
+            });
+        }
+
+        // --- محرك الرسم وتطبيق الانتقالات (Transitions) ---
+
+        function drawFrame(renderTime = null) {
+            const time = renderTime !== null ? renderTime : appState.currentTime;
+            ctx.fillStyle = '#000000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+            const visualItems = appState.timeline.filter(i => i.type !== 'audio').sort((a, b) => (a.layer || 1) - (b.layer || 1));
+
+            visualItems.forEach(item => {
+                if (time >= item.start && time < item.end) {
+                    ctx.save();
+
+                    // حساب التقدم للانتقال (مدته 1 ثانية أو أقل إذا كان العنصر قصيراً)
+                    let transDur = Math.min(1.0, item.end - item.start);
+                    let progress = 1.0;
+                    if (time < item.start + transDur) {
+                        progress = (time - item.start) / transDur;
+                    }
+
+                    // تطبيق التحويلات الهندسية (Translations/Rotations) قبل الرسم
+                    let cx = canvas.width / 2;
+                    let cy = canvas.height / 2;
+                    const tType = item.transition || 'none';
+
+                    if (progress < 1.0) {
+                        if (tType === 'zoomIn') {
+                            ctx.translate(cx, cy); ctx.scale(progress, progress); ctx.translate(-cx, -cy);
+                        } else if (tType === 'zoomOut') {
+                            let s = 2.0 - progress; // يبدأ من الضعف ويصغر للحجم الطبيعي
+                            ctx.translate(cx, cy); ctx.scale(s, s); ctx.translate(-cx, -cy);
+                        } else if (tType === 'rotateCW') {
+                            let angle = (1 - progress) * Math.PI; // دوران 180 درجة
+                            ctx.translate(cx, cy); ctx.rotate(angle); ctx.scale(progress, progress); ctx.translate(-cx, -cy);
+                        } else if (tType === 'rotateCCW') {
+                            let angle = -(1 - progress) * Math.PI;
+                            ctx.translate(cx, cy); ctx.rotate(angle); ctx.scale(progress, progress); ctx.translate(-cx, -cy);
+                        } else if (tType === 'zigzag') {
+                            // اهتزاز يميناً ويساراً يتلاشى تدريجياً
+                            let offset = Math.sin(progress * Math.PI * 8) * (1 - progress) * 100;
+                            ctx.translate(offset, 0);
+                        } else if (tType === 'pageTurn') {
+                            // القص لمحاكاة تقليب الصفحة (من اليسار لليمين)
+                            ctx.beginPath();
+                            ctx.rect(0, 0, canvas.width * progress, canvas.height);
+                            ctx.clip();
+                        }
+                    }
+
+                    // الرسم الفعلي للعنصر
+                    if (item.type === 'text') {
+                        ctx.font = `bold ${item.size || 60}px Cairo, sans-serif`; ctx.fillStyle = '#ffffff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.strokeStyle = '#000000'; ctx.lineWidth = 4;
+                        ctx.strokeText(item.text, canvas.width/2, canvas.height/2); ctx.fillText(item.text, canvas.width/2, canvas.height/2);
+                    } else {
+                        let element = item.type === 'image' ? item.imageElement : item.videoElement; if (!element) { ctx.restore(); return; }
+                        if (item.type === 'video' && Math.abs(element.currentTime - (time - item.start)) > 0.1) element.currentTime = time - item.start;
+                        let aspect = (item.type === 'image' ? element.width : element.videoWidth) / (item.type === 'image' ? element.height : element.videoHeight);
+                        let targetAspect = canvas.width / canvas.height;
+                        let drawW = canvas.width, drawH = canvas.height;
+                        if (aspect > targetAspect) drawH = canvas.width / aspect; else drawW = canvas.height * aspect;
+                        const scalePercent = (item.scale || 100) / 100; drawW *= scalePercent; drawH *= scalePercent;
+                        ctx.drawImage(element, (canvas.width - drawW) / 2, (canvas.height - drawH) / 2, drawW, drawH);
+                    }
+
+                    // تأثيرات ما بعد الرسم (Overlays)
+                    if (progress < 1.0) {
+                        if (tType === 'flash') {
+                            ctx.fillStyle = `rgba(255,255,255,${1 - progress})`;
+                            ctx.fillRect(0, 0, canvas.width, canvas.height);
+                        } else if (tType === 'blink') {
+                            ctx.fillStyle = `rgba(0,0,0,${1 - progress})`;
+                            ctx.fillRect(0, 0, canvas.width, canvas.height);
+                        }
+                    }
+                    ctx.restore();
+                }
+            });
+        }
+
+        // --- نظام التشغيل ---
+
+        function togglePlay() {
+            appState.isPlaying = !appState.isPlaying; const icon = document.getElementById('play-icon');
+            if (appState.isPlaying) {
+                icon.className = 'fa-solid fa-pause'; lastTimestamp = performance.now();
+                // إعادة ضبط علامات مؤثرات الصوت للانتقالات عند التشغيل الجديد
+                appState.timeline.forEach(i => i.sfxPlayed = false);
+
+                appState.timeline.forEach(item => {
+                    if (item.type === 'audio' && item.audioElement && appState.currentTime >= item.start && appState.currentTime < item.end)
+                        item.audioElement.play().catch(e=>console.log(e));
+                });
+                requestAnimationFrame(playLoop);
+            } else {
+                icon.className = 'fa-solid fa-play';
+                appState.timeline.forEach(item => { if (item.type === 'audio' && item.audioElement) item.audioElement.pause(); });
+            }
+        }
+
+        function playLoop(timestamp) {
+            if (!appState.isPlaying) return;
+            appState.currentTime += (timestamp - lastTimestamp) / 1000; lastTimestamp = timestamp;
+            if (appState.currentTime >= appState.duration) { appState.currentTime = 0; togglePlay(); drawFrame(); document.getElementById('time-current').innerText = '0.0'; return; }
+
+            appState.timeline.forEach(item => {
+                // معالجة الصوت العادي
+                if (item.type === 'audio' && item.audioElement) {
+                    const isInside = appState.currentTime >= item.start && appState.currentTime < item.end; const isPlaying = !item.audioElement.paused;
+                    if (isInside && !isPlaying) { item.audioElement.currentTime = appState.currentTime - item.start; item.audioElement.play().catch(e=>console.log(e)); }
+                    else if (!isInside && isPlaying) item.audioElement.pause();
+                }
+
+                // تشغيل مؤثرات الانتقال الصوتية عند لحظة البداية
+                if ((item.type === 'image' || item.type === 'video') && item.transition !== 'none' && item.transSound) {
+                    if (appState.currentTime >= item.start && !item.sfxPlayed) {
+                        playTransitionSFX();
+                        item.sfxPlayed = true; // نمنع تكرار الصوت
+                    }
+                }
+            });
+            document.getElementById('time-current').innerText = appState.currentTime.toFixed(1); drawFrame(); animationFrameId = requestAnimationFrame(playLoop);
+        }
+
+        // --- التصدير (متوافق مع كل الأصوات والانتقالات) ---
+        async function exportVideo() {
+            if (!appState.timeline.length) return showToast('لا يوجد محتوى للتصدير.', 'error');
+            if (appState.isPlaying) togglePlay();
+            appState.currentTime = 0;
+            appState.timeline.forEach(i => i.sfxPlayed = false); // إعادة ضبط الأصوات
+
+            const btn = document.getElementById('export-btn');
+            const progressContainer = document.getElementById('mp4-progress-container');
+
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري التسجيل...'; btn.disabled = true;
+            showToast('جاري تسجيل ومعالجة الفيديو...', 'info');
+
+            let targetMimeType = 'video/webm';
+            let isNativeMP4 = false;
+            let extension = 'webm';
+
+            if (MediaRecorder.isTypeSupported('video/mp4')) {
+                targetMimeType = 'video/mp4'; isNativeMP4 = true; extension = 'mp4';
+            } else if (MediaRecorder.isTypeSupported('video/webm;codecs=h264')) {
+                targetMimeType = 'video/webm;codecs=h264';
+            }
+
+            const canvasStream = canvas.captureStream(30);
+
+            // إنشاء عُقدة صوتية رئيسية للتسجيل (لكل الملفات والمؤثرات)
+            audioDest = audioCtx.createMediaStreamDestination();
+            const audioSources = [];
+
+            appState.timeline.forEach(item => {
+                if (item.type === 'audio' && item.audioElement) {
+                    const el = new Audio(item.src);
+                    const source = audioCtx.createMediaElementSource(el);
+                    source.connect(audioDest);
+                    audioSources.push({ el, item });
+                }
+            });
+
+            const combinedStream = new MediaStream([...canvasStream.getVideoTracks(), ...audioDest.stream.getAudioTracks()]);
+            const mediaRecorder = new MediaRecorder(combinedStream, { mimeType: targetMimeType });
+            const chunks = [];
+
+            mediaRecorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+
+            mediaRecorder.onstop = async () => {
+                audioDest = null; // تنظيف المتغير
+                const recordedBlob = new Blob(chunks, { type: targetMimeType });
+
+                if (isNativeMP4) {
+                    downloadBlob(recordedBlob, `AI_Video_Pro.${extension}`);
+                    resetExportUI(btn, progressContainer);
+                    showToast('تم تصدير الفيديو بنجاح!', 'success');
+                    return;
+                }
+
+                try {
+                    progressContainer.style.display = 'flex';
+                    btn.innerHTML = '<i class="fa-solid fa-cog fa-spin"></i> تحويل لـ MP4...';
+
+                    const ffmpegInstance = await initFFmpeg();
+                    await ffmpegInstance.writeFile('input.webm', await FFmpegUtil.fetchFile(recordedBlob));
+                    await ffmpegInstance.exec(['-i', 'input.webm', '-c:v', 'libx264', '-preset', 'ultrafast', 'output.mp4']);
+                    const mp4Data = await ffmpegInstance.readFile('output.mp4');
+                    const mp4Blob = new Blob([mp4Data.buffer], { type: 'video/mp4' });
+
+                    downloadBlob(mp4Blob, `AI_Video_Pro_${Date.now()}.mp4`);
+                    showToast('تم التحويل وتصدير MP4 بنجاح!', 'success');
+                } catch (error) {
+                    showToast('تم تنزيل النسخة الأصلية مباشرة.', 'info');
+                    downloadBlob(recordedBlob, `AI_Video_Pro.${extension}`);
+                } finally {
+                    resetExportUI(btn, progressContainer);
+                }
+            };
+
+            mediaRecorder.start();
+            const fps = 30; const step = 1 / fps;
+
+            function processFrame() {
+                if (appState.currentTime >= appState.duration) {
+                    mediaRecorder.stop();
+                    audioSources.forEach(src => src.el.pause());
+                    return;
+                }
+
+                // معالجة تشغيل الصوت العادي
+                audioSources.forEach(src => {
+                    const isInside = appState.currentTime >= src.item.start && appState.currentTime < src.item.end;
+                    const isPlaying = !src.el.paused;
+                    if (isInside && !isPlaying) { src.el.currentTime = appState.currentTime - src.item.start; src.el.play().catch(e=>console.log(e)); }
+                    else if (!isInside && isPlaying) src.el.pause();
+                });
+
+                // معالجة المؤثرات الصوتية للانتقالات أثناء التصدير!
+                appState.timeline.forEach(item => {
+                    if ((item.type === 'image' || item.type === 'video') && item.transition !== 'none' && item.transSound) {
+                        if (appState.currentTime >= item.start && !item.sfxPlayed) {
+                            playTransitionSFX();
+                            item.sfxPlayed = true;
+                        }
+                    }
+                });
+
+                drawFrame(appState.currentTime);
+                appState.currentTime += step;
+                setTimeout(processFrame, 1000/fps); // استخدام setTimeout لعدم تجميد واجهة المتصفح
+            }
+            processFrame();
+        }
+
+        function downloadBlob(blob, filename) {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a'); a.href = url; a.download = filename;
+            document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        }
+
+        function resetExportUI(btn, progressContainer) {
+            progressContainer.style.display = 'none';
+            btn.innerHTML = '<i class="fa-solid fa-file-video"></i> <span>تصدير الفيديو</span>';
+            btn.disabled = false; appState.currentTime = 0; drawFrame();
+        }
+
+        window.onload = () => {
+            renderTimelineUI(); drawFrame();
+            document.body.addEventListener('click', () => { if (audioCtx.state === 'suspended') audioCtx.resume(); }, { once: true });
+        };
+    </script>
+</body>
+</html>
+]]
+
+    webview.loadDataWithBaseURL("file:///android_asset/", htmlCode, "text/html", "UTF-8", nil)
+
+    local params = WindowManager.LayoutParams(
+        WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
+        WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+        WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+        PixelFormat.TRANSLUCENT
+    )
+    wm.addView(layout, params)
+    videoEditorWindowDialog = layout
+end
+
 function showGeminiLiveWindow()
+
+
     if geminiLiveWindow then return end
 
     local layout = LinearLayout(service)
@@ -4439,6 +5459,8 @@ function showGeminiLiveWindow()
     settings.setJavaScriptEnabled(true)
     settings.setDomStorageEnabled(true)
     settings.setMediaPlaybackRequiresUserGesture(false)
+    settings.setAllowFileAccessFromFileURLs(true)
+    settings.setAllowUniversalAccessFromFileURLs(true)
 
     local webChromeClient = luajava.override(WebChromeClient, {
         onPermissionRequest = function(super, request)
@@ -4478,6 +5500,81 @@ function showGeminiLiveWindow()
                         end)
                     end
                 }), 100)
+                result.confirm("Handled")
+                return true
+            elseif message == "GENERATE_IMAGE" then
+                local indexStr, promptStr = defaultValue:match("^(.-)|(.*)$")
+                local url = "https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-001:predict?key=" .. (geminiApiKey or "")
+                local headers = {["Content-Type"] = "application/json"}
+                local payload = JSONObject()
+                local instances = JSONObject()
+                instances.put("prompt", promptStr)
+                payload.put("instances", JSONArray().put(instances))
+                local params = JSONObject()
+                params.put("sampleCount", 1)
+                payload.put("parameters", params)
+
+                Http.post(url, payload.toString(), headers, function(status, response)
+                    local b64 = "Error"
+                    if status == 200 then
+                        pcall(function()
+                            local j = JSONObject(response)
+                            b64 = j.getJSONArray("predictions").getJSONObject(0).getString("bytesBase64Encoded")
+                        end)
+                    end
+                    mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                        run = function() view.evaluateJavascript("window.onSceneImageGeneratedNative('" .. b64 .. "', " .. indexStr .. ");", nil) end
+                    }))
+                end)
+                result.confirm("Handled")
+                return true
+            elseif message == "GENERATE_AUDIO" then
+                local indexStr, voiceName, textStr = defaultValue:match("^(.-)|(.-)|(.*)$")
+                local url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=" .. (geminiApiKey or "")
+                local headers = {["Content-Type"] = "application/json"}
+
+                local payload = JSONObject()
+                local contents = JSONArray()
+                local contentObj = JSONObject()
+                local partsArray = JSONArray()
+                local textPart = JSONObject()
+                textPart.put("text", textStr)
+                partsArray.put(textPart)
+                contentObj.put("parts", partsArray)
+                contents.put(contentObj)
+                payload.put("contents", contents)
+
+                local genConfig = JSONObject()
+                local modalities = JSONArray(); modalities.put("AUDIO")
+                genConfig.put("responseModalities", modalities)
+
+                local speechConfig = JSONObject()
+                local voiceConfig = JSONObject()
+                local prebuilt = JSONObject()
+                prebuilt.put("voiceName", voiceName)
+                voiceConfig.put("prebuiltVoiceConfig", prebuilt)
+                speechConfig.put("voiceConfig", voiceConfig)
+                genConfig.put("speechConfig", speechConfig)
+
+                payload.put("generationConfig", genConfig)
+
+                Http.post(url, payload.toString(), headers, function(status, response)
+                    local b64 = "Error"
+                    local sampleRate = "24000"
+                    if status == 200 then
+                        pcall(function()
+                            local j = JSONObject(response)
+                            local inlineData = j.getJSONArray("candidates").getJSONObject(0).getJSONObject("content").getJSONArray("parts").getJSONObject(0).getJSONObject("inlineData")
+                            b64 = inlineData.getString("data")
+                            local mime = inlineData.getString("mimeType")
+                            local srMatch = mime:match("rate=(%d+)")
+                            if srMatch then sampleRate = srMatch end
+                        end)
+                    end
+                    mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                        run = function() view.evaluateJavascript("window.onSceneAudioGeneratedNative('" .. b64 .. "', " .. indexStr .. ", " .. sampleRate .. ");", nil) end
+                    }))
+                end)
                 result.confirm("Handled")
                 return true
             end
