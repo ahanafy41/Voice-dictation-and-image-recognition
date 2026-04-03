@@ -3535,7 +3535,11 @@ function openMainWindow()
         end
     }
 
-    local orderStr = dashboardOrder or "assistant,dictation,geminiLive,library,video_analyzer,image,transcription,settings"
+
+    -- Refresh from prefs in case it was modified
+    local orderStr = prefs.getString("dashboardOrder", "assistant,dictation,geminiLive,library,video_analyzer,image,transcription,settings")
+    if orderStr:match("reader") then orderStr = orderStr:gsub("reader", "library,video_analyzer") end
+
     for k in orderStr:gmatch("([^,]+)") do
         local key = k:gsub("^%s+", ""):gsub("%s+$", "")
         if buttons[key] then
@@ -3908,8 +3912,11 @@ function openSettings()
         }
 
         local keys = {}
-        if not dashboardOrder then dashboardOrder = "assistant,dictation,geminiLive,library,video_analyzer,image,transcription,settings" end
-        for k in dashboardOrder:gmatch("([^,]+)") do
+
+        dashboardOrder = prefs.getString("dashboardOrder", "assistant,dictation,geminiLive,library,video_analyzer,image,transcription,settings")
+        if dashboardOrder:match("reader") then dashboardOrder = dashboardOrder:gsub("reader", "library,video_analyzer") end
+        for k in dashboardOrder:gmatch("([^,]+)")
+ do
             local cleanKey = k:gsub("^%%s+", ""):gsub("%%s+$", "")
             if keyNames[cleanKey] then
                 keys[#keys + 1] = cleanKey
