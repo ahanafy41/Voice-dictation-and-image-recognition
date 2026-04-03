@@ -4686,7 +4686,7 @@ function showVideoEditorWindow()
                 </h2>
                 <div class="space-y-2">
                     <label for="upload-bg-music" class="sr-only">رفع موسيقى من جهازك</label>
-                    <button onclick="window.prompt(\'PICK_FILE\', \'bg_music\');" class="w-full bg-gray-200 hover:bg-gray-300 text-gray-800 p-2 rounded font-semibold transition">
+                    <button onclick="window.prompt('PICK_FILE', 'bg_music');" class="w-full bg-gray-200 hover:bg-gray-300 text-gray-800 p-2 rounded font-semibold transition">
                         <i class="fa-solid fa-upload"></i> إضافة كخلفية للفيديو بالكامل
                     </button>
                 </div>
@@ -4896,11 +4896,11 @@ function showVideoEditorWindow()
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
                         <button onclick="generateSceneImage(${index})" class="bg-purple-100 hover:bg-purple-200 text-purple-800 py-1.5 rounded text-sm font-semibold transition flex items-center justify-center gap-1" aria-label="توليد صورة بالذكاء الاصطناعي للمشهد ${index+1}"><i class="fa-solid fa-wand-magic"></i> AI صورة</button>
 
-                        <button onclick="window.prompt(\'PICK_FILE\', \'scene_visual_${index}\');" class="bg-gray-200 hover:bg-gray-300 text-gray-800 py-1.5 rounded text-sm font-semibold transition flex items-center justify-center gap-1"><i class="fa-solid fa-upload"></i> رفع صورة/فيديو</button>
+                        <button onclick="window.prompt('PICK_FILE', 'scene_visual_${index}');" class="bg-gray-200 hover:bg-gray-300 text-gray-800 py-1.5 rounded text-sm font-semibold transition flex items-center justify-center gap-1"><i class="fa-solid fa-upload"></i> رفع صورة/فيديو</button>
 
                         <button onclick="generateSceneAudio(${index})" class="bg-blue-100 hover:bg-blue-200 text-blue-800 py-1.5 rounded text-sm font-semibold transition flex items-center justify-center gap-1" aria-label="توليد صوت بالذكاء الاصطناعي للمشهد ${index+1}"><i class="fa-solid fa-robot"></i> AI صوت</button>
 
-                        <button onclick="window.prompt(\'PICK_FILE\', \'scene_audio_${index}\');" class="bg-gray-200 hover:bg-gray-300 text-gray-800 py-1.5 rounded text-sm font-semibold transition flex items-center justify-center gap-1"><i class="fa-solid fa-upload"></i> رفع صوت</button>
+                        <button onclick="window.prompt('PICK_FILE', 'scene_audio_${index}');" class="bg-gray-200 hover:bg-gray-300 text-gray-800 py-1.5 rounded text-sm font-semibold transition flex items-center justify-center gap-1"><i class="fa-solid fa-upload"></i> رفع صوت</button>
                     </div>`;
                 container.appendChild(div);
             });
