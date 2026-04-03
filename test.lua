@@ -59,7 +59,7 @@ _G.Http = {
         parsed_url = parsed_url:gsub("https://api.groq.com", "")
         parsed_url = parsed_url:gsub("https://api.wit.ai", "")
 
-        local command = string.format("curl -s -X POST -H 'Content-Type: application/json' -d '%s' http://localhost:8080%s", body:gsub("'", "'\\''"), parsed_url)
+        local command = string.format("curl -s -X POST -H 'Content-Type: application/json' -d '%s' \"http://localhost:8080%s\"", body:gsub("'", "'\\''"), parsed_url)
         local handle = io.popen(command)
         local result = handle:read("*a")
         handle:close()
@@ -72,7 +72,7 @@ _G.Http = {
     get = function(url, body, charset, headers, callback)
         local parsed_url = url:gsub("https://generativelanguage.googleapis.com", "")
         parsed_url = parsed_url:gsub("https://api.groq.com", "")
-        local command = string.format("curl -s http://localhost:8080%s", parsed_url)
+        local command = string.format("curl -s \"http://localhost:8080%s\"", parsed_url)
         local handle = io.popen(command)
         local result = handle:read("*a")
         handle:close()

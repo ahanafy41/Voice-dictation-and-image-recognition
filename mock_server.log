@@ -1,3 +1,0 @@
-2026-04-03 12:54:13,596 - Received GET request to: /openai/v1/models
-2026-04-03 12:54:13,596 - Handling Groq Models GET
-127.0.0.1 - - [03/Apr/2026 12:54:13] "GET /openai/v1/models HTTP/1.1" 200 -

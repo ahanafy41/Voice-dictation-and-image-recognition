@@ -125,18 +125,21 @@ end
 
 -- **Gemini Models (Latest 2026)**
 local geminiModels = {
-    { name = "Gemini 2.5 Pro (الأكثر ذكاءً)", id = "gemini-2.5-pro" },
-    { name = "Gemini 2.5 Flash (الأسرع)", id = "gemini-2.5-flash" },
-    { name = "Gemini 2.5 Flash-8B (اقتصادي)", id = "gemini-2.5-flash-8b" }
+    { name = "Gemini 3.1 Flash-Lite (الأسرع والأحدث)", id = "gemini-3.1-flash-lite-preview" },
+    { name = "Gemini 3 Flash (أداء عالي)", id = "gemini-3-flash-preview" },
+    { name = "Gemini 2.5 Flash (مستقر)", id = "gemini-2.5-flash" }
 }
-local defaultGeminiModelId = "gemini-2.5-flash"
+local defaultGeminiModelId = "gemini-3.1-flash-lite-preview"
 
 -- **Groq Models (Optimized for Free Tier)**
 local groqModels = {
     { name = "Llama 3.3 70B (الأكثر استقراراً)", id = "llama-3.3-70b-versatile" },
+    { name = "Llama 4 Scout 17B (الأحدث 2026)", id = "meta-llama/llama-4-scout-17b-16e-instruct" },
+    { name = "Llama 4 Maverick 17B (ذكاء فائق)", id = "meta-llama/llama-4-maverick-17b-128e-instruct" },
+    { name = "Qwen 3 32B (قوة في التفكير)", id = "qwen/qwen3-32b" },
     { name = "Llama 3.1 8B (سريع جداً)", id = "llama-3.1-8b-instant" },
-    { name = "DeepSeek R1 Distill Llama 70B (قوة في التفكير)", id = "deepseek-r1-distill-llama-70b" },
-    { name = "Gemma 2 9B IT", id = "gemma2-9b-it" }
+    { name = "Gemma 2 9B IT", id = "gemma2-9b-it" },
+    { name = "Groq Search (العملاق)", id = "compound-beta" }
 }
 
 local dictationModes = {
@@ -154,8 +157,9 @@ local audioModels = {
     { name = "Whisper Large V3 (Groq)", id = "whisper-large-v3", provider = "groq" },
     { name = "Whisper V3 Turbo (Groq)", id = "whisper-large-v3-turbo", provider = "groq" },
     { name = "Wit.ai (Arabic/General)", id = "wit-dictation", provider = "wit" },
-    { name = "Gemini 2.5 Flash (Gemini)", id = "gemini-2.5-flash", provider = "gemini" },
-    { name = "Gemini 2.5 Pro (Gemini)", id = "gemini-2.5-pro", provider = "gemini" }
+    { name = "Gemini 3.1 Flash-Lite (Gemini)", id = "gemini-3.1-flash-lite-preview", provider = "gemini" },
+    { name = "Gemini 3 Flash (Gemini)", id = "gemini-3-flash-preview", provider = "gemini" },
+    { name = "Gemini 2.5 Flash (Gemini)", id = "gemini-2.5-flash", provider = "gemini" }
 }
 local defaultAudioModelId = "whisper-large-v3"
 
@@ -867,6 +871,9 @@ function makeAiRequest(prompt, systemInstruction, imageBase64, modelIdOverride, 
 
     local fastSystemInstruction = "Return ONLY the direct result. No explanations, no markdown."
     local combinedSystemInstruction = systemInstruction or fastSystemInstruction
+    if modelIdOverride and modelIdOverride:match("compound") then
+        combinedSystemInstruction = systemInstruction or "You are a helpful AI assistant with search capabilities."
+    end
 
     local url, requestBody, headers
 
@@ -4403,7 +4410,7 @@ function showGeminiLiveWindow()
                 const tools = ]] .. toolsConfig .. [[;
                 const setupMsg = {
                     setup: {
-                        model: "models/gemini-2.0-flash-exp",
+                        model: "models/gemini-3.1-flash-live-preview",
                         systemInstruction: { parts: [{ text: "]] .. sysInstr .. [[" }] },
                         generationConfig: {
                             responseModalities: ["AUDIO"],
