@@ -3562,6 +3562,8 @@ function openMainWindow()
     -- Refresh from prefs in case it was modified
     local orderStr = prefs.getString("dashboardOrder", "assistant,dictation,geminiLive,library,video_analyzer,video_editor,image,transcription,settings")
     if orderStr:match("reader") then orderStr = orderStr:gsub("reader", "library,video_analyzer") end
+    if not orderStr:match("geminiLive") then orderStr = orderStr .. ",geminiLive" end
+    if not orderStr:match("video_editor") then orderStr = orderStr .. ",video_editor" end
 
     for k in orderStr:gmatch("([^,]+)") do
         local key = k:gsub("^%s+", ""):gsub("%s+$", "")
@@ -3938,6 +3940,8 @@ function openSettings()
 
         dashboardOrder = prefs.getString("dashboardOrder", "assistant,dictation,geminiLive,library,video_analyzer,video_editor,image,transcription,settings")
         if dashboardOrder:match("reader") then dashboardOrder = dashboardOrder:gsub("reader", "library,video_analyzer") end
+        if not dashboardOrder:match("geminiLive") then dashboardOrder = dashboardOrder .. ",geminiLive" end
+        if not dashboardOrder:match("video_editor") then dashboardOrder = dashboardOrder .. ",video_editor" end
         for k in dashboardOrder:gmatch("([^,]+)")
  do
             local cleanKey = k:gsub("^%%s+", ""):gsub("%%s+$", "")
