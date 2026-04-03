@@ -223,7 +223,7 @@ selectedGeminiModelId = isValidModel and loadedModelId or defaultGeminiModelId
 
 selectedGroqModelId = prefs.getString("groqModelId", defaultGroqModelId)
 selectedSearchModelId = prefs.getString("searchModelId", "compound-beta")
-dashboardOrder = prefs.getString("dashboardOrder", "assistant,dictation,geminiLive,reader,image,transcription,settings")
+dashboardOrder = prefs.getString("dashboardOrder", "assistant,dictation,geminiLive,library,video_analyzer,image,transcription,settings")
 selectedDictationMode = prefs.getString("selectedDictationMode", defaultDictationMode)
 if not dashboardOrder:match("geminiLive") then
     dashboardOrder = dashboardOrder .. ",geminiLive"
@@ -247,6 +247,99 @@ pdfTtsVoiceName = prefs.getString("pdfTtsVoiceName", "")
 pdfTtsSpeed = prefs.getFloat("pdfTtsSpeed", 1.0)
 startWithDictation = prefs.getBoolean("startWithDictation", true)
 pdfTtsAutoNext = prefs.getBoolean("pdfTtsAutoNext", true)
+
+
+-- ### Library Data Management ###
+local libraryData = {} -- Table to hold books metadata
+
+function loadLibraryData()
+    local savedData = prefs.getString("library_books_data", "[]")
+    local success, jArr = pcall(function() return JSONArray(savedData) end)
+    libraryData = {}
+    if success and jArr then
+        for i = 0, jArr.length() - 1 do
+            local item = jArr.getJSONObject(i)
+            local book = {}
+            local it = item.keys()
+            while it.hasNext() do
+                local k = it.next()
+                if item.get(k).getClass().getSimpleName() == "Boolean" then
+                     book[k] = item.getBoolean(k)
+                elseif item.get(k).getClass().getSimpleName() == "Integer" then
+                     book[k] = item.getInt(k)
+                else
+                     book[k] = item.getString(k)
+                end
+            end
+            table.insert(libraryData, book)
+        end
+    end
+end
+
+function saveLibraryData()
+    local jArr = JSONArray()
+    for _, book in ipairs(libraryData) do
+        local jObj = JSONObject()
+        for k, v in pairs(book) do
+            jObj.put(k, v)
+        end
+        jArr.put(jObj)
+    end
+    local editor = prefs.edit()
+    editor.putString("library_books_data", jArr.toString())
+    editor.apply()
+end
+
+function updateBookProgress(path, title, chapterIdx, sentenceIdx, isFav)
+    local found = false
+    for _, book in ipairs(libraryData) do
+        if book.path == path then
+            book.title = title or book.title
+            if chapterIdx then book.chapterIdx = chapterIdx end
+            if sentenceIdx then book.sentenceIdx = sentenceIdx end
+            if isFav ~= nil then book.isFav = isFav end
+            book.lastReadTime = os.time()
+            found = true
+            break
+        end
+    end
+
+    if not found then
+        table.insert(libraryData, {
+            path = path,
+            title = title or path:match("([^/]+)$") or path,
+            chapterIdx = chapterIdx or 1,
+            sentenceIdx = sentenceIdx or 1,
+            isFav = isFav or false,
+            lastReadTime = os.time()
+        })
+    end
+    saveLibraryData()
+end
+
+function getBookProgress(path)
+    for _, book in ipairs(libraryData) do
+        if book.path == path then
+            return book
+        end
+    end
+    return nil
+end
+
+function removeBookFromLibrary(path)
+    for i = #libraryData, 1, -1 do
+        if libraryData[i].path == path then
+            table.remove(libraryData, i)
+            saveLibraryData()
+            return
+        end
+    end
+end
+
+-- Load library data on startup
+loadLibraryData()
+
+
 
 -- **Global UI Handler**
 mainHandler = Handler(Looper.getMainLooper())
@@ -2038,7 +2131,7 @@ function openDocumentPickerWindow(startPath, onFileSelected)
     showUniversalFilePicker("اختر مستند أو فيديو (PDF/Video/...) 📄", startPath, docFilter, onFileSelected)
 end
 
-function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, epubSpine)
+function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, epubSpine, savedProg)
     if resultWindow then pcall(function() wm.removeView(resultWindow) end); resultWindow = nil end
     local currentDictLangDetails = getLanguageDetails(selectedLanguage)
     local isTxt = filePath:lower():match("%.txt$") ~= nil
@@ -2059,18 +2152,56 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
 
     local fastCloseBtn = Button(service); fastCloseBtn.setText("❌"); styleButton(fastCloseBtn, "danger"); fastCloseBtn.setContentDescription("إغلاق سريع للنافذة");
     fastCloseBtn.setPadding(10,10,10,10)
+
+    local libBtn = Button(service); libBtn.setText("📚"); styleButton(libBtn, "secondary"); libBtn.setContentDescription("العودة للمكتبة");
+    libBtn.setPadding(10,10,10,10)
+    local favBtn = Button(service)
+    local isBookFav = savedProg and savedProg.isFav or false
+    favBtn.setText(isBookFav and "⭐" or "☆")
+    styleButton(favBtn, "secondary")
+    favBtn.setContentDescription("إضافة أو إزالة من المفضلة")
+    favBtn.setPadding(10,10,10,10)
+
+    headerL.addView(libBtn, LinearLayout.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT))
+    local lpFav = LinearLayout.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT)
+    lpFav.setMargins(10,0,10,0)
+    headerL.addView(favBtn, lpFav)
+
     headerL.addView(fastCloseBtn, LinearLayout.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT))
     resultWindow.addView(headerL)
+
+    resultWindow.setFocusableInTouchMode(true)
+    resultWindow.requestFocus()
+    resultWindow.setOnKeyListener(View.OnKeyListener{
+        onKey = function(v, keyCode, event)
+            if event.getAction() == android.view.KeyEvent.ACTION_UP and keyCode == android.view.KeyEvent.KEYCODE_BACK then
+                if resultWindow then
+                    pcall(function() closeAction() end)
+                end
+                return true
+            end
+            return false
+        end
+    })
+
 
     local pagesCache = {}
     local currentCacheIdx = 1
     local sentencesList = {}
+    local currentSentenceIdx = savedProg and savedProg.sentenceIdx or 1
     local currentSentenceIdx = 1
     local isPlaying = false
     local docTts = nil
     local isDocTtsInit = false
 
     local stopReading, initDocTts, readCurrentSentence, rebuildSentencesList, updateDisplayPage, fetchRangeContentRemote, updateProgress
+
+
+    local function saveCurrentProgress()
+        local title = filePath:match("([^/]+)$") or filePath
+        if isEpub and epubSpine and epubSpine[currentChapterIdx] then title = epubSpine[currentChapterIdx].title end
+        updateBookProgress(filePath, title, currentChapterIdx, currentSentenceIdx, isBookFav)
+    end
 
     local controlsL = LinearLayout(service); controlsL.setOrientation(LinearLayout.VERTICAL); resultWindow.addView(controlsL)
 
@@ -2120,6 +2251,7 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
             stopReading()
             currentSentenceIdx = position + 1
             updateProgress()
+            saveCurrentProgress()
             if wasPlaying then readCurrentSentence() end
         end
     })
@@ -2143,7 +2275,7 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
     footerBtnsL.addView(closeBtn, lpBtn)
     footerL.addView(footerBtnsL)
 
-    local currentChapterIdx = 1
+    local currentChapterIdx = savedProg and savedProg.chapterIdx or 1
     if isEpub and epubSpine then
         local chapL = LinearLayout(service); chapL.setOrientation(LinearLayout.HORIZONTAL); chapL.setGravity(Gravity.CENTER_VERTICAL); chapL.setPadding(0,0,0,20)
         local chapLbl = TextView(service); chapLbl.setText("الفصل:"); chapLbl.setTextColor(0xFFB0B0B0); chapLbl.setPadding(0,0,20,0); chapL.addView(chapLbl)
@@ -2152,6 +2284,17 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
         for _, item in ipairs(epubSpine) do chapNames.add(item.title) end
         local chapSpinner = Spinner(service)
         local chapAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, chapNames)
+
+        if currentChapterIdx > #epubSpine then currentChapterIdx = 1 end
+        local chapPath = epubSpine[currentChapterIdx].path
+        -- Load the initial saved chapter if it's not chapter 1
+        if currentChapterIdx > 1 then
+             local cText, e = extractEpubChapterText(filePath, chapPath)
+             if cText then initialText = cText end
+        end
+
+        chapSpinner.setSelection(currentChapterIdx - 1)
+
         chapAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         chapSpinner.setAdapter(chapAdapter)
         chapL.addView(chapSpinner, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0))
@@ -2232,6 +2375,7 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
         end
     end
 
+
     rebuildSentencesList = function()
         sentencesList = {}
         adapter.clear()
@@ -2242,10 +2386,14 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
                 adapter.add(s)
             end
         end
-        currentSentenceIdx = 1
-        listView.setItemChecked(0, true)
+        if currentSentenceIdx > #sentencesList then currentSentenceIdx = 1 end
+        if #sentencesList > 0 then
+            listView.setItemChecked(currentSentenceIdx - 1, true)
+            listView.setSelection(currentSentenceIdx - 1)
+        end
         updateProgress()
     end
+
 
     initDocTts = function(callback)
         mainHandler.post(luajava.createProxy("java.lang.Runnable", {
@@ -2278,6 +2426,7 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
                                                 if currentSentenceIdx < #sentencesList then
                                                     currentSentenceIdx = currentSentenceIdx + 1
                                                     updateProgress()
+                                                    saveCurrentProgress()
                                                     listView.setItemChecked(currentSentenceIdx - 1, true)
                                                     listView.smoothScrollToPosition(currentSentenceIdx - 1)
                                                     readCurrentSentence()
@@ -2424,19 +2573,34 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
         end)
     end
 
+
+    favBtn.setOnClickListener(function()
+        isBookFav = not isBookFav
+        favBtn.setText(isBookFav and "⭐" or "☆")
+        saveCurrentProgress()
+        service.asyncSpeak(isBookFav and "تمت الإضافة للمفضلة" or "تمت الإزالة من المفضلة")
+    end)
+
+    libBtn.setOnClickListener(function()
+        closeAction()
+        showLibraryWindow()
+    end)
+
     playBtn.setOnClickListener(function() if isPlaying then stopReading() else readCurrentSentence() end end)
 
     prevSkipBtn.setOnClickListener(function()
         local wasPlaying = isPlaying; stopReading()
         currentSentenceIdx = math.max(1, currentSentenceIdx - 4)
-        updateProgress(); listView.setItemChecked(currentSentenceIdx - 1, true); listView.setSelection(currentSentenceIdx - 1)
+        updateProgress()
+        saveCurrentProgress(); listView.setItemChecked(currentSentenceIdx - 1, true); listView.setSelection(currentSentenceIdx - 1)
         if wasPlaying then readCurrentSentence() end
     end)
 
     nextSkipBtn.setOnClickListener(function()
         local wasPlaying = isPlaying; stopReading()
         currentSentenceIdx = math.min(#sentencesList, currentSentenceIdx + 4)
-        updateProgress(); listView.setItemChecked(currentSentenceIdx - 1, true); listView.setSelection(currentSentenceIdx - 1)
+        updateProgress()
+        saveCurrentProgress(); listView.setItemChecked(currentSentenceIdx - 1, true); listView.setSelection(currentSentenceIdx - 1)
         if wasPlaying then readCurrentSentence() end
     end)
 
@@ -2452,7 +2616,8 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
                 local p = s.getProgress()
                 local wasPlaying = isPlaying; stopReading()
                 currentSentenceIdx = math.max(1, math.floor((p / 100) * #sentencesList))
-                updateProgress(); listView.setItemChecked(currentSentenceIdx - 1, true); listView.setSelection(currentSentenceIdx - 1)
+                updateProgress()
+                saveCurrentProgress(); listView.setItemChecked(currentSentenceIdx - 1, true); listView.setSelection(currentSentenceIdx - 1)
                 if wasPlaying then readCurrentSentence() end
             end
         end
@@ -2485,7 +2650,9 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
         }); pcall(function() localRec.startListening(qIntent) end)
     end)
 
+
     local closeAction = function()
+        saveCurrentProgress()
         stopReading()
         if docTts then pcall(function() docTts.shutdown() end) end
         if resultWindow then pcall(function() wm.removeView(resultWindow) end); resultWindow = nil end
@@ -2864,7 +3031,7 @@ function loadVideoAndShowViewer(filePath)
     end)
 end
 
-function loadPdfAndShowViewer(filePath)
+function loadPdfAndShowViewer(filePath, bookProg)
     if geminiApiKey == "" then
         service.asyncSpeak("مفتاح Gemini مفقود.")
         return
@@ -2878,7 +3045,7 @@ function loadPdfAndShowViewer(filePath)
             showResultWindow("خطأ", fileUriOrError)
             return
         end
-        showDocumentViewerWindow(filePath, fileUriOrError, false)
+        showDocumentViewerWindow(filePath, fileUriOrError, false, nil, nil, bookProg)
     end)
 end
 
@@ -2887,14 +3054,14 @@ function loadDocumentAndShowViewer(filePath)
     if ext then ext = ext:lower() end
 
     if ext == "pdf" then
-        loadPdfAndShowViewer(filePath)
+        loadPdfAndShowViewer(filePath, getBookProgress(filePath))
     elseif ext == "mp4" or ext == "mov" or ext == "avi" or ext == "webm" or ext == "3gp" or ext == "mkv" or ext == "mpeg" or ext == "mpg" or ext == "flv" or ext == "wmv" then
         loadVideoAndShowViewer(filePath)
     elseif ext == "docx" then
         service.asyncSpeak("جاري قراءة ملف الوورد محلياً...")
         local text, err = extractDocxTextLocal(filePath)
         if text then
-            showDocumentViewerWindow(filePath, nil, true, text)
+            showDocumentViewerWindow(filePath, nil, true, text, nil, getBookProgress(filePath))
         else
             service.asyncSpeak("فشل قراءة الملف: " .. (err or "خطأ غير معروف"))
             showResultWindow("خطأ", err or "فشل استخراج النص من ملف Word.")
@@ -2904,7 +3071,7 @@ function loadDocumentAndShowViewer(filePath)
         -- Try UTF-8 first
         local text, err = extractTxtTextLocal(filePath, "UTF-8")
         if text then
-            showDocumentViewerWindow(filePath, nil, true, text)
+            showDocumentViewerWindow(filePath, nil, true, text, nil, getBookProgress(filePath))
         else
             service.asyncSpeak("فشل قراءة الملف: " .. (err or "خطأ غير معروف"))
             showResultWindow("خطأ", err or "فشل استخراج النص من الملف النصي.")
@@ -2916,7 +3083,7 @@ function loadDocumentAndShowViewer(filePath)
             service.asyncSpeak("جاري تحميل الفصل الأول...")
             local firstChapText, err2 = extractEpubChapterText(filePath, spine[1].path)
             if firstChapText then
-                showDocumentViewerWindow(filePath, nil, false, firstChapText, spine)
+                showDocumentViewerWindow(filePath, nil, false, firstChapText, spine, getBookProgress(filePath))
             else
                 service.asyncSpeak("فشل استخراج نص الفصل الأول.")
                 showResultWindow("خطأ", err2 or "فشل استخراج نص من الكتاب.")
@@ -3005,7 +3172,7 @@ function saveSettings()
     editor.putString("groqModelId", selectedGroqModelId or defaultGroqModelId)
     editor.putString("audioModelId", selectedAudioModelId or defaultAudioModelId)
     editor.putString("searchModelId", selectedSearchModelId or "compound-beta")
-editor.putString("dashboardOrder", dashboardOrder or "assistant,dictation,geminiLive,reader,image,transcription,settings")
+editor.putString("dashboardOrder", dashboardOrder or "assistant,dictation,geminiLive,library,video_analyzer,image,transcription,settings")
     editor.putString("selectedDictationMode", selectedDictationMode or defaultDictationMode)
 
     editor.putBoolean("summarizeEnabled", summarizeEnabled)
@@ -3042,6 +3209,227 @@ end
 function hideSettings()
     if settingsDialog then local r = pcall(function() wm.removeView(settingsDialog) end); if r then settingsDialog = nil end end
 end
+
+
+-- ### Library Window Implementation ###
+local libraryWindowDialog = nil
+
+function showLibraryWindow()
+    if libraryWindowDialog then return end
+
+    -- Refresh data before showing
+    loadLibraryData()
+
+    libraryWindowDialog = LinearLayout(service)
+    libraryWindowDialog.setOrientation(LinearLayout.VERTICAL)
+    libraryWindowDialog.setBackgroundColor(0xFF121212)
+    libraryWindowDialog.setPadding(20, 20, 20, 20)
+
+    -- Allow window to receive key events (like the Back button)
+    libraryWindowDialog.setFocusableInTouchMode(true)
+    libraryWindowDialog.requestFocus()
+    libraryWindowDialog.setOnKeyListener(View.OnKeyListener{
+        onKey = function(v, keyCode, event)
+            if event.getAction() == android.view.KeyEvent.ACTION_UP and keyCode == android.view.KeyEvent.KEYCODE_BACK then
+                if libraryWindowDialog then
+                    pcall(function() wm.removeView(libraryWindowDialog) end)
+                    libraryWindowDialog = nil
+                end
+                return true
+            end
+            return false
+        end
+    })
+
+    -- Header
+    local headerL = LinearLayout(service)
+    headerL.setOrientation(LinearLayout.HORIZONTAL)
+    headerL.setGravity(Gravity.CENTER_VERTICAL)
+    headerL.setPadding(0, 10, 0, 20)
+
+    local titleTv = TextView(service)
+    titleTv.setText("📚 مكتبتي")
+    titleTv.setTextSize(24)
+    titleTv.setTypeface(nil, Typeface.BOLD)
+    titleTv.setTextColor(0xFFFFFFFF)
+    local titleLp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0)
+    headerL.addView(titleTv, titleLp)
+
+    local closeBtn = Button(service)
+    closeBtn.setText("❌ إغلاق")
+    styleButton(closeBtn, "danger")
+    closeBtn.setContentDescription("العودة للوحة التحكم الرئيسية")
+    closeBtn.setOnClickListener(function()
+        if libraryWindowDialog then
+            pcall(function() wm.removeView(libraryWindowDialog) end)
+            libraryWindowDialog = nil
+        end
+    end)
+    headerL.addView(closeBtn)
+    libraryWindowDialog.addView(headerL)
+
+    -- Scrollable Content
+    local scrollV = ScrollView(service)
+    local contentL = LinearLayout(service)
+    contentL.setOrientation(LinearLayout.VERTICAL)
+    scrollV.addView(contentL)
+    libraryWindowDialog.addView(scrollV, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0))
+
+    -- Add New Book Button
+    local newBookBtn = Button(service)
+    newBookBtn.setText("➕ فتح ملف كتاب جديد (PDF, Word, TXT, EPUB)")
+    styleButton(newBookBtn, "primary")
+    newBookBtn.setContentDescription("فتح مدير الملفات لاختيار كتاب جديد لقراءته")
+    local newBookLp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+    newBookLp.setMargins(0, 0, 0, 30)
+    contentL.addView(newBookBtn, newBookLp)
+
+    newBookBtn.setOnClickListener(function()
+        if libraryWindowDialog then pcall(function() wm.removeView(libraryWindowDialog) end); libraryWindowDialog = nil end
+        local paths = getStoragePaths(); local startPath = "/storage/emulated/0"
+        if #paths > 0 then startPath = paths[1].path end
+
+        -- Override document picker to only filter books
+        local function bookFilter(fname)
+            return fname:match("%.pdf$") or fname:match("%.docx$") or fname:match("%.txt$") or fname:match("%.epub$")
+        end
+        showUniversalFilePicker("اختر كتاباً 📚", startPath, bookFilter, function(selectedPath)
+            loadDocumentAndShowViewer(selectedPath)
+        end)
+    end)
+
+    -- Helper to create book items
+    local function createBookItem(book, isFavSection)
+        local card = LinearLayout(service)
+        card.setOrientation(LinearLayout.VERTICAL)
+        local bg = GradientDrawable()
+        bg.setColor(0xFF1E1E1E)
+        bg.setCornerRadius(15)
+        card.setBackgroundDrawable(bg)
+        local cardLp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        cardLp.setMargins(0, 0, 0, 15)
+        card.setLayoutParams(cardLp)
+        card.setPadding(20, 20, 20, 20)
+
+        local titleRow = LinearLayout(service)
+        titleRow.setOrientation(LinearLayout.HORIZONTAL)
+        titleRow.setGravity(Gravity.CENTER_VERTICAL)
+
+        local bTitle = TextView(service)
+        bTitle.setText((book.isFav and "⭐ " or "📄 ") .. book.title)
+        bTitle.setTextColor(0xFFE0E0E0)
+        bTitle.setTextSize(18)
+        bTitle.setTypeface(nil, Typeface.BOLD)
+        local bTitleLp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0)
+        titleRow.addView(bTitle, bTitleLp)
+
+        card.addView(titleRow)
+
+        local infoRow = LinearLayout(service)
+        infoRow.setOrientation(LinearLayout.HORIZONTAL)
+        infoRow.setPadding(0, 10, 0, 10)
+
+        local bProgress = TextView(service)
+        bProgress.setText("📍 توقفت عند: الفصل/الصفحة " .. (book.chapterIdx or 1) .. " - الجملة " .. (book.sentenceIdx or 1))
+        bProgress.setTextColor(0xFF888888)
+        bProgress.setTextSize(14)
+        infoRow.addView(bProgress, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0))
+
+        card.addView(infoRow)
+
+        local actionRow = LinearLayout(service)
+        actionRow.setOrientation(LinearLayout.HORIZONTAL)
+
+        local openBtn = Button(service)
+        openBtn.setText("📖 استكمال القراءة")
+        styleButton(openBtn, "secondary")
+        local btnLp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0)
+        btnLp.rightMargin = 10
+        actionRow.addView(openBtn, btnLp)
+
+        local delBtn = Button(service)
+        delBtn.setText("🗑️")
+        styleButton(delBtn, "danger")
+        actionRow.addView(delBtn, LinearLayout.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT))
+
+        card.addView(actionRow)
+
+        openBtn.setOnClickListener(function()
+            if libraryWindowDialog then pcall(function() wm.removeView(libraryWindowDialog) end); libraryWindowDialog = nil end
+            loadDocumentAndShowViewer(book.path)
+        end)
+
+        delBtn.setOnClickListener(function()
+            removeBookFromLibrary(book.path)
+            if libraryWindowDialog then pcall(function() wm.removeView(libraryWindowDialog) end); libraryWindowDialog = nil end
+            showLibraryWindow() -- refresh
+        end)
+
+        return card
+    end
+
+    -- Separate into Favorites and Recent
+    local favBooks = {}
+    local recentBooks = {}
+
+    -- Sort by lastReadTime descending
+    table.sort(libraryData, function(a, b)
+        return (a.lastReadTime or 0) > (b.lastReadTime or 0)
+    end)
+
+    for _, book in ipairs(libraryData) do
+        if book.isFav then table.insert(favBooks, book) else table.insert(recentBooks, book) end
+    end
+
+    -- Favorites Section
+    if #favBooks > 0 then
+        local favHeader = TextView(service)
+        favHeader.setText("⭐ الكتب المفضلة")
+        favHeader.setTextColor(0xFFFFD700)
+        favHeader.setTextSize(18)
+        favHeader.setTypeface(nil, Typeface.BOLD)
+        favHeader.setPadding(0, 10, 0, 15)
+        contentL.addView(favHeader)
+
+        for _, b in ipairs(favBooks) do
+            contentL.addView(createBookItem(b, true))
+        end
+    end
+
+    -- Recent Books Section
+    if #recentBooks > 0 then
+        local recHeader = TextView(service)
+        recHeader.setText("🕒 آخر ما قرأت")
+        recHeader.setTextColor(0xFF64B5F6)
+        recHeader.setTextSize(18)
+        recHeader.setTypeface(nil, Typeface.BOLD)
+        recHeader.setPadding(0, 20, 0, 15)
+        contentL.addView(recHeader)
+
+        for _, b in ipairs(recentBooks) do
+            contentL.addView(createBookItem(b, false))
+        end
+    end
+
+    if #favBooks == 0 and #recentBooks == 0 then
+        local emptyTv = TextView(service)
+        emptyTv.setText("المكتبة فارغة. افتح ملفاً جديداً للبدء.")
+        emptyTv.setTextColor(0xFF888888)
+        emptyTv.setGravity(Gravity.CENTER)
+        emptyTv.setPadding(0, 50, 0, 0)
+        contentL.addView(emptyTv)
+    end
+
+    local winP = WindowManager.LayoutParams()
+    winP.width = WindowManager.LayoutParams.MATCH_PARENT
+    winP.height = WindowManager.LayoutParams.MATCH_PARENT -- Make it full screen
+    winP.type = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
+    winP.flags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL -- allow back key
+    winP.format = PixelFormat.TRANSLUCENT
+    winP.gravity = Gravity.CENTER
+    pcall(function() wm.addView(libraryWindowDialog, winP) end)
+end
+
 
 local mainWindowDialog = nil
 
@@ -3093,12 +3481,23 @@ function openMainWindow()
             btn.setOnClickListener(function() hideMainWindow(); showGeminiLiveWindow() end)
             return btn
         end,
-        reader = function()
-            local btn = Button(service); btn.setText("📄 قارئ المستندات والفيديو")
-            btn.setContentDescription("فتح قارئ الملفات والمستندات والفيديو")
+        library = function()
+            local btn = Button(service); btn.setText("📚 المكتبة والقارئ")
+            btn.setContentDescription("فتح مكتبة الكتب والمستندات")
             styleButton(btn, "secondary")
             btn.setOnClickListener(function()
-                hideMainWindow(); local paths = getStoragePaths(); local startPath = "/storage/emulated/0"
+                hideMainWindow()
+                if showLibraryWindow then showLibraryWindow() end
+            end)
+            return btn
+        end,
+        video_analyzer = function()
+            local btn = Button(service); btn.setText("🎬 محلل الفيديو")
+            btn.setContentDescription("اختيار وتحليل مقاطع الفيديو")
+            styleButton(btn, "secondary")
+            btn.setOnClickListener(function()
+                hideMainWindow()
+                local paths = getStoragePaths(); local startPath = "/storage/emulated/0"
                 if #paths > 0 then startPath = paths[1].path end
                 openDocumentPickerWindow(startPath, function(selectedPath) loadDocumentAndShowViewer(selectedPath) end)
             end)
@@ -3136,7 +3535,7 @@ function openMainWindow()
         end
     }
 
-    local orderStr = dashboardOrder or "assistant,dictation,geminiLive,reader,image,transcription,settings"
+    local orderStr = dashboardOrder or "assistant,dictation,geminiLive,library,video_analyzer,image,transcription,settings"
     for k in orderStr:gmatch("([^,]+)") do
         local key = k:gsub("^%s+", ""):gsub("%s+$", "")
         if buttons[key] then
@@ -3502,14 +3901,14 @@ function openSettings()
         local keyNames = {
             assistant = "المساعد الشخصي",
             dictation = "الإملاء والترجمة",
-            reader = "قارئ المستندات",
+            library = "المكتبة والقارئ", video_analyzer = "محلل الفيديو",
             image = "وصف الصور",
             transcription = "تفريغ الصوت",
             settings = "الإعدادات", geminiLive = "البث المباشر (Gemini Live)"
         }
 
         local keys = {}
-        if not dashboardOrder then dashboardOrder = "assistant,dictation,geminiLive,reader,image,transcription,settings" end
+        if not dashboardOrder then dashboardOrder = "assistant,dictation,geminiLive,library,video_analyzer,image,transcription,settings" end
         for k in dashboardOrder:gmatch("([^,]+)") do
             local cleanKey = k:gsub("^%%s+", ""):gsub("%%s+$", "")
             if keyNames[cleanKey] then
