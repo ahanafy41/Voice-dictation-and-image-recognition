@@ -4518,7 +4518,7 @@ function showVideoEditorWindow()
 
                     mainHandler.post(luajava.createProxy("java.lang.Runnable", {
                         run = function()
-                            view.evaluateJavascript("window.onFileSelectedNative('" .. escapeJsonString(resultData) .. "', '" .. defaultValue .. "', '" .. escapeJsonString(selectedPath) .. "');", nil)
+                            view.evaluateJavascript("window.onFileSelectedNative(\"" .. escapeJsonString(resultData) .. "\", \"" .. escapeJsonString(defaultValue) .. "\", \"" .. escapeJsonString(selectedPath) .. "\");", nil)
                         end
                     }))
                 end)
@@ -4533,7 +4533,7 @@ function showVideoEditorWindow()
                     local escapedResult = escapeJsonString(aiResult)
                     mainHandler.post(luajava.createProxy("java.lang.Runnable", {
                         run = function()
-                            view.evaluateJavascript("window.onScenesGeneratedNative('" .. escapedResult .. "');", nil)
+                            view.evaluateJavascript("window.onScenesGeneratedNative(\"" .. escapedResult .. "\");", nil)
                         end
                     }))
                 end)
@@ -4560,7 +4560,7 @@ function showVideoEditorWindow()
                         end)
                     end
                     mainHandler.post(luajava.createProxy("java.lang.Runnable", {
-                        run = function() view.evaluateJavascript("window.onSceneImageGeneratedNative('" .. b64 .. "', " .. indexStr .. ");", nil) end
+                        run = function() view.evaluateJavascript("window.onSceneImageGeneratedNative(\"" .. b64 .. "\", " .. indexStr .. ");", nil) end
                     }))
                 end)
                 result.confirm("Handled")
@@ -4609,7 +4609,7 @@ function showVideoEditorWindow()
                         end)
                     end
                     mainHandler.post(luajava.createProxy("java.lang.Runnable", {
-                        run = function() view.evaluateJavascript("window.onSceneAudioGeneratedNative('" .. b64 .. "', " .. indexStr .. ", " .. sampleRate .. ");", nil) end
+                        run = function() view.evaluateJavascript("window.onSceneAudioGeneratedNative(\"" .. b64 .. "\", " .. indexStr .. ", " .. sampleRate .. ");", nil) end
                     }))
                 end)
                 result.confirm("Handled")
@@ -5560,7 +5560,7 @@ function showGeminiLiveWindow()
                         end)
                     end
                     mainHandler.post(luajava.createProxy("java.lang.Runnable", {
-                        run = function() view.evaluateJavascript("window.onSceneImageGeneratedNative('" .. b64 .. "', " .. indexStr .. ");", nil) end
+                        run = function() view.evaluateJavascript("window.onSceneImageGeneratedNative(\"" .. b64 .. "\", " .. indexStr .. ");", nil) end
                     }))
                 end)
                 result.confirm("Handled")
@@ -5609,7 +5609,7 @@ function showGeminiLiveWindow()
                         end)
                     end
                     mainHandler.post(luajava.createProxy("java.lang.Runnable", {
-                        run = function() view.evaluateJavascript("window.onSceneAudioGeneratedNative('" .. b64 .. "', " .. indexStr .. ", " .. sampleRate .. ");", nil) end
+                        run = function() view.evaluateJavascript("window.onSceneAudioGeneratedNative(\"" .. b64 .. "\", " .. indexStr .. ", " .. sampleRate .. ");", nil) end
                     }))
                 end)
                 result.confirm("Handled")
