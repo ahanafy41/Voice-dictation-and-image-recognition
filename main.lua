@@ -2175,19 +2175,7 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
     headerL.addView(fastCloseBtn, LinearLayout.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT))
     resultWindow.addView(headerL)
 
-saveCurrentProgress = function()
-        local title = filePath:match("([^/]+)$") or filePath
-        if isEpub and epubSpine and epubSpine[currentChapterIdx] then title = epubSpine[currentChapterIdx].title end
-        updateBookProgress(filePath, title, currentChapterIdx, currentSentenceIdx, isBookFav)
-    end
 
-    closeAction = function()
-        saveCurrentProgress()
-        if stopReading then stopReading() end
-        if docTts then pcall(function() docTts.shutdown() end) end
-        if resultWindow then pcall(function() wm.removeView(resultWindow) end); resultWindow = nil end
-        service.asyncSpeak("تم إغلاق المستند.")
-    end
 
     resultWindow.setFocusableInTouchMode(true)
     resultWindow.requestFocus()
@@ -2209,13 +2197,24 @@ saveCurrentProgress = function()
     isBookFav = savedProg and savedProg.isFav or false
     local sentencesList = {}
     local currentSentenceIdx = savedProg and savedProg.sentenceIdx or 1
-    local currentSentenceIdx = 1
     local isPlaying = false
     local docTts = nil
     local isDocTtsInit = false
 
     local stopReading, initDocTts, readCurrentSentence, rebuildSentencesList, updateDisplayPage, fetchRangeContentRemote, updateProgress
-    local saveCurrentProgress, closeAction
+    saveCurrentProgress = function()
+        local title = filePath:match("([^/]+)$") or filePath
+        if isEpub and epubSpine and epubSpine[currentChapterIdx] then title = epubSpine[currentChapterIdx].title end
+        updateBookProgress(filePath, title, currentChapterIdx, currentSentenceIdx, isBookFav)
+    end
+
+    closeAction = function()
+        saveCurrentProgress()
+        if stopReading then stopReading() end
+        if docTts then pcall(function() docTts.shutdown() end) end
+        if resultWindow then pcall(function() wm.removeView(resultWindow) end); resultWindow = nil end
+        service.asyncSpeak("تم إغلاق المستند.")
+    end
 
 
 
