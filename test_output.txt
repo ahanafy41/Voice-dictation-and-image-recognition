@@ -1,0 +1,19 @@
+TestScriptLoading
+  [TestScriptLoading:testScriptLoadsWithoutErrors] 	Ok
+TestGeminiFunctions
+  [TestGeminiFunctions:test_correctWithAi_success] 	Ok
+  [TestGeminiFunctions:test_describeImageWithGemini_success] 	Ok
+  [TestGeminiFunctions:test_queryImageWithGemini_success] 	Ok
+  [TestGeminiFunctions:test_summarizeWithGemini_success] 	Ok
+  [TestGeminiFunctions:test_translateTextWithGemini_New_same_language] 	Ok
+  [TestGeminiFunctions:test_translateTextWithGemini_New_success] 	Ok
+TestHelperFunctions
+  [TestHelperFunctions:test_escapeJsonString] 	Ok
+  [TestHelperFunctions:test_extractEpubMetadata_mock] 	Ok
+  [TestHelperFunctions:test_getFeedbackString] 	Ok
+  [TestHelperFunctions:test_getLanguageDetails] 	Ok
+  [TestHelperFunctions:test_isArabicText] 	Ok
+  [TestHelperFunctions:test_parseImageDescription] 	Ok
+  [TestHelperFunctions:test_smartSplitText] 	Ok
+=========================================================
+Success : 100% - 14 / 14
