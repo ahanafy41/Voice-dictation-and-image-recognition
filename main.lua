@@ -251,36 +251,6 @@ pdfTtsAutoNext = prefs.getBoolean("pdfTtsAutoNext", true)
 -- **Global UI Handler**
 mainHandler = Handler(Looper.getMainLooper())
 
--- **Edge TTS Voices (Arabic)**
--- **Google Free TTS Voices (Arabic)**
--- **Edge TTS Voices (Arabic)**
-local edgeTtsVoices = {
-    { id = "ar-EG-SalmaNeural", name = "سلمى (مصر - أنثى)" },
-    { id = "ar-EG-ShakirNeural", name = "شاكر (مصر - ذكر)" },
-    { id = "ar-SA-ZariyahNeural", name = "زارية (السعودية - أنثى)" },
-    { id = "ar-SA-HamedNeural", name = "حامد (السعودية - ذكر)" },
-    { id = "ar-AE-FatimaNeural", name = "فاطمة (الإمارات - أنثى)" },
-    { id = "ar-AE-HamdanNeural", name = "حمدان (الإمارات - ذكر)" },
-    { id = "ar-JO-SanaNeural", name = "سناء (الأردن - أنثى)" },
-    { id = "ar-JO-TaimNeural", name = "تيم (الأردن - ذكر)" },
-    { id = "ar-QA-AmalNeural", name = "أمل (قطر - أنثى)" },
-    { id = "ar-QA-MoazNeural", name = "معاذ (قطر - ذكر)" },
-    { id = "ar-KW-NouraNeural", name = "نورة (الكويت - أنثى)" },
-    { id = "ar-KW-FahedNeural", name = "فهد (الكويت - ذكر)" },
-    { id = "ar-OM-AyshaNeural", name = "عائشة (عُمان - أنثى)" },
-    { id = "ar-OM-AbdullahNeural", name = "عبدالله (عُمان - ذكر)" },
-    { id = "ar-BH-LailaNeural", name = "ليلى (البحرين - أنثى)" },
-    { id = "ar-BH-AliNeural", name = "علي (البحرين - ذكر)" },
-    { id = "ar-IQ-RanaNeural", name = "رنا (العراق - أنثى)" },
-    { id = "ar-IQ-BasselNeural", name = "باسل (العراق - ذكر)" },
-    { id = "ar-MA-MounaNeural", name = "منى (المغرب - أنثى)" },
-    { id = "ar-MA-JamalNeural", name = "جمال (المغرب - ذكر)" },
-    { id = "ar-DZ-AminaNeural", name = "أمينة (الجزائر - أنثى)" },
-    { id = "ar-DZ-IsmaelNeural", name = "إسماعيل (الجزائر - ذكر)" },
-    { id = "ar-TN-ReemNeural", name = "ريم (تونس - أنثى)" },
-    { id = "ar-TN-HediNeural", name = "الهادي (تونس - ذكر)" }
-}
-
 -- **Global Variables**
 stopDictation = false
 speechRecord = nil
