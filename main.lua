@@ -4487,6 +4487,8 @@ function showVideoEditorWindow()
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>محرر الفيديو الذكي للمكفوفين (إصدار الانتقالات والمشاهد)</title>
+    <!-- Fix ReferenceError: exports is not defined -->
+    <script>var exports = {};</script>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Font Awesome -->
