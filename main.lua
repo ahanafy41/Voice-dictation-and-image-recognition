@@ -228,6 +228,9 @@ selectedDictationMode = prefs.getString("selectedDictationMode", defaultDictatio
 if not dashboardOrder:match("geminiLive") then
     dashboardOrder = dashboardOrder .. ",geminiLive"
 end
+if not dashboardOrder:match("video_editor") then
+    dashboardOrder = dashboardOrder .. ",video_editor"
+end
 selectedAudioModelId = prefs.getString("audioModelId", defaultAudioModelId)
 
 summarizeEnabled = prefs.getBoolean("summarizeEnabled", false)
