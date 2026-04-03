@@ -4480,11 +4480,45 @@ function showVideoEditorWindow()
                 local function anyFileFilter(fname) return true end
 
                 showUniversalFilePicker("اختر ملف (فيديو، صورة، صوت) 📁", startPath, anyFileFilter, function(selectedPath)
-                    -- Pass back the selected file path to JS
-                    local escapedPath = escapeJsonString(selectedPath)
+                    import "java.io.File"
+                    import "java.io.FileInputStream"
+                    import "android.util.Base64"
+
+                    local success, resultData = pcall(function()
+                        local file = File(selectedPath)
+                        local is = FileInputStream(file)
+                        local length = file.length()
+                        local bytes = luajava.newArray(luajava.bindClass("java.lang.Byte").TYPE, length)
+                        is.read(bytes)
+                        is.close()
+                        local b64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+
+                        local ext = selectedPath:match("%.([^%.]+)$")
+                        if ext then ext = ext:lower() else ext = "" end
+
+                        local mime = "application/octet-stream"
+                        if ext == "jpg" or ext == "jpeg" then mime = "image/jpeg"
+                        elseif ext == "png" then mime = "image/png"
+                        elseif ext == "webp" then mime = "image/webp"
+                        elseif ext == "gif" then mime = "image/gif"
+                        elseif ext == "mp3" then mime = "audio/mpeg"
+                        elseif ext == "wav" then mime = "audio/wav"
+                        elseif ext == "m4a" or ext == "aac" then mime = "audio/aac"
+                        elseif ext == "ogg" then mime = "audio/ogg"
+                        elseif ext == "mp4" then mime = "video/mp4"
+                        elseif ext == "webm" then mime = "video/webm"
+                        elseif ext == "mkv" then mime = "video/x-matroska"
+                        elseif ext == "mov" then mime = "video/quicktime"
+                        end
+
+                        return "data:" .. mime .. ";base64," .. b64
+                    end)
+
+                    if not success then resultData = "Error: " .. tostring(resultData) end
+
                     mainHandler.post(luajava.createProxy("java.lang.Runnable", {
                         run = function()
-                            view.evaluateJavascript("window.onFileSelectedNative('" .. escapedPath .. "', '" .. defaultValue .. "');", nil)
+                            view.evaluateJavascript("window.onFileSelectedNative('" .. escapeJsonString(resultData) .. "', '" .. defaultValue .. "', '" .. escapeJsonString(selectedPath) .. "');", nil)
                         end
                     }))
                 end)
@@ -5008,12 +5042,15 @@ function showVideoEditorWindow()
             }
         };
 
-        window.onFileSelectedNative = function(filePath, sourceId) {
-            if (!filePath) return;
-            // Native paths like /storage/emulated/0/... can be loaded using file:// prefix
-            // if WebSettings.setAllowFileAccessFromFileURLs(true) is set
-            const url = "file://" + filePath;
-            const ext = filePath.split('.').pop().toLowerCase();
+        window.onFileSelectedNative = function(dataUri, sourceId, originalPath) {
+            if (!dataUri || dataUri.indexOf("Error") === 0) {
+                showToast('فشل في تحميل الملف أو حجمه كبير جداً.', 'error');
+                return;
+            }
+
+            const url = dataUri; // Use the base64 data URI directly
+            const ext = originalPath.split('.').pop().toLowerCase();
+            const fileName = originalPath.split('/').pop();
 
             if (sourceId === "bg_music") {
                 const audObj = new Audio(url);
@@ -5032,7 +5069,7 @@ function showVideoEditorWindow()
                     const img = new Image();
                     img.src = url;
                     img.onload = () => {
-                        addToTimeline({ id: `up-${Date.now()}`, type: 'image', name: filePath.split('/').pop(), src: url, start, end: start+5, layer: 1, scale: 100, transition: 'none', transSound: false, imageElement: img });
+                        addToTimeline({ id: `up-${Date.now()}`, type: 'image', name: fileName, src: url, start, end: start+5, layer: 1, scale: 100, transition: 'none', transSound: false, imageElement: img });
                         appState.lastItemEndTimes.visual = start + 5;
                     };
                     img.onerror = () => showToast('فشل تحميل الصورة.', 'error');
@@ -5041,7 +5078,7 @@ function showVideoEditorWindow()
                     vid.src = url;
                     vid.muted = true;
                     vid.onloadedmetadata = () => {
-                        addToTimeline({ id: `up-${Date.now()}`, type: 'video', name: filePath.split('/').pop(), src: url, start, end: start+vid.duration, layer: 1, scale: 100, transition: 'none', transSound: false, videoElement: vid });
+                        addToTimeline({ id: `up-${Date.now()}`, type: 'video', name: fileName, src: url, start, end: start+vid.duration, layer: 1, scale: 100, transition: 'none', transSound: false, videoElement: vid });
                         appState.lastItemEndTimes.visual = start + vid.duration;
                     };
                     vid.onerror = () => showToast('فشل تحميل الفيديو.', 'error');
@@ -5056,7 +5093,7 @@ function showVideoEditorWindow()
                 if (ext === 'mp3' || ext === 'wav' || ext === 'm4a' || ext === 'ogg' || ext === 'aac') {
                     const audObj = new Audio(url);
                     audObj.onloadedmetadata = () => {
-                        addToTimeline({ id: `audio-${Date.now()}`, type: 'audio', name: filePath.split('/').pop(), src: url, start, end: start+audObj.duration, audioElement: audObj });
+                        addToTimeline({ id: `audio-${Date.now()}`, type: 'audio', name: fileName, src: url, start, end: start+audObj.duration, audioElement: audObj });
                         appState.lastItemEndTimes.audio = start + audObj.duration;
                     };
                     audObj.onerror = () => showToast('فشل تحميل الصوت.', 'error');
