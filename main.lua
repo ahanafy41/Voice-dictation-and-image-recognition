@@ -4459,6 +4459,8 @@ function showVideoEditorWindow()
     settings.setJavaScriptEnabled(true)
     settings.setDomStorageEnabled(true)
     settings.setMediaPlaybackRequiresUserGesture(false)
+    settings.setAllowFileAccessFromFileURLs(true)
+    settings.setAllowUniversalAccessFromFileURLs(true)
 
     local webChromeClient = luajava.override(WebChromeClient, {
         onPermissionRequest = function(super, request)
@@ -4467,6 +4469,119 @@ function showVideoEditorWindow()
         onConsoleMessage = function(super, consoleMessage)
             print("JS Console: " .. consoleMessage.message())
             return true
+        end,
+        onJsPrompt = function(super, view, url, message, defaultValue, result)
+            if message == "PICK_FILE" then
+                -- Open Lua custom file picker
+                local paths = getStoragePaths()
+                local startPath = "/storage/emulated/0"
+                if #paths > 0 then startPath = paths[1].path end
+
+                local function anyFileFilter(fname) return true end
+
+                showUniversalFilePicker("اختر ملف (فيديو، صورة، صوت) 📁", startPath, anyFileFilter, function(selectedPath)
+                    -- Pass back the selected file path to JS
+                    local escapedPath = escapeJsonString(selectedPath)
+                    mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                        run = function()
+                            view.evaluateJavascript("window.onFileSelectedNative('" .. escapedPath .. "', '" .. defaultValue .. "');", nil)
+                        end
+                    }))
+                end)
+                result.confirm("Handled")
+                return true
+            elseif message == "GENERATE_SCENES" then
+                -- Handle Gemini API call natively to avoid CORS
+                local prompt = defaultValue
+                local systemPrompt = "أنت مخرج وكاتب. قم بتقسيم الموضوع إلى مشاهد متسلسلة بصيغة JSON فقط: [ { \"scene_number\": 1, \"narration\": \"نص\", \"visual_description\": \"وصف دقيق\" } ]"
+
+                makeAiRequest(prompt, systemPrompt, nil, nil, function(aiResult)
+                    local escapedResult = escapeJsonString(aiResult)
+                    mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                        run = function()
+                            view.evaluateJavascript("window.onScenesGeneratedNative('" .. escapedResult .. "');", nil)
+                        end
+                    }))
+                end)
+                result.confirm("Handled")
+                return true
+            elseif message == "GENERATE_IMAGE" then
+                local indexStr, promptStr = defaultValue:match("^(.-)|(.*)$")
+                local url = "https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-001:predict?key=" .. (geminiApiKey or "")
+                local headers = {["Content-Type"] = "application/json"}
+                local payload = JSONObject()
+                local instances = JSONObject()
+                instances.put("prompt", promptStr)
+                payload.put("instances", JSONArray().put(instances))
+                local params = JSONObject()
+                params.put("sampleCount", 1)
+                payload.put("parameters", params)
+
+                Http.post(url, payload.toString(), headers, function(status, response)
+                    local b64 = "Error"
+                    if status == 200 then
+                        pcall(function()
+                            local j = JSONObject(response)
+                            b64 = j.getJSONArray("predictions").getJSONObject(0).getString("bytesBase64Encoded")
+                        end)
+                    end
+                    mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                        run = function() view.evaluateJavascript("window.onSceneImageGeneratedNative('" .. b64 .. "', " .. indexStr .. ");", nil) end
+                    }))
+                end)
+                result.confirm("Handled")
+                return true
+            elseif message == "GENERATE_AUDIO" then
+                local indexStr, voiceName, textStr = defaultValue:match("^(.-)|(.-)|(.*)$")
+                local url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=" .. (geminiApiKey or "")
+                local headers = {["Content-Type"] = "application/json"}
+
+                local payload = JSONObject()
+                local contents = JSONArray()
+                local contentObj = JSONObject()
+                local partsArray = JSONArray()
+                local textPart = JSONObject()
+                textPart.put("text", textStr)
+                partsArray.put(textPart)
+                contentObj.put("parts", partsArray)
+                contents.put(contentObj)
+                payload.put("contents", contents)
+
+                local genConfig = JSONObject()
+                local modalities = JSONArray(); modalities.put("AUDIO")
+                genConfig.put("responseModalities", modalities)
+
+                local speechConfig = JSONObject()
+                local voiceConfig = JSONObject()
+                local prebuilt = JSONObject()
+                prebuilt.put("voiceName", voiceName)
+                voiceConfig.put("prebuiltVoiceConfig", prebuilt)
+                speechConfig.put("voiceConfig", voiceConfig)
+                genConfig.put("speechConfig", speechConfig)
+
+                payload.put("generationConfig", genConfig)
+
+                Http.post(url, payload.toString(), headers, function(status, response)
+                    local b64 = "Error"
+                    local sampleRate = "24000"
+                    if status == 200 then
+                        pcall(function()
+                            local j = JSONObject(response)
+                            local inlineData = j.getJSONArray("candidates").getJSONObject(0).getJSONObject("content").getJSONArray("parts").getJSONObject(0).getJSONObject("inlineData")
+                            b64 = inlineData.getString("data")
+                            local mime = inlineData.getString("mimeType")
+                            local srMatch = mime:match("rate=(%d+)")
+                            if srMatch then sampleRate = srMatch end
+                        end)
+                    end
+                    mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                        run = function() view.evaluateJavascript("window.onSceneAudioGeneratedNative('" .. b64 .. "', " .. indexStr .. ", " .. sampleRate .. ");", nil) end
+                    }))
+                end)
+                result.confirm("Handled")
+                return true
+            end
+            return super.onJsPrompt(view, url, message, defaultValue, result)
         end
     })
     webview.setWebChromeClient(webChromeClient)
@@ -4571,8 +4686,7 @@ function showVideoEditorWindow()
                 </h2>
                 <div class="space-y-2">
                     <label for="upload-bg-music" class="sr-only">رفع موسيقى من جهازك</label>
-                    <input type="file" id="upload-bg-music" accept="audio/*" class="w-full border p-1 rounded" aria-label="اختر ملف موسيقى من جهازك">
-                    <button onclick="handleGlobalMusicUpload()" class="w-full bg-gray-200 hover:bg-gray-300 text-gray-800 p-2 rounded font-semibold transition">
+                    <button onclick="window.prompt(\'PICK_FILE\', \'bg_music\');" class="w-full bg-gray-200 hover:bg-gray-300 text-gray-800 p-2 rounded font-semibold transition">
                         <i class="fa-solid fa-upload"></i> إضافة كخلفية للفيديو بالكامل
                     </button>
                 </div>
@@ -4720,6 +4834,28 @@ function showVideoEditorWindow()
         }
 
         // --- الذكاء الاصطناعي وتوليد المشاهد ---
+
+        window.onScenesGeneratedNative = function(resultStr) {
+            const btn = document.getElementById('btn-generate-script');
+            btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> توليد المشاهد'; btn.disabled = false;
+
+            if (!resultStr || resultStr.indexOf("Error") > -1) {
+                showToast('حدث خطأ في التوليد.', 'error');
+                return;
+            }
+
+            try {
+                // Strip markdown formatting if Gemini added it
+                let cleanJson = resultStr.replace(/```json/g, "").replace(/```/g, "").trim();
+                appState.scenes = JSON.parse(cleanJson);
+                renderScenesUI();
+                showToast('تم تجهيز المشاهد بنجاح.', 'success');
+            } catch (e) {
+                console.error("Parse Error:", e, resultStr);
+                showToast('حدث خطأ في قراءة النتيجة.', 'error');
+            }
+        };
+
         async function generateScenes() {
             if (!apiKey) {
                 showToast('مفتاح API مفقود، يرجى إضافته من إعدادات التطبيق', 'error');
@@ -4731,29 +4867,12 @@ function showVideoEditorWindow()
             const btn = document.getElementById('btn-generate-script');
             btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري التوليد...'; btn.disabled = true;
 
-            const systemPrompt = `أنت مخرج وكاتب. قم بتقسيم الموضوع إلى مشاهد متسلسلة بصيغة JSON فقط:
-            [ { "scene_number": 1, "narration": "نص", "visual_description": "وصف دقيق" } ]`;
+            // Call Lua directly via prompt to bypass CORS and load efficiently
+            window.prompt("GENERATE_SCENES", prompt);
 
-            try {
-                const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
-                const payload = { contents: [{ parts: [{ text: prompt }] }], systemInstruction: { parts: [{ text: systemPrompt }] }, generationConfig: { responseMimeType: "application/json" } };
-                const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-                const data = await res.json();
-
-                const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-                if (rawText) {
-                    appState.scenes = JSON.parse(rawText);
-                    renderScenesUI();
-                    showToast('تم تجهيز المشاهد بنجاح.', 'success');
-                }
-            } catch (e) {
-                console.error(e); showToast('حدث خطأ في التوليد.', 'error');
-            } finally {
-                btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> توليد المشاهد'; btn.disabled = false;
-            }
+            // Note: The rest is handled asynchronously by window.onScenesGeneratedNative
         }
 
-        // بناء واجهة المشاهد بـ 4 أزرار لكل مشهد
         function renderScenesUI() {
             const container = document.getElementById('scenes-container'); container.innerHTML = '';
             if (appState.scenes.length === 0) return container.innerHTML = '<div class="text-center text-gray-400 py-4" tabindex="0">لا توجد مشاهد.</div>';
@@ -4777,13 +4896,11 @@ function showVideoEditorWindow()
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
                         <button onclick="generateSceneImage(${index})" class="bg-purple-100 hover:bg-purple-200 text-purple-800 py-1.5 rounded text-sm font-semibold transition flex items-center justify-center gap-1" aria-label="توليد صورة بالذكاء الاصطناعي للمشهد ${index+1}"><i class="fa-solid fa-wand-magic"></i> AI صورة</button>
 
-                        <button onclick="document.getElementById('upload-visual-${index}').click()" class="bg-gray-200 hover:bg-gray-300 text-gray-800 py-1.5 rounded text-sm font-semibold transition flex items-center justify-center gap-1" aria-label="رفع صورة أو فيديو من الجهاز للمشهد ${index+1}"><i class="fa-solid fa-upload"></i> رفع صورة/فيديو</button>
-                        <input type="file" id="upload-visual-${index}" accept="image/*,video/*" class="hidden" onchange="handleSceneUpload(event, ${index}, 'visual')">
+                        <button onclick="window.prompt(\'PICK_FILE\', \'scene_visual_\' + index);" class="bg-gray-200 hover:bg-gray-300 text-gray-800 py-1.5 rounded text-sm font-semibold transition flex items-center justify-center gap-1"><i class="fa-solid fa-upload"></i> رفع صورة/فيديو</button>
 
                         <button onclick="generateSceneAudio(${index})" class="bg-blue-100 hover:bg-blue-200 text-blue-800 py-1.5 rounded text-sm font-semibold transition flex items-center justify-center gap-1" aria-label="توليد صوت بالذكاء الاصطناعي للمشهد ${index+1}"><i class="fa-solid fa-robot"></i> AI صوت</button>
 
-                        <button onclick="document.getElementById('upload-audio-${index}').click()" class="bg-gray-200 hover:bg-gray-300 text-gray-800 py-1.5 rounded text-sm font-semibold transition flex items-center justify-center gap-1" aria-label="رفع ملف صوتي من الجهاز للمشهد ${index+1}"><i class="fa-solid fa-upload"></i> رفع صوت</button>
-                        <input type="file" id="upload-audio-${index}" accept="audio/*" class="hidden" onchange="handleSceneUpload(event, ${index}, 'audio')">
+                        <button onclick="window.prompt(\'PICK_FILE\', \'scene_audio_\' + index);" class="bg-gray-200 hover:bg-gray-300 text-gray-800 py-1.5 rounded text-sm font-semibold transition flex items-center justify-center gap-1"><i class="fa-solid fa-upload"></i> رفع صوت</button>
                     </div>`;
                 container.appendChild(div);
             });
@@ -4796,53 +4913,14 @@ function showVideoEditorWindow()
             if (!text) return showToast('النص فارغ.', 'error');
             const voiceName = document.getElementById('voice-style').value;
             showToast(`جاري تسجيل الصوت للمشهد ${index+1}...`, 'info');
-            try {
-                const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`;
-                const payload = { contents: [{ parts: [{ text }] }], generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName } } } } };
-                const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-                const data = await response.json();
-                const inlineData = data.candidates?.[0]?.content?.parts?.[0]?.inlineData;
-
-                if (inlineData && inlineData.data) {
-                    let sampleRate = 24000; const mimeMatch = inlineData.mimeType.match(/rate=(\d+)/); if (mimeMatch) sampleRate = parseInt(mimeMatch[1]);
-                    const binaryStr = window.atob(inlineData.data); const bytes = new Uint8Array(binaryStr.length);
-                    for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
-                    const wavBlob = pcmToWav(bytes, sampleRate); const urlBlob = URL.createObjectURL(wavBlob);
-                    const duration = Math.max(bytes.length / (sampleRate * 2), 1);
-                    const audioObj = new Audio(urlBlob);
-
-                    const startTime = appState.lastItemEndTimes.audio; const endTime = startTime + parseFloat(duration.toFixed(1));
-                    appState.lastItemEndTimes.audio = endTime;
-
-                    addToTimeline({ id: `audio-${Date.now()}`, type: 'audio', src: urlBlob, name: `صوت م.${index+1}`, start: startTime, end: endTime, audioElement: audioObj });
-                    showToast(`تمت الإضافة بنجاح.`, 'success');
-                }
-            } catch (e) { showToast('خطأ أثناء توليد الصوت.', 'error'); }
+            window.prompt("GENERATE_AUDIO", index + "|" + voiceName + "|" + text);
         }
 
         async function generateSceneImage(index) {
             const prompt = document.getElementById(`visual-${index}`).value.trim();
             if (!prompt) return showToast('الوصف فارغ.', 'error');
             showToast(`جاري توليد الصورة للمشهد ${index+1}...`, 'info');
-            try {
-                const url = `https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict?key=${apiKey}`;
-                const payload = { instances: { prompt }, parameters: { sampleCount: 1 } };
-                const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-                const data = await response.json();
-                const base64Data = data.predictions?.[0]?.bytesBase64Encoded;
-                if (base64Data) {
-                    const imageUrl = `data:image/png;base64,${base64Data}`; const imgObj = new Image(); imgObj.src = imageUrl;
-                    imgObj.onload = () => {
-                        const startTime = appState.lastItemEndTimes.visual; const endTime = startTime + 5;
-                        appState.lastItemEndTimes.visual = endTime;
-                        addToTimeline({
-                            id: `img-${Date.now()}`, type: 'image', src: imageUrl, name: `صورة م.${index+1}`,
-                            start: startTime, end: endTime, layer: 1, scale: 100, transition: 'none', transSound: false, imageElement: imgObj
-                        });
-                        showToast(`تمت الإضافة بنجاح.`, 'success');
-                    };
-                }
-            } catch (e) { showToast('خطأ أثناء توليد الصورة.', 'error'); }
+            window.prompt("GENERATE_IMAGE", index + "|" + prompt);
         }
 
         // دالة مخصصة لرفع الملفات اليدوية لكل مشهد
@@ -4881,6 +4959,113 @@ function showVideoEditorWindow()
         }
 
         // دالة لإضافة موسيقى خلفية تمتد عبر الفيديو
+
+
+        window.onSceneImageGeneratedNative = function(base64Data, index) {
+            if (!base64Data || base64Data.indexOf("Error") > -1) {
+                showToast('خطأ أثناء توليد الصورة.', 'error');
+                return;
+            }
+            const imageUrl = `data:image/png;base64,${base64Data}`;
+            const imgObj = new Image();
+            imgObj.src = imageUrl;
+            imgObj.onload = () => {
+                const startTime = appState.lastItemEndTimes.visual;
+                const endTime = startTime + 5;
+                appState.lastItemEndTimes.visual = endTime;
+                addToTimeline({
+                    id: `img-${Date.now()}`, type: 'image', src: imageUrl, name: `صورة م.${index+1}`,
+                    start: startTime, end: endTime, layer: 1, scale: 100, transition: 'none', transSound: false, imageElement: imgObj
+                });
+                showToast(`تمت إضافة الصورة بنجاح.`, 'success');
+            };
+        };
+
+        window.onSceneAudioGeneratedNative = function(base64Data, index, sampleRate) {
+            if (!base64Data || base64Data.indexOf("Error") > -1) {
+                showToast('خطأ أثناء توليد الصوت.', 'error');
+                return;
+            }
+            try {
+                const binaryStr = window.atob(base64Data);
+                const bytes = new Uint8Array(binaryStr.length);
+                for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+
+                const sr = parseInt(sampleRate) || 24000;
+                const wavBlob = pcmToWav(bytes, sr);
+                const urlBlob = URL.createObjectURL(wavBlob);
+                const duration = Math.max(bytes.length / (sr * 2), 1);
+                const audioObj = new Audio(urlBlob);
+
+                const startTime = appState.lastItemEndTimes.audio;
+                const endTime = startTime + parseFloat(duration.toFixed(1));
+                appState.lastItemEndTimes.audio = endTime;
+
+                addToTimeline({ id: `audio-${Date.now()}`, type: 'audio', src: urlBlob, name: `صوت م.${index+1}`, start: startTime, end: endTime, audioElement: audioObj });
+                showToast(`تمت إضافة الصوت بنجاح.`, 'success');
+            } catch (e) {
+                showToast('فشل قراءة الملف الصوتي المولد.', 'error');
+            }
+        };
+
+        window.onFileSelectedNative = function(filePath, sourceId) {
+            if (!filePath) return;
+            // Native paths like /storage/emulated/0/... can be loaded using file:// prefix
+            // if WebSettings.setAllowFileAccessFromFileURLs(true) is set
+            const url = "file://" + filePath;
+            const ext = filePath.split('.').pop().toLowerCase();
+
+            if (sourceId === "bg_music") {
+                const audObj = new Audio(url);
+                audObj.onloadedmetadata = () => {
+                    const end = Math.max(appState.duration, audObj.duration);
+                    addToTimeline({ id: `bgm-${Date.now()}`, type: 'audio', name: '🎵 موسيقى خلفية', src: url, start: 0, end: end, audioElement: audObj });
+                    showToast('تمت إضافة موسيقى الخلفية.', 'success');
+                };
+                audObj.onerror = () => showToast('فشل تحميل الملف الصوتي.', 'error');
+            }
+            else if (sourceId.startsWith("scene_visual_")) {
+                const index = parseInt(sourceId.split("_")[2]);
+                const start = appState.lastItemEndTimes.visual;
+
+                if (ext === 'jpg' || ext === 'jpeg' || ext === 'png' || ext === 'webp' || ext === 'gif') {
+                    const img = new Image();
+                    img.src = url;
+                    img.onload = () => {
+                        addToTimeline({ id: `up-${Date.now()}`, type: 'image', name: filePath.split('/').pop(), src: url, start, end: start+5, layer: 1, scale: 100, transition: 'none', transSound: false, imageElement: img });
+                        appState.lastItemEndTimes.visual = start + 5;
+                    };
+                    img.onerror = () => showToast('فشل تحميل الصورة.', 'error');
+                } else if (ext === 'mp4' || ext === 'webm' || ext === 'mkv' || ext === 'mov') {
+                    const vid = document.createElement('video');
+                    vid.src = url;
+                    vid.muted = true;
+                    vid.onloadedmetadata = () => {
+                        addToTimeline({ id: `up-${Date.now()}`, type: 'video', name: filePath.split('/').pop(), src: url, start, end: start+vid.duration, layer: 1, scale: 100, transition: 'none', transSound: false, videoElement: vid });
+                        appState.lastItemEndTimes.visual = start + vid.duration;
+                    };
+                    vid.onerror = () => showToast('فشل تحميل الفيديو.', 'error');
+                } else {
+                    showToast('صيغة ملف غير مدعومة للصور/الفيديو.', 'error');
+                }
+            }
+            else if (sourceId.startsWith("scene_audio_")) {
+                const index = parseInt(sourceId.split("_")[2]);
+                const start = appState.lastItemEndTimes.audio;
+
+                if (ext === 'mp3' || ext === 'wav' || ext === 'm4a' || ext === 'ogg' || ext === 'aac') {
+                    const audObj = new Audio(url);
+                    audObj.onloadedmetadata = () => {
+                        addToTimeline({ id: `audio-${Date.now()}`, type: 'audio', name: filePath.split('/').pop(), src: url, start, end: start+audObj.duration, audioElement: audObj });
+                        appState.lastItemEndTimes.audio = start + audObj.duration;
+                    };
+                    audObj.onerror = () => showToast('فشل تحميل الصوت.', 'error');
+                } else {
+                    showToast('صيغة ملف غير مدعومة للصوت.', 'error');
+                }
+            }
+        };
+
         function handleGlobalMusicUpload() {
             const fileInput = document.getElementById('upload-bg-music');
             if (!fileInput.files.length) return;
@@ -5222,7 +5407,7 @@ function showVideoEditorWindow()
 </html>
 ]]
 
-    webview.loadDataWithBaseURL("https://localhost", htmlCode, "text/html", "UTF-8", nil)
+    webview.loadDataWithBaseURL("file:///android_asset/", htmlCode, "text/html", "UTF-8", nil)
 
     local params = WindowManager.LayoutParams(
         WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
@@ -5274,6 +5459,8 @@ function showGeminiLiveWindow()
     settings.setJavaScriptEnabled(true)
     settings.setDomStorageEnabled(true)
     settings.setMediaPlaybackRequiresUserGesture(false)
+    settings.setAllowFileAccessFromFileURLs(true)
+    settings.setAllowUniversalAccessFromFileURLs(true)
 
     local webChromeClient = luajava.override(WebChromeClient, {
         onPermissionRequest = function(super, request)
@@ -5313,6 +5500,81 @@ function showGeminiLiveWindow()
                         end)
                     end
                 }), 100)
+                result.confirm("Handled")
+                return true
+            elseif message == "GENERATE_IMAGE" then
+                local indexStr, promptStr = defaultValue:match("^(.-)|(.*)$")
+                local url = "https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-001:predict?key=" .. (geminiApiKey or "")
+                local headers = {["Content-Type"] = "application/json"}
+                local payload = JSONObject()
+                local instances = JSONObject()
+                instances.put("prompt", promptStr)
+                payload.put("instances", JSONArray().put(instances))
+                local params = JSONObject()
+                params.put("sampleCount", 1)
+                payload.put("parameters", params)
+
+                Http.post(url, payload.toString(), headers, function(status, response)
+                    local b64 = "Error"
+                    if status == 200 then
+                        pcall(function()
+                            local j = JSONObject(response)
+                            b64 = j.getJSONArray("predictions").getJSONObject(0).getString("bytesBase64Encoded")
+                        end)
+                    end
+                    mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                        run = function() view.evaluateJavascript("window.onSceneImageGeneratedNative('" .. b64 .. "', " .. indexStr .. ");", nil) end
+                    }))
+                end)
+                result.confirm("Handled")
+                return true
+            elseif message == "GENERATE_AUDIO" then
+                local indexStr, voiceName, textStr = defaultValue:match("^(.-)|(.-)|(.*)$")
+                local url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=" .. (geminiApiKey or "")
+                local headers = {["Content-Type"] = "application/json"}
+
+                local payload = JSONObject()
+                local contents = JSONArray()
+                local contentObj = JSONObject()
+                local partsArray = JSONArray()
+                local textPart = JSONObject()
+                textPart.put("text", textStr)
+                partsArray.put(textPart)
+                contentObj.put("parts", partsArray)
+                contents.put(contentObj)
+                payload.put("contents", contents)
+
+                local genConfig = JSONObject()
+                local modalities = JSONArray(); modalities.put("AUDIO")
+                genConfig.put("responseModalities", modalities)
+
+                local speechConfig = JSONObject()
+                local voiceConfig = JSONObject()
+                local prebuilt = JSONObject()
+                prebuilt.put("voiceName", voiceName)
+                voiceConfig.put("prebuiltVoiceConfig", prebuilt)
+                speechConfig.put("voiceConfig", voiceConfig)
+                genConfig.put("speechConfig", speechConfig)
+
+                payload.put("generationConfig", genConfig)
+
+                Http.post(url, payload.toString(), headers, function(status, response)
+                    local b64 = "Error"
+                    local sampleRate = "24000"
+                    if status == 200 then
+                        pcall(function()
+                            local j = JSONObject(response)
+                            local inlineData = j.getJSONArray("candidates").getJSONObject(0).getJSONObject("content").getJSONArray("parts").getJSONObject(0).getJSONObject("inlineData")
+                            b64 = inlineData.getString("data")
+                            local mime = inlineData.getString("mimeType")
+                            local srMatch = mime:match("rate=(%d+)")
+                            if srMatch then sampleRate = srMatch end
+                        end)
+                    end
+                    mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                        run = function() view.evaluateJavascript("window.onSceneAudioGeneratedNative('" .. b64 .. "', " .. indexStr .. ", " .. sampleRate .. ");", nil) end
+                    }))
+                end)
                 result.confirm("Handled")
                 return true
             end
