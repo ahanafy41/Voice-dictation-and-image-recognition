@@ -2161,7 +2161,7 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
     local libBtn = Button(service); libBtn.setText("📚"); styleButton(libBtn, "secondary"); libBtn.setContentDescription("العودة للمكتبة");
     libBtn.setPadding(10,10,10,10)
     local favBtn = Button(service)
-    local isBookFav = savedProg and savedProg.isFav or false
+    isBookFav = savedProg and savedProg.isFav or false
     favBtn.setText(isBookFav and "⭐" or "☆")
     styleButton(favBtn, "secondary")
     favBtn.setContentDescription("إضافة أو إزالة من المفضلة")
@@ -2174,6 +2174,20 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
 
     headerL.addView(fastCloseBtn, LinearLayout.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT))
     resultWindow.addView(headerL)
+
+saveCurrentProgress = function()
+        local title = filePath:match("([^/]+)$") or filePath
+        if isEpub and epubSpine and epubSpine[currentChapterIdx] then title = epubSpine[currentChapterIdx].title end
+        updateBookProgress(filePath, title, currentChapterIdx, currentSentenceIdx, isBookFav)
+    end
+
+    closeAction = function()
+        saveCurrentProgress()
+        if stopReading then stopReading() end
+        if docTts then pcall(function() docTts.shutdown() end) end
+        if resultWindow then pcall(function() wm.removeView(resultWindow) end); resultWindow = nil end
+        service.asyncSpeak("تم إغلاق المستند.")
+    end
 
     resultWindow.setFocusableInTouchMode(true)
     resultWindow.requestFocus()
@@ -2192,6 +2206,7 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
 
     local pagesCache = {}
     local currentCacheIdx = 1
+    isBookFav = savedProg and savedProg.isFav or false
     local sentencesList = {}
     local currentSentenceIdx = savedProg and savedProg.sentenceIdx or 1
     local currentSentenceIdx = 1
@@ -2200,13 +2215,10 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
     local isDocTtsInit = false
 
     local stopReading, initDocTts, readCurrentSentence, rebuildSentencesList, updateDisplayPage, fetchRangeContentRemote, updateProgress
+    local saveCurrentProgress, closeAction
 
 
-    local function saveCurrentProgress()
-        local title = filePath:match("([^/]+)$") or filePath
-        if isEpub and epubSpine and epubSpine[currentChapterIdx] then title = epubSpine[currentChapterIdx].title end
-        updateBookProgress(filePath, title, currentChapterIdx, currentSentenceIdx, isBookFav)
-    end
+
 
     local controlsL = LinearLayout(service); controlsL.setOrientation(LinearLayout.VERTICAL); resultWindow.addView(controlsL)
 
@@ -2656,13 +2668,7 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
     end)
 
 
-    local closeAction = function()
-        saveCurrentProgress()
-        stopReading()
-        if docTts then pcall(function() docTts.shutdown() end) end
-        if resultWindow then pcall(function() wm.removeView(resultWindow) end); resultWindow = nil end
-        service.asyncSpeak("تم إغلاق المستند.")
-    end
+
 
     fastCloseBtn.setOnClickListener(function() closeAction() end)
     closeBtn.setOnClickListener(function() closeAction() end)
