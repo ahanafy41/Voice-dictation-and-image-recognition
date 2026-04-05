@@ -4348,7 +4348,7 @@ function showVideoAnalyzerMenu()
         local cb = service.getSystemService(Context.CLIPBOARD_SERVICE)
         if cb.hasPrimaryClip() and cb.getPrimaryClip().getItemCount() > 0 then
             local clipText = cb.getPrimaryClip().getItemAt(0).getText()
-            if clipText then clipText = clipText.toString() else clipText = "" end
+            if clipText then clipText = tostring(clipText) else clipText = "" end
 
             if clipText:match("youtube%.com") or clipText:match("youtu%.be") then
                 if geminiApiKey == "" then
