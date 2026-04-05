@@ -223,11 +223,21 @@ selectedGeminiModelId = isValidModel and loadedModelId or defaultGeminiModelId
 
 selectedGroqModelId = prefs.getString("groqModelId", defaultGroqModelId)
 selectedSearchModelId = prefs.getString("searchModelId", "compound-beta")
-dashboardOrder = prefs.getString("dashboardOrder", "assistant,dictation,geminiLive,library,video_analyzer,image,transcription,settings")
+dashboardOrder = prefs.getString("dashboardOrder", "assistant,dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings")
 selectedDictationMode = prefs.getString("selectedDictationMode", defaultDictationMode)
-if not dashboardOrder:match("geminiLive") then
-    dashboardOrder = dashboardOrder .. ",geminiLive"
+
+-- Migration: Rename old keys
+if dashboardOrder:match("reader") and not dashboardOrder:match("doc_reader") then dashboardOrder = dashboardOrder:gsub("reader", "doc_reader") end
+if dashboardOrder:match("library") and not dashboardOrder:match("doc_reader") then dashboardOrder = dashboardOrder:gsub("library", "doc_reader") end
+
+-- Auto-append missing default buttons for old users
+local defaultButtons = {"assistant", "dictation", "geminiLive", "doc_reader", "video_analyzer", "image", "transcription", "settings"}
+for _, btn in ipairs(defaultButtons) do
+    if not dashboardOrder:match("^" .. btn .. "$") and not dashboardOrder:match("^" .. btn .. ",") and not dashboardOrder:match("," .. btn .. "$") and not dashboardOrder:match("," .. btn .. ",") then
+        dashboardOrder = dashboardOrder .. "," .. btn
+    end
 end
+
 selectedAudioModelId = prefs.getString("audioModelId", defaultAudioModelId)
 
 summarizeEnabled = prefs.getBoolean("summarizeEnabled", false)
@@ -3187,7 +3197,7 @@ function saveSettings()
     editor.putString("groqModelId", selectedGroqModelId or defaultGroqModelId)
     editor.putString("audioModelId", selectedAudioModelId or defaultAudioModelId)
     editor.putString("searchModelId", selectedSearchModelId or "compound-beta")
-editor.putString("dashboardOrder", dashboardOrder or "assistant,dictation,geminiLive,library,video_analyzer,image,transcription,settings")
+    editor.putString("dashboardOrder", dashboardOrder or "assistant,dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings")
     editor.putString("selectedDictationMode", selectedDictationMode or defaultDictationMode)
 
     editor.putBoolean("summarizeEnabled", summarizeEnabled)
@@ -3550,8 +3560,16 @@ function openMainWindow()
 
 
     -- Refresh from prefs in case it was modified
-    local orderStr = prefs.getString("dashboardOrder", "assistant,dictation,geminiLive,library,video_analyzer,image,transcription,settings")
-    if orderStr:match("reader") then orderStr = orderStr:gsub("reader", "library,video_analyzer") end
+    local orderStr = prefs.getString("dashboardOrder", "assistant,dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings")
+    if orderStr:match("reader") and not orderStr:match("doc_reader") then orderStr = orderStr:gsub("reader", "doc_reader") end
+    if orderStr:match("library") and not orderStr:match("doc_reader") then orderStr = orderStr:gsub("library", "doc_reader") end
+
+    local defaultBtns = {"assistant", "dictation", "geminiLive", "doc_reader", "video_analyzer", "image", "transcription", "settings"}
+    for _, btn in ipairs(defaultBtns) do
+        if not orderStr:match("^" .. btn .. "$") and not orderStr:match("^" .. btn .. ",") and not orderStr:match("," .. btn .. "$") and not orderStr:match("," .. btn .. ",") then
+            orderStr = orderStr .. "," .. btn
+        end
+    end
 
     for k in orderStr:gmatch("([^,]+)") do
         local key = k:gsub("^%s+", ""):gsub("%s+$", "")
@@ -3918,7 +3936,7 @@ function openSettings()
         local keyNames = {
             assistant = "المساعد الشخصي",
             dictation = "الإملاء والترجمة",
-            library = "المكتبة والقارئ", video_analyzer = "محلل الفيديو",
+            doc_reader = "المكتبة والقارئ", video_analyzer = "محلل الفيديو",
             image = "وصف الصور",
             transcription = "تفريغ الصوت",
             settings = "الإعدادات", geminiLive = "البث المباشر (Gemini Live)"
@@ -3926,8 +3944,17 @@ function openSettings()
 
         local keys = {}
 
-        dashboardOrder = prefs.getString("dashboardOrder", "assistant,dictation,geminiLive,library,video_analyzer,image,transcription,settings")
-        if dashboardOrder:match("reader") then dashboardOrder = dashboardOrder:gsub("reader", "library,video_analyzer") end
+        dashboardOrder = prefs.getString("dashboardOrder", "assistant,dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings")
+        if dashboardOrder:match("reader") and not dashboardOrder:match("doc_reader") then dashboardOrder = dashboardOrder:gsub("reader", "doc_reader") end
+        if dashboardOrder:match("library") and not dashboardOrder:match("doc_reader") then dashboardOrder = dashboardOrder:gsub("library", "doc_reader") end
+
+        local defaultBtns = {"assistant", "dictation", "geminiLive", "doc_reader", "video_analyzer", "image", "transcription", "settings"}
+        for _, btn in ipairs(defaultBtns) do
+            if not dashboardOrder:match("^" .. btn .. "$") and not dashboardOrder:match("^" .. btn .. ",") and not dashboardOrder:match("," .. btn .. "$") and not dashboardOrder:match("," .. btn .. ",") then
+                dashboardOrder = dashboardOrder .. "," .. btn
+            end
+        end
+
         for k in dashboardOrder:gmatch("([^,]+)")
  do
             local cleanKey = k:gsub("^%%s+", ""):gsub("%%s+$", "")
