@@ -2498,7 +2498,12 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
 
     fetchRangeContentRemote = function(startP, endP)
         service.asyncSpeak("جاري استخراج النصوص من الصفحة " .. startP .. " إلى " .. endP .. "...")
-        local q = "استخرج النص الموجود في هذا الملف من الصفحة " .. startP .. " إلى الصفحة " .. endP .. ". افصل بين كل صفحة وأخرى بوضع العلامة التالية فقط: ===PAGE_BREAK==="
+        local q = "استخرج النص الموجود في هذا الملف بدقة من الصفحة " .. startP .. " إلى الصفحة " .. endP .. ".\n" ..
+                  "التعليمات:\n" ..
+                  "1. استخرج النص بدقة عالية وحافظ على سلامة اللغة العربية وتنسيق النصوص.\n" ..
+                  "2. احتفظ بأي جداول (بتنسيق Markdown) أو قوائم أو عناصر موجودة كما هي.\n" ..
+                  "3. قم بتنظيف النص من أي أخطاء أو تشوهات وتأكد أن الكلام العربي سليم وخالي من العيوب.\n" ..
+                  "4. افصل بين كل صفحة وأخرى بوضع العلامة التالية فقط: ===PAGE_BREAK==="
         local url = "https://generativelanguage.googleapis.com/v1beta/models/" .. selectedGeminiModelId .. ":generateContent?key=" .. geminiApiKey
         local headers = {["Content-Type"] = "application/json"}
         local root = JSONObject(); local contentObj = JSONObject(); local partsArray = JSONArray()
