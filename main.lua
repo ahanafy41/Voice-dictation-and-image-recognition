@@ -4126,7 +4126,8 @@ function startVoiceRecognition(fromDashboard)
     if not SpeechRecognizer.isRecognitionAvailable(service) then
         service.asyncSpeak(getFeedbackString("error_speech_unavailable", currentDictLangDetails.code)); return
     end
-    if not fromDashboard then openMainWindow() end
+    -- Remove the forced opening of mainWindow when launching dictation directly
+    -- if not fromDashboard then openMainWindow() end
     stopDictation = false
     createAndShowFloatingButton()
     recognizer = SpeechRecognizer.createSpeechRecognizer(service)
