@@ -2997,7 +2997,7 @@ function loadVideoAndShowViewer(filePath)
                         service.asyncSpeak("اكتملت المعالجة. جاري استخراج ملخص الفيديو...")
                         showResultWindow("تحليل الفيديو", "⏳ جاري التحليل المبدئي...")
 
-                        local prompt = "أنت عين لشخص كفيف. قم بوصف المشاهد البصرية والأحداث المرئية في هذا الفيديو بدقة شديدة وتفصيل. ماذا يحدث في الصورة؟ من هم الأشخاص؟ كيف يتحركون؟ وما هي الأماكن؟ تجاهل النص المنطوق تماماً وركز فقط على وصف الصورة المتحركة."
+                        local prompt = "أنت عين لشخص كفيف. صِف باختصار شديد أهم ما يحدث في بداية هذا الفيديو، لكي أتمكن من سؤالك عن التفاصيل لاحقاً."
                         local url = "https://generativelanguage.googleapis.com/v1beta/models/" .. selectedGeminiModelId .. ":generateContent?key=" .. geminiApiKey
                         local headers = {["Content-Type"] = "application/json"}
                         local root = JSONObject(); local contentObj = JSONObject(); local partsArray = JSONArray()
@@ -4359,7 +4359,7 @@ function showVideoAnalyzerMenu()
                 service.asyncSpeak("جاري تحليل فيديو يوتيوب...")
                 showResultWindow("تحليل الفيديو", "⏳ جاري المعالجة...")
 
-                local prompt = "أنت عين لشخص كفيف. قم بوصف المشاهد البصرية والأحداث المرئية في هذا الفيديو بدقة شديدة وتفصيل. ماذا يحدث في الصورة؟ من هم الأشخاص؟ كيف يتحركون؟ وما هي الأماكن؟ تجاهل النص المنطوق تماماً وركز فقط على وصف الصورة المتحركة."
+                local prompt = "أنت عين لشخص كفيف. صِف باختصار شديد أهم ما يحدث في بداية هذا الفيديو، لكي أتمكن من سؤالك عن التفاصيل لاحقاً."
                 local url = "https://generativelanguage.googleapis.com/v1beta/models/" .. selectedGeminiModelId .. ":generateContent?key=" .. geminiApiKey
                 local headers = {["Content-Type"] = "application/json"}
                 local root = JSONObject(); local contentObj = JSONObject(); local partsArray = JSONArray()
@@ -4385,8 +4385,8 @@ function showVideoAnalyzerMenu()
                     end
 
                     if resultTxt and resultTxt ~= "" then
-                        service.asyncSpeak("تم الانتهاء من الوصف.")
-                        showResultWindow("نتيجة وصف الفيديو", resultTxt)
+                        service.asyncSpeak("تم الانتهاء من الوصف المبدئي.")
+                        showVideoAnalysisWindow(resultTxt, clipText, "youtube.mp4")
                         speakAIResponseViaCustomTTS(resultTxt, "ar")
                     else
                         service.asyncSpeak("فشلت معالجة الفيديو.")
