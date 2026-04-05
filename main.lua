@@ -3506,7 +3506,7 @@ function openMainWindow()
             btn.setOnClickListener(function() hideMainWindow(); showGeminiLiveWindow() end)
             return btn
         end,
-        library = function()
+        doc_reader = function()
             local btn = Button(service); btn.setText("📚 المكتبة والقارئ")
             btn.setContentDescription("فتح مكتبة الكتب والمستندات")
             styleButton(btn, "secondary")
