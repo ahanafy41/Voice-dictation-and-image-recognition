@@ -2997,7 +2997,7 @@ function loadVideoAndShowViewer(filePath)
                         service.asyncSpeak("اكتملت المعالجة. جاري استخراج ملخص الفيديو...")
                         showResultWindow("تحليل الفيديو", "⏳ جاري التحليل المبدئي...")
 
-                        local prompt = "قدم ملخصاً شاملاً لما يحدث في هذا الفيديو باللغة العربية. اذكر أهم الأحداث أو المعلومات المذكورة بوضوح."
+                        local prompt = "أنت عين لشخص كفيف. قم بوصف المشاهد البصرية والأحداث المرئية في هذا الفيديو بدقة شديدة وتفصيل. ماذا يحدث في الصورة؟ من هم الأشخاص؟ كيف يتحركون؟ وما هي الأماكن؟ تجاهل النص المنطوق تماماً وركز فقط على وصف الصورة المتحركة."
                         local url = "https://generativelanguage.googleapis.com/v1beta/models/" .. selectedGeminiModelId .. ":generateContent?key=" .. geminiApiKey
                         local headers = {["Content-Type"] = "application/json"}
                         local root = JSONObject(); local contentObj = JSONObject(); local partsArray = JSONArray()
@@ -3502,14 +3502,12 @@ function openMainWindow()
             return btn
         end,
         video_analyzer = function()
-            local btn = Button(service); btn.setText("🎬 محلل الفيديو")
+            local btn = Button(service); btn.setText("🎬 وصف الفيديوهات (يوتيوب أو محلي)")
             btn.setContentDescription("اختيار وتحليل مقاطع الفيديو")
             styleButton(btn, "secondary")
             btn.setOnClickListener(function()
                 hideMainWindow()
-                local paths = getStoragePaths(); local startPath = "/storage/emulated/0"
-                if #paths > 0 then startPath = paths[1].path end
-                openDocumentPickerWindow(startPath, function(selectedPath) loadDocumentAndShowViewer(selectedPath) end)
+                showVideoAnalyzerMenu()
             end)
             return btn
         end,
@@ -4144,6 +4142,14 @@ function startVoiceRecognition(fromDashboard)
                     openMainWindow()
                     return
 
+                elseif recognizedText == "أوصف الفيديو" or recognizedText == "تحليل الفيديو" then
+                    service.asyncSpeak("فتح قائمة وصف الفيديو");
+                    stopDictation = true
+                    if recognizer then recognizer.destroy(); recognizer = nil end
+                    commandProcessed = true
+                    showVideoAnalyzerMenu()
+                    return
+
                 elseif (lowerRecognizedText == "summarize text" or recognizedText == "لخص النص" or lowerRecognizedText == "résumer le texte") and summarizeEnabled then
                     commandProcessed=true
                     if groqApiKey == "" then
@@ -4292,6 +4298,131 @@ mainHandler.post(luajava.createProxy("java.lang.Runnable", {
         if startWithDictation then startVoiceRecognition(false) else openMainWindow() end
     end
 }))
+-- ### Video Analyzer Menu ###
+local videoAnalyzerWindow = nil
+
+function showVideoAnalyzerMenu()
+    if videoAnalyzerWindow then return end
+    hideMainWindow()
+
+    local layout = LinearLayout(service)
+    layout.setOrientation(LinearLayout.VERTICAL)
+    local bg = GradientDrawable()
+    bg.setColor(0xFF121212)
+    layout.setBackgroundDrawable(bg)
+    layout.setPadding(30, 30, 30, 30)
+
+    -- Header
+    local headerL = LinearLayout(service)
+    headerL.setOrientation(LinearLayout.HORIZONTAL)
+    headerL.setGravity(Gravity.CENTER_VERTICAL)
+    headerL.setPadding(0, 10, 0, 30)
+
+    local titleTv = TextView(service)
+    titleTv.setText("🎬 وصف وتحليل الفيديوهات")
+    titleTv.setTextSize(20)
+    titleTv.setTypeface(nil, Typeface.BOLD)
+    titleTv.setTextColor(0xFF64B5F6)
+    local titleLp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0)
+    headerL.addView(titleTv, titleLp)
+
+    local closeBtn = Button(service)
+    closeBtn.setText("❌")
+    styleButton(closeBtn, "secondary")
+    closeBtn.setPadding(10, 10, 10, 10); closeBtn.setContentDescription("إغلاق نافذة وصف الفيديوهات");
+    closeBtn.setOnClickListener(function()
+        if videoAnalyzerWindow then wm.removeView(videoAnalyzerWindow); videoAnalyzerWindow = nil end
+    end)
+    headerL.addView(closeBtn)
+    layout.addView(headerL)
+
+    local contentL = LinearLayout(service)
+    contentL.setOrientation(LinearLayout.VERTICAL)
+
+    local ytBtn = Button(service)
+    ytBtn.setText("🔗 وصف فيديو يوتيوب (من الحافظة)")
+    styleButton(ytBtn, "primary")
+    ytBtn.setOnClickListener(function()
+        if videoAnalyzerWindow then wm.removeView(videoAnalyzerWindow); videoAnalyzerWindow = nil end
+
+        local cb = service.getSystemService(Context.CLIPBOARD_SERVICE)
+        if cb.hasPrimaryClip() and cb.getPrimaryClip().getItemCount() > 0 then
+            local clipText = cb.getPrimaryClip().getItemAt(0).getText()
+            if clipText then clipText = clipText.toString() else clipText = "" end
+
+            if clipText:match("youtube%.com") or clipText:match("youtu%.be") then
+                if geminiApiKey == "" then
+                    service.asyncSpeak("مفتاح Gemini مفقود.")
+                    return
+                end
+
+                service.asyncSpeak("جاري تحليل فيديو يوتيوب...")
+                showResultWindow("تحليل الفيديو", "⏳ جاري المعالجة...")
+
+                local prompt = "أنت عين لشخص كفيف. قم بوصف المشاهد البصرية والأحداث المرئية في هذا الفيديو بدقة شديدة وتفصيل. ماذا يحدث في الصورة؟ من هم الأشخاص؟ كيف يتحركون؟ وما هي الأماكن؟ تجاهل النص المنطوق تماماً وركز فقط على وصف الصورة المتحركة."
+                local url = "https://generativelanguage.googleapis.com/v1beta/models/" .. selectedGeminiModelId .. ":generateContent?key=" .. geminiApiKey
+                local headers = {["Content-Type"] = "application/json"}
+                local root = JSONObject(); local contentObj = JSONObject(); local partsArray = JSONArray()
+                local filePart = JSONObject(); local fileData = JSONObject()
+                fileData.put("mime_type", "video/mp4"); fileData.put("file_uri", clipText)
+                filePart.put("file_data", fileData); partsArray.put(filePart)
+                local textPart = JSONObject(); textPart.put("text", prompt); partsArray.put(textPart)
+                contentObj.put("parts", partsArray); local contentsArray = JSONArray(); contentsArray.put(contentObj); root.put("contents", contentsArray)
+
+                Http.post(url, root.toString(), headers, function(status, response)
+                    local resultTxt = ""
+                    if status == 200 then
+                        local s, j = pcall(function() return JSONObject(response) end)
+                        if s and j.has("candidates") then
+                            local cands = j.getJSONArray("candidates")
+                            if cands.length() > 0 then
+                                local parts = cands.getJSONObject(0).getJSONObject("content").getJSONArray("parts")
+                                if parts.length() > 0 and parts.getJSONObject(0).has("text") then resultTxt = parts.getJSONObject(0).getString("text") end
+                            end
+                        end
+                    else
+                        resultTxt = "خطأ في الاتصال: " .. status
+                    end
+
+                    if resultTxt and resultTxt ~= "" then
+                        service.asyncSpeak("تم الانتهاء من الوصف.")
+                        showResultWindow("نتيجة وصف الفيديو", resultTxt)
+                        speakAIResponseViaCustomTTS(resultTxt, "ar")
+                    else
+                        service.asyncSpeak("فشلت معالجة الفيديو.")
+                        showResultWindow("خطأ", "فشلت المعالجة.")
+                    end
+                end)
+            else
+                service.asyncSpeak("الرجاء نسخ رابط يوتيوب أولاً")
+            end
+        else
+            service.asyncSpeak("الرجاء نسخ رابط يوتيوب أولاً")
+        end
+    end)
+    local ytLp = LinearLayout.LayoutParams(-1, -2)
+    ytLp.bottomMargin = 20
+    contentL.addView(ytBtn, ytLp)
+
+    local localBtn = Button(service)
+    localBtn.setText("📁 اختيار فيديو من الموبايل")
+    styleButton(localBtn, "secondary")
+    localBtn.setOnClickListener(function()
+        if videoAnalyzerWindow then wm.removeView(videoAnalyzerWindow); videoAnalyzerWindow = nil end
+        local paths = getStoragePaths(); local startPath = "/storage/emulated/0"
+        if #paths > 0 then startPath = paths[1].path end
+        openDocumentPickerWindow(startPath, function(selectedPath) loadVideoAndShowViewer(selectedPath) end)
+    end)
+    contentL.addView(localBtn, LinearLayout.LayoutParams(-1, -2))
+
+    layout.addView(contentL)
+
+    videoAnalyzerWindow = layout
+    local winP = WindowManager.LayoutParams(-1, -2, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY, WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL, PixelFormat.TRANSLUCENT)
+    winP.gravity = Gravity.CENTER
+    pcall(function() wm.addView(videoAnalyzerWindow, winP) end)
+end
+
 -- ### Personal Assistant Feature ###
 local personalAssistantWindow = nil
 
