@@ -4614,6 +4614,12 @@ function showVideoEditorWindow()
                 end)
                 result.confirm("Handled")
                 return true
+            elseif message == "SPEAK" then
+                if speakAIResponseViaCustomTTS then
+                    speakAIResponseViaCustomTTS(defaultValue)
+                end
+                result.confirm("Handled")
+                return true
             elseif message == "SAVE_EXPORTED_VIDEO" then
                 local b64 = defaultValue:match("base64,(.*)$") or defaultValue
                 local fileName = "AI_Video_" .. os.date("%Y%m%d_%H%M%S") .. ".mp4"
@@ -4628,10 +4634,14 @@ function showVideoEditorWindow()
                     fos.close()
                 end)
 
-                if success then
-                    printToast("تم حفظ الفيديو بنجاح في مجلد التنزيلات: " .. fileName)
+                                if success then
+                    local msg = "تم حفظ الفيديو بنجاح في مجلد التنزيلات: " .. fileName
+                    if speakAIResponseViaCustomTTS then speakAIResponseViaCustomTTS(msg) end
+                    pcall(function() import "android.widget.Toast"; Toast.makeText(service, msg, Toast.LENGTH_LONG).show() end)
                 else
-                    printToast("فشل حفظ الفيديو: " .. tostring(err))
+                    local msg = "فشل حفظ الفيديو"
+                    if speakAIResponseViaCustomTTS then speakAIResponseViaCustomTTS(msg) end
+                    pcall(function() import "android.widget.Toast"; Toast.makeText(service, msg, Toast.LENGTH_LONG).show() end)
                 end
 
                 result.confirm("Handled")
@@ -5458,33 +5468,26 @@ function showVideoEditorWindow()
 
             mediaRecorder.start();
             const fps = 30; const step = 1 / fps;
+            progressContainer.style.display = 'flex';
+            let lastSpokenPercent = 0;
 
             function processFrame() {
                 if (appState.currentTime >= appState.duration) {
                     mediaRecorder.stop();
-                    audioSources.forEach(src => src.el.pause());
                     return;
                 }
-
-                // معالجة تشغيل الصوت العادي
-                audioSources.forEach(src => {
-                    const isInside = appState.currentTime >= src.item.start && appState.currentTime < src.item.end;
-                    const isPlaying = !src.el.paused;
-                    if (isInside && !isPlaying) { src.el.currentTime = appState.currentTime - src.item.start; src.el.play().catch(e=>console.log(e)); }
-                    else if (!isInside && isPlaying) src.el.pause();
-                });
-
-                // معالجة المؤثرات الصوتية للانتقالات أثناء التصدير!
-                appState.timeline.forEach(item => {
-                    if ((item.type === 'image' || item.type === 'video') && item.transition !== 'none' && item.transSound) {
-                        if (appState.currentTime >= item.start && !item.sfxPlayed) {
-                            playTransitionSFX();
-                            item.sfxPlayed = true;
-                        }
-                    }
-                });
-
                 drawFrame(appState.currentTime);
+
+                // Update Progress UI
+                let percent = Math.floor((appState.currentTime / appState.duration) * 100);
+                document.getElementById('mp4-progress-text').innerText = percent + "%";
+
+                // Speak progress every 25% for screen readers
+                if (percent >= lastSpokenPercent + 25) {
+                    lastSpokenPercent = percent;
+                    window.prompt('SPEAK', `جاري التصدير: ${percent} في المئة`);
+                }
+
                 appState.currentTime += step;
                 setTimeout(processFrame, 1000/fps); // استخدام setTimeout لعدم تجميد واجهة المتصفح
             }
@@ -5501,6 +5504,8 @@ function showVideoEditorWindow()
             progressContainer.style.display = 'none';
             btn.innerHTML = '<i class="fa-solid fa-file-video"></i> <span>تصدير الفيديو</span>';
             btn.disabled = false; appState.currentTime = 0; drawFrame();
+            document.getElementById('mp4-progress-text').innerText = "0%";
+            lastSpokenPercent = 0;
         }
 
         window.onload = () => {
@@ -5682,6 +5687,12 @@ function showGeminiLiveWindow()
                 end)
                 result.confirm("Handled")
                 return true
+            elseif message == "SPEAK" then
+                if speakAIResponseViaCustomTTS then
+                    speakAIResponseViaCustomTTS(defaultValue)
+                end
+                result.confirm("Handled")
+                return true
             elseif message == "SAVE_EXPORTED_VIDEO" then
                 local b64 = defaultValue:match("base64,(.*)$") or defaultValue
                 local fileName = "AI_Video_" .. os.date("%Y%m%d_%H%M%S") .. ".mp4"
@@ -5696,10 +5707,14 @@ function showGeminiLiveWindow()
                     fos.close()
                 end)
 
-                if success then
-                    printToast("تم حفظ الفيديو بنجاح في مجلد التنزيلات: " .. fileName)
+                                if success then
+                    local msg = "تم حفظ الفيديو بنجاح في مجلد التنزيلات: " .. fileName
+                    if speakAIResponseViaCustomTTS then speakAIResponseViaCustomTTS(msg) end
+                    pcall(function() import "android.widget.Toast"; Toast.makeText(service, msg, Toast.LENGTH_LONG).show() end)
                 else
-                    printToast("فشل حفظ الفيديو: " .. tostring(err))
+                    local msg = "فشل حفظ الفيديو"
+                    if speakAIResponseViaCustomTTS then speakAIResponseViaCustomTTS(msg) end
+                    pcall(function() import "android.widget.Toast"; Toast.makeText(service, msg, Toast.LENGTH_LONG).show() end)
                 end
 
                 result.confirm("Handled")
