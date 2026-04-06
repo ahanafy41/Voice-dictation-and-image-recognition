@@ -4518,7 +4518,7 @@ function showVideoEditorWindow()
 
                     mainHandler.post(luajava.createProxy("java.lang.Runnable", {
                         run = function()
-                            view.evaluateJavascript("window.onFileSelectedNative(\"" .. escapeJsonString(resultData) .. "\", \"" .. escapeJsonString(defaultValue) .. "\", \"" .. escapeJsonString(selectedPath) .. "\");", nil)
+                            view.evaluateJavascript("if(typeof window.onFileSelectedNative === \'function\') { window.onFileSelectedNative(\"" .. escapeJsonString(resultData) .. "\", \"" .. escapeJsonString(defaultValue) .. "\", \"" .. escapeJsonString(selectedPath) .. "\"); } else { console.error(\'onFileSelectedNative not ready\'); }", nil)
                         end
                     }))
                 end)
@@ -4670,6 +4670,10 @@ function showVideoEditorWindow()
     <title>محرر الفيديو الذكي للمكفوفين (إصدار الانتقالات والمشاهد)</title>
         <!-- Fix ReferenceError: exports and require are not defined -->
     <script>
+        window.onFileSelectedNative = null;
+        window.onScenesGeneratedNative = null;
+        window.onSceneImageGeneratedNative = null;
+        window.onSceneAudioGeneratedNative = null;
         var exports = {};
         function require(module) {
             if (module === '@ffmpeg/ffmpeg' && window.FFmpegWASM) {
