@@ -4518,7 +4518,7 @@ function showVideoEditorWindow()
 
                     mainHandler.post(luajava.createProxy("java.lang.Runnable", {
                         run = function()
-                            view.evaluateJavascript("window.onFileSelectedNative(\"" .. escapeJsonString(resultData) .. "\", \"" .. escapeJsonString(defaultValue) .. "\", \"" .. escapeJsonString(selectedPath) .. "\");", nil)
+                            view.evaluateJavascript("if(typeof window.onFileSelectedNative === \'function\') { window.onFileSelectedNative(\"" .. escapeJsonString(resultData) .. "\", \"" .. escapeJsonString(defaultValue) .. "\", \"" .. escapeJsonString(selectedPath) .. "\"); } else { console.error(\'onFileSelectedNative not ready\'); }", nil)
                         end
                     }))
                 end)
@@ -4614,6 +4614,38 @@ function showVideoEditorWindow()
                 end)
                 result.confirm("Handled")
                 return true
+            elseif message == "SPEAK" then
+                if speakAIResponseViaCustomTTS then
+                    speakAIResponseViaCustomTTS(defaultValue)
+                end
+                result.confirm("Handled")
+                return true
+            elseif message == "SAVE_EXPORTED_VIDEO" then
+                local b64 = defaultValue:match("base64,(.*)$") or defaultValue
+                local fileName = "AI_Video_" .. os.date("%Y%m%d_%H%M%S") .. ".mp4"
+                local downloadPath = "/storage/emulated/0/Download/" .. fileName
+
+                local success, err = pcall(function()
+                    import "java.io.FileOutputStream"
+                    import "android.util.Base64"
+                    local bytes = Base64.decode(b64, Base64.DEFAULT)
+                    local fos = FileOutputStream(downloadPath)
+                    fos.write(bytes)
+                    fos.close()
+                end)
+
+                                if success then
+                    local msg = "تم حفظ الفيديو بنجاح في مجلد التنزيلات: " .. fileName
+                    if speakAIResponseViaCustomTTS then speakAIResponseViaCustomTTS(msg) end
+                    pcall(function() import "android.widget.Toast"; Toast.makeText(service, msg, Toast.LENGTH_LONG).show() end)
+                else
+                    local msg = "فشل حفظ الفيديو"
+                    if speakAIResponseViaCustomTTS then speakAIResponseViaCustomTTS(msg) end
+                    pcall(function() import "android.widget.Toast"; Toast.makeText(service, msg, Toast.LENGTH_LONG).show() end)
+                end
+
+                result.confirm("Handled")
+                return true
             end
             return super.onJsPrompt(view, url, message, defaultValue, result)
         end
@@ -4638,6 +4670,10 @@ function showVideoEditorWindow()
     <title>محرر الفيديو الذكي للمكفوفين (إصدار الانتقالات والمشاهد)</title>
         <!-- Fix ReferenceError: exports and require are not defined -->
     <script>
+        window.onFileSelectedNative = null;
+        window.onScenesGeneratedNative = null;
+        window.onSceneImageGeneratedNative = null;
+        window.onSceneAudioGeneratedNative = null;
         var exports = {};
         function require(module) {
             if (module === '@ffmpeg/ffmpeg' && window.FFmpegWASM) {
@@ -4722,6 +4758,24 @@ function showVideoEditorWindow()
                     <label for="upload-bg-music" class="sr-only">رفع موسيقى من جهازك</label>
                     <button onclick="window.prompt('PICK_FILE', 'bg_music');" class="w-full bg-gray-200 hover:bg-gray-300 text-gray-800 p-2 rounded font-semibold transition">
                         <i class="fa-solid fa-upload"></i> إضافة كخلفية للفيديو بالكامل
+                    </button>
+                </div>
+            </section>
+
+            <!-- الإضافة اليدوية (بدون ذكاء اصطناعي) -->
+            <section class="bg-white rounded-lg shadow p-4 border border-gray-200">
+                <h2 class="text-lg font-bold mb-3 flex items-center gap-2 text-indigo-700" tabindex="0">
+                    <i class="fa-solid fa-plus-circle"></i> 3. الإضافة اليدوية للملفات
+                </h2>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+                    <button onclick="window.prompt('PICK_FILE', 'manual_image');" class="bg-blue-100 hover:bg-blue-200 text-blue-800 p-2 rounded font-semibold transition flex items-center justify-center gap-2" aria-label="إضافة صورة يدوياً">
+                        <i class="fa-solid fa-image"></i> صورة
+                    </button>
+                    <button onclick="window.prompt('PICK_FILE', 'manual_video');" class="bg-purple-100 hover:bg-purple-200 text-purple-800 p-2 rounded font-semibold transition flex items-center justify-center gap-2" aria-label="إضافة فيديو يدوياً">
+                        <i class="fa-solid fa-video"></i> فيديو
+                    </button>
+                    <button onclick="window.prompt('PICK_FILE', 'manual_audio');" class="bg-green-100 hover:bg-green-200 text-green-800 p-2 rounded font-semibold transition flex items-center justify-center gap-2" aria-label="إضافة صوت يدوياً">
+                        <i class="fa-solid fa-microphone"></i> صوت
                     </button>
                 </div>
             </section>
@@ -5101,6 +5155,48 @@ function showVideoEditorWindow()
                     showToast('صيغة ملف غير مدعومة للصوت.', 'error');
                 }
             }
+            else if (sourceId === "manual_image" || sourceId === "manual_video") {
+                const start = appState.lastItemEndTimes.visual;
+
+                if (ext === 'jpg' || ext === 'jpeg' || ext === 'png' || ext === 'webp' || ext === 'gif') {
+                    const img = new Image();
+                    img.src = url;
+                    img.onload = () => {
+                        addToTimeline({ id: `up-${Date.now()}`, type: 'image', name: fileName, src: url, start, end: start+5, layer: 1, scale: 100, transition: 'none', transSound: false, imageElement: img });
+                        appState.lastItemEndTimes.visual = start + 5;
+                        showToast('تمت إضافة الصورة يدوياً.', 'success');
+                    };
+                    img.onerror = () => showToast('فشل تحميل الصورة.', 'error');
+                } else if (ext === 'mp4' || ext === 'webm' || ext === 'mkv' || ext === 'mov') {
+                    const vid = document.createElement('video');
+                    vid.src = url;
+                    vid.muted = true;
+                    vid.onloadedmetadata = () => {
+                        addToTimeline({ id: `up-${Date.now()}`, type: 'video', name: fileName, src: url, start, end: start+vid.duration, layer: 1, scale: 100, transition: 'none', transSound: false, videoElement: vid });
+                        appState.lastItemEndTimes.visual = start + vid.duration;
+                        showToast('تمت إضافة الفيديو يدوياً.', 'success');
+                    };
+                    vid.onerror = () => showToast('فشل تحميل الفيديو.', 'error');
+                } else {
+                    showToast('صيغة ملف غير مدعومة.', 'error');
+                }
+            }
+            else if (sourceId === "manual_audio") {
+                const start = appState.lastItemEndTimes.audio;
+
+                if (ext === 'mp3' || ext === 'wav' || ext === 'm4a' || ext === 'ogg' || ext === 'aac') {
+                    const audObj = new Audio(url);
+                    audObj.onloadedmetadata = () => {
+                        addToTimeline({ id: `audio-${Date.now()}`, type: 'audio', name: fileName, src: url, start, end: start+audObj.duration, audioElement: audObj });
+                        appState.lastItemEndTimes.audio = start + audObj.duration;
+                        showToast('تمت إضافة الصوت يدوياً.', 'success');
+                    };
+                    audObj.onerror = () => showToast('فشل تحميل الصوت.', 'error');
+                } else {
+                    showToast('صيغة ملف غير مدعومة للصوت.', 'error');
+                }
+            }
+
         };
 
         function handleGlobalMusicUpload() {
@@ -5357,66 +5453,45 @@ function showVideoEditorWindow()
 
             mediaRecorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
 
+
             mediaRecorder.onstop = async () => {
-                audioDest = null; // تنظيف المتغير
+                audioDest = null;
                 const recordedBlob = new Blob(chunks, { type: targetMimeType });
 
-                if (isNativeMP4) {
-                    downloadBlob(recordedBlob, `AI_Video_Pro.${extension}`);
+                showToast('جاري حفظ الفيديو إلى المعرض/التنزيلات...', 'info');
+
+                const reader = new FileReader();
+                reader.readAsDataURL(recordedBlob);
+                reader.onloadend = function() {
+                    const base64data = reader.result;
+                    // Send to native Lua
+                    window.prompt('SAVE_EXPORTED_VIDEO', base64data);
                     resetExportUI(btn, progressContainer);
-                    showToast('تم تصدير الفيديو بنجاح!', 'success');
-                    return;
-                }
-
-                try {
-                    progressContainer.style.display = 'flex';
-                    btn.innerHTML = '<i class="fa-solid fa-cog fa-spin"></i> تحويل لـ MP4...';
-
-                    const ffmpegInstance = await initFFmpeg();
-                    await ffmpegInstance.writeFile('input.webm', await FFmpegUtil.fetchFile(recordedBlob));
-                    await ffmpegInstance.exec(['-i', 'input.webm', '-c:v', 'libx264', '-preset', 'ultrafast', 'output.mp4']);
-                    const mp4Data = await ffmpegInstance.readFile('output.mp4');
-                    const mp4Blob = new Blob([mp4Data.buffer], { type: 'video/mp4' });
-
-                    downloadBlob(mp4Blob, `AI_Video_Pro_${Date.now()}.mp4`);
-                    showToast('تم التحويل وتصدير MP4 بنجاح!', 'success');
-                } catch (error) {
-                    showToast('تم تنزيل النسخة الأصلية مباشرة.', 'info');
-                    downloadBlob(recordedBlob, `AI_Video_Pro.${extension}`);
-                } finally {
-                    resetExportUI(btn, progressContainer);
-                }
+                };
             };
 
             mediaRecorder.start();
             const fps = 30; const step = 1 / fps;
+            progressContainer.style.display = 'flex';
+            let lastSpokenPercent = 0;
 
             function processFrame() {
                 if (appState.currentTime >= appState.duration) {
                     mediaRecorder.stop();
-                    audioSources.forEach(src => src.el.pause());
                     return;
                 }
-
-                // معالجة تشغيل الصوت العادي
-                audioSources.forEach(src => {
-                    const isInside = appState.currentTime >= src.item.start && appState.currentTime < src.item.end;
-                    const isPlaying = !src.el.paused;
-                    if (isInside && !isPlaying) { src.el.currentTime = appState.currentTime - src.item.start; src.el.play().catch(e=>console.log(e)); }
-                    else if (!isInside && isPlaying) src.el.pause();
-                });
-
-                // معالجة المؤثرات الصوتية للانتقالات أثناء التصدير!
-                appState.timeline.forEach(item => {
-                    if ((item.type === 'image' || item.type === 'video') && item.transition !== 'none' && item.transSound) {
-                        if (appState.currentTime >= item.start && !item.sfxPlayed) {
-                            playTransitionSFX();
-                            item.sfxPlayed = true;
-                        }
-                    }
-                });
-
                 drawFrame(appState.currentTime);
+
+                // Update Progress UI
+                let percent = Math.floor((appState.currentTime / appState.duration) * 100);
+                document.getElementById('mp4-progress-text').innerText = percent + "%";
+
+                // Speak progress every 25% for screen readers
+                if (percent >= lastSpokenPercent + 25) {
+                    lastSpokenPercent = percent;
+                    window.prompt('SPEAK', `جاري التصدير: ${percent} في المئة`);
+                }
+
                 appState.currentTime += step;
                 setTimeout(processFrame, 1000/fps); // استخدام setTimeout لعدم تجميد واجهة المتصفح
             }
@@ -5433,6 +5508,8 @@ function showVideoEditorWindow()
             progressContainer.style.display = 'none';
             btn.innerHTML = '<i class="fa-solid fa-file-video"></i> <span>تصدير الفيديو</span>';
             btn.disabled = false; appState.currentTime = 0; drawFrame();
+            document.getElementById('mp4-progress-text').innerText = "0%";
+            lastSpokenPercent = 0;
         }
 
         window.onload = () => {
@@ -5612,6 +5689,38 @@ function showGeminiLiveWindow()
                         run = function() view.evaluateJavascript("window.onSceneAudioGeneratedNative(\"" .. b64 .. "\", " .. indexStr .. ", " .. sampleRate .. ");", nil) end
                     }))
                 end)
+                result.confirm("Handled")
+                return true
+            elseif message == "SPEAK" then
+                if speakAIResponseViaCustomTTS then
+                    speakAIResponseViaCustomTTS(defaultValue)
+                end
+                result.confirm("Handled")
+                return true
+            elseif message == "SAVE_EXPORTED_VIDEO" then
+                local b64 = defaultValue:match("base64,(.*)$") or defaultValue
+                local fileName = "AI_Video_" .. os.date("%Y%m%d_%H%M%S") .. ".mp4"
+                local downloadPath = "/storage/emulated/0/Download/" .. fileName
+
+                local success, err = pcall(function()
+                    import "java.io.FileOutputStream"
+                    import "android.util.Base64"
+                    local bytes = Base64.decode(b64, Base64.DEFAULT)
+                    local fos = FileOutputStream(downloadPath)
+                    fos.write(bytes)
+                    fos.close()
+                end)
+
+                                if success then
+                    local msg = "تم حفظ الفيديو بنجاح في مجلد التنزيلات: " .. fileName
+                    if speakAIResponseViaCustomTTS then speakAIResponseViaCustomTTS(msg) end
+                    pcall(function() import "android.widget.Toast"; Toast.makeText(service, msg, Toast.LENGTH_LONG).show() end)
+                else
+                    local msg = "فشل حفظ الفيديو"
+                    if speakAIResponseViaCustomTTS then speakAIResponseViaCustomTTS(msg) end
+                    pcall(function() import "android.widget.Toast"; Toast.makeText(service, msg, Toast.LENGTH_LONG).show() end)
+                end
+
                 result.confirm("Handled")
                 return true
             end

@@ -1,0 +1,168 @@
+
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>محرر الفيديو الذكي للمكفوفين (إصدار الانتقالات والمشاهد)</title>
+        <!-- Fix ReferenceError: exports and require are not defined -->
+    <script>
+        var exports = {};
+        function require(module) {
+            if (module === '@ffmpeg/ffmpeg' && window.FFmpegWASM) {
+                return window.FFmpegWASM;
+            }
+            console.warn('Dummy require called for:', module);
+            return {};
+        }
+    </script>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- مكتبات FFmpeg للتصدير MP4 -->
+    <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
+    <script src="https://unpkg.com/@ffmpeg/util@0.12.2/dist/umd/index.js"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;800&display=swap');
+        body { font-family: 'Cairo', sans-serif; background-color: #f3f4f6; color: #1f2937; }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+        .toast { transition: opacity 0.3s ease-in-out, transform 0.3s ease-in-out; transform: translateY(20px); opacity: 0; }
+        .toast.show { transform: translateY(0); opacity: 1; }
+        *:focus-visible { outline: 3px solid #3b82f6 !important; outline-offset: 2px !important; }
+
+        #mp4-progress-container { display: none; }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+    <!-- شريط الإشعارات المتوافق -->
+    <div aria-live="assertive" id="toast-container" class="fixed bottom-4 left-1/2 transform -translate-x-1/2 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+    <!-- شريط التنقل -->
+    <header class="bg-indigo-700 text-white p-4 shadow-md flex justify-between items-center z-10 flex-wrap gap-4">
+        <h1 class="text-xl md:text-2xl font-bold" tabindex="0">محرر الفيديو الاحترافي (المشاهد والانتقالات)</h1>
+
+        <div class="flex items-center gap-4">
+            <div id="mp4-progress-container" class="items-center gap-2 bg-indigo-800 px-3 py-1 rounded" aria-live="polite">
+                <i class="fa-solid fa-circle-notch fa-spin"></i>
+                <span id="mp4-progress-text" class="text-sm font-mono">0%</span>
+            </div>
+            <button onclick="exportVideo()" id="export-btn" class="bg-green-500 hover:bg-green-600 px-4 py-2 rounded font-semibold transition flex items-center gap-2" aria-label="تصدير الفيديو النهائي بصيغة إم بي فور">
+                <i class="fa-solid fa-file-video" aria-hidden="true"></i> <span>تصدير الفيديو</span>
+            </button>
+        </div>
+    </header>
+
+    <main class="flex-1 p-4 grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+        <!-- القسم الأيمن: مساعد المشاهد -->
+        <div class="lg:col-span-5 flex flex-col gap-6">
+            <section class="bg-white rounded-lg shadow p-4 border border-gray-200">
+                <h2 class="text-xl font-bold mb-4 flex items-center gap-2 text-indigo-700" tabindex="0">
+                    <i class="fa-solid fa-clapperboard"></i> 1. مساعد بناء المشاهد
+                </h2>
+
+                <div class="space-y-3 mb-4">
+                    <label for="script-prompt" class="block font-semibold">موضوع الفيديو:</label>
+                    <input type="text" id="script-prompt" class="w-full border rounded p-2 focus:ring-2 focus:ring-indigo-500" placeholder="مثال: قصة بناء الأهرامات..." aria-label="أدخل موضوع الفيديو لإنشاء المشاهد">
+                    <button id="btn-generate-script" class="w-full bg-indigo-100 hover:bg-indigo-200 text-indigo-800 p-2 rounded font-semibold transition flex items-center justify-center gap-2" onclick="generateScenes()">
+                        <i class="fa-solid fa-wand-magic-sparkles"></i> توليد المشاهد
+                    </button>
+                </div>
+
+                <div id="scenes-container" class="space-y-4 max-h-[500px] overflow-y-auto pr-2" role="list" aria-label="قائمة المشاهد المولدة">
+                    <div class="text-center text-gray-400 py-4" tabindex="0">لم يتم توليد أي مشاهد بعد. قم بإدخال موضوع لتوليدها.</div>
+                </div>
+            </section>
+
+            <!-- إضافة موسيقى خلفية عامة (Soundtrack) -->
+            <section class="bg-white rounded-lg shadow p-4 border border-gray-200">
+                <h2 class="text-lg font-bold mb-2 flex items-center gap-2" tabindex="0">
+                    <i class="fa-solid fa-music"></i> 2. إضافة موسيقى خلفية (Soundtrack)
+                </h2>
+                <div class="space-y-2">
+                    <label for="upload-bg-music" class="sr-only">رفع موسيقى من جهازك</label>
+                    <button onclick="window.prompt('PICK_FILE', 'bg_music');" class="w-full bg-gray-200 hover:bg-gray-300 text-gray-800 p-2 rounded font-semibold transition">
+                        <i class="fa-solid fa-upload"></i> إضافة كخلفية للفيديو بالكامل
+                    </button>
+                </div>
+            </section>
+
+            <!-- الإضافة اليدوية (بدون ذكاء اصطناعي) -->
+            <section class="bg-white rounded-lg shadow p-4 border border-gray-200">
+                <h2 class="text-lg font-bold mb-3 flex items-center gap-2 text-indigo-700" tabindex="0">
+                    <i class="fa-solid fa-plus-circle"></i> 3. الإضافة اليدوية للملفات
+                </h2>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+                    <button onclick="window.prompt('PICK_FILE', 'manual_image');" class="bg-blue-100 hover:bg-blue-200 text-blue-800 p-2 rounded font-semibold transition flex items-center justify-center gap-2" aria-label="إضافة صورة يدوياً">
+                        <i class="fa-solid fa-image"></i> صورة
+                    </button>
+                    <button onclick="window.prompt('PICK_FILE', 'manual_video');" class="bg-purple-100 hover:bg-purple-200 text-purple-800 p-2 rounded font-semibold transition flex items-center justify-center gap-2" aria-label="إضافة فيديو يدوياً">
+                        <i class="fa-solid fa-video"></i> فيديو
+                    </button>
+                    <button onclick="window.prompt('PICK_FILE', 'manual_audio');" class="bg-green-100 hover:bg-green-200 text-green-800 p-2 rounded font-semibold transition flex items-center justify-center gap-2" aria-label="إضافة صوت يدوياً">
+                        <i class="fa-solid fa-microphone"></i> صوت
+                    </button>
+                </div>
+            </section>
+        </div>
+
+        <!-- القسم الأيسر: المعاينة والتايم لاين -->
+        <div class="lg:col-span-7 flex flex-col gap-6">
+            <section class="bg-black rounded-lg shadow overflow-hidden relative flex items-center justify-center border-4 border-gray-800" style="aspect-ratio: 16/9;" aria-label="شاشة معاينة الفيديو">
+                <canvas id="preview-canvas" width="1280" height="720" class="w-full h-full object-contain" aria-hidden="true"></canvas>
+
+                <div class="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-gray-900 bg-opacity-80 rounded-full px-6 py-2 flex items-center gap-4 text-white z-10">
+                    <button id="btn-play-pause" onclick="togglePlay()" class="hover:text-indigo-400 text-xl transition" aria-label="تشغيل أو إيقاف المعاينة">
+                        <i class="fa-solid fa-play" id="play-icon"></i>
+                    </button>
+                    <div class="flex items-center gap-2 font-mono text-sm" aria-live="polite">
+                        <span id="time-current">0.0</span> / <span id="time-total">0.0</span> ثانية
+                    </div>
+                </div>
+            </section>
+
+            <section class="bg-white rounded-lg shadow p-3 flex flex-wrap gap-4 items-center text-sm">
+                <div class="flex items-center gap-2">
+                    <label for="voice-style" class="font-semibold">صوت المعلق (للذكاء الاصطناعي):</label>
+                    <select id="voice-style" class="border rounded p-1" aria-label="اختيار صوت المعلق لجميع المشاهد">
+                        <option value="Zephyr">Zephyr (رجالي قوي)</option>
+                        <option value="Kore">Kore (هادئ)</option>
+                        <option value="Aoede">Aoede (وثائقي)</option>
+                    </select>
+                </div>
+            </section>
+
+            <section class="bg-white rounded-lg shadow border border-gray-200 flex-1 flex flex-col">
+                <div class="bg-gray-100 p-3 border-b flex justify-between items-center">
+                    <h2 class="text-lg font-bold flex items-center gap-2" tabindex="0">
+                        <i class="fa-solid fa-layer-group"></i> شريط الوقت (Timeline)
+                    </h2>
+                    <button onclick="addTextLayer()" class="text-sm bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 rounded transition" aria-label="إضافة طبقة نص حر">
+                        + نص جديد
+                    </button>
+                </div>
+
+                <div class="p-4 flex-1 overflow-y-auto" style="max-height: 500px;">
+                    <p class="text-xs text-gray-500 mb-4" tabindex="0">
+                        يمكنك تعديل وقت البداية والنهاية، اختيار "تأثير الانتقال"، وتفعيل "صوت الانتقال" لكل مشهد بصري من القوائم أدناه.
+                    </p>
+                    <div id="timeline-items" class="space-y-4" role="list" aria-label="عناصر الفيديو والطبقات">
+                        <div class="text-center text-gray-400 py-8" id="empty-timeline-msg" tabindex="0">
+                            شريط الوقت فارغ.
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <script>
+        const apiKey = "
