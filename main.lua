@@ -250,7 +250,12 @@ local geminiLiveVoices = {
 }
 
 -- **Load Settings with Defaults**
-local prefs = service.getSharedPreferences("voice_settings", Context.MODE_PRIVATE)
+local contextObj = activity
+if contextObj == nil then
+    contextObj = service
+end
+
+local prefs = contextObj.getSharedPreferences("voice_settings", Context.MODE_PRIVATE)
 selectedLanguage = prefs.getString("language", defaultSelectedLanguage)
 tashkeelEnabled = prefs.getBoolean("tashkeelEnabled", false)
 profanityFilterEnabled = prefs.getBoolean("profanityFilterEnabled", false)
@@ -420,7 +425,8 @@ mainHandler = Handler(Looper.getMainLooper())
 stopDictation = false
 speechRecord = nil
 recognizer = nil
-local wm = service.getSystemService(Context.WINDOW_SERVICE)
+
+local wm = contextObj.getSystemService(Context.WINDOW_SERVICE)
 local settingsDialog = nil
 local resultWindow = nil
 local globalResultContentTextView = nil
