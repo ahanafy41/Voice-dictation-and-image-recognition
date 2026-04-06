@@ -1,6 +1,60 @@
 require "import"
-if activity then activity.finish() end
+
 import "android.widget.*"
+import "android.Manifest"
+import "android.content.pm.PackageManager"
+import "android.content.Intent"
+
+if activity then
+    -- Check permissions first
+    local needed_permissions = {
+        Manifest.permission.RECORD_AUDIO,
+        Manifest.permission.CAMERA,
+        Manifest.permission.READ_EXTERNAL_STORAGE,
+        Manifest.permission.WRITE_EXTERNAL_STORAGE
+    }
+
+    local perms_to_request = {}
+    for i=1, #needed_permissions do
+        if activity.checkSelfPermission(needed_permissions[i]) ~= PackageManager.PERMISSION_GRANTED then
+            table.insert(perms_to_request, needed_permissions[i])
+        end
+    end
+
+    if #perms_to_request > 0 then
+        activity.requestPermissions(perms_to_request, 100)
+    end
+
+    -- Check if accessibility service is enabled
+    local accessibility_service_name = activity.getPackageName() .. "/com.androlua.LuaAccessibilityService"
+    local is_accessibility_enabled = false
+
+    local accessibility_settings = android.provider.Settings.Secure.getString(activity.getContentResolver(), android.provider.Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
+
+    if accessibility_settings ~= nil then
+        local colonSplitter = ":"
+        local services = {}
+        for service in string.gmatch(accessibility_settings, "([^"..colonSplitter.."]+)") do
+            if service == accessibility_service_name then
+                is_accessibility_enabled = true
+                break
+            end
+        end
+    end
+
+    if not is_accessibility_enabled then
+        -- Alert user and open settings
+        local Toast = import "android.widget.Toast"
+        Toast.makeText(activity, "يرجى تفعيل خدمة إمكانية الوصول للتطبيق ليعمل بشكل صحيح", Toast.LENGTH_LONG).show()
+
+        local Intent = import "android.content.Intent"
+        local intent = Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        activity.startActivity(intent)
+    end
+
+
+end
 import "android.Manifest"
 import "android.content.pm.PackageManager"
 import "android.speech.RecognizerIntent"
