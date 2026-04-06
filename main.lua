@@ -4,6 +4,7 @@ import "android.widget.*"
 import "android.Manifest"
 import "android.content.pm.PackageManager"
 import "android.content.Intent"
+import "android.provider.Settings"
 
 if activity then
     -- Check permissions first
@@ -29,7 +30,7 @@ if activity then
     local accessibility_service_name = activity.getPackageName() .. "/com.androlua.LuaAccessibilityService"
     local is_accessibility_enabled = false
 
-    local accessibility_settings = android.provider.Settings.Secure.getString(activity.getContentResolver(), android.provider.Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
+    local accessibility_settings = Settings.Secure.getString(activity.getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
 
     if accessibility_settings ~= nil then
         local colonSplitter = ":"
@@ -48,7 +49,8 @@ if activity then
         Toast.makeText(activity, "يرجى تفعيل خدمة إمكانية الوصول للتطبيق ليعمل بشكل صحيح", Toast.LENGTH_LONG).show()
 
         local Intent = import "android.content.Intent"
-        local intent = Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
+import "android.provider.Settings"
+        local intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         activity.startActivity(intent)
     end
@@ -62,6 +64,7 @@ import "android.speech.SpeechRecognizer"
 import "android.accessibilityservice.AccessibilityService"
 import "android.speech.RecognitionListener"
 import "android.content.Intent"
+import "android.provider.Settings"
 import "android.view.WindowManager"
 import "android.graphics.PixelFormat"
 import "android.content.Context"
