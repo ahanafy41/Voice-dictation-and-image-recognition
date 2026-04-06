@@ -363,6 +363,7 @@ mainHandler = Handler(Looper.getMainLooper())
 stopDictation = false
 speechRecord = nil
 recognizer = nil
+lastInsertedDictationTextLength = 0 -- Track last text length for "undo/delete" feature
 local wm = service.getSystemService(Context.WINDOW_SERVICE)
 local settingsDialog = nil
 local resultWindow = nil
@@ -1076,39 +1077,33 @@ end
 -- ### Feature Wrapper Functions
 function correctWithAi(text, callback)
     local instructions = {}
-    table.insert(instructions, "Clean fillers. FIX ARABIC SPELLING STRICTLY: (ة/ه, ي/ى, and Hamzas أ/إ/ء) keep dialect.")
+    -- Strict, ultra-short prompt for speed and zero hallucinations
+    table.insert(instructions, "DO NOT change any words. ONLY fix Arabic spelling (Hamzas أإء, Taa/Haa ةه, Yaa ىي). KEEP the exact dialect.")
 
-    if tashkeelEnabled then table.insert(instructions, "Add proper Arabic tashkeel (diacritics).") end
-    if profanityFilterEnabled then table.insert(instructions, "Replace any profanity or offensive words with stars (***).") end
-    if newLinePerSentenceEnabled then table.insert(instructions, "Start a new line for every sentence.") end
-    if convertNumbersEnabled then table.insert(instructions, "Convert digits into their written Arabic words (e.g., 5 to خمسة).") end
-    if cleanExtraSpacesEnabled then table.insert(instructions, "Remove any double or extra spaces.") end
-    if forceDotAtEndEnabled then table.insert(instructions, "MUST end the final text with a period (.).") end
-    if autoCommaEnabled then table.insert(instructions, "Add commas between appropriate clauses.") end
+    if tashkeelEnabled then table.insert(instructions, "Add proper Arabic tashkeel.") end
+    if profanityFilterEnabled then table.insert(instructions, "Replace profanity with ***.") end
+    if newLinePerSentenceEnabled then table.insert(instructions, "Start new line per sentence.") end
+    if convertNumbersEnabled then table.insert(instructions, "Convert digits to Arabic words.") end
+    if cleanExtraSpacesEnabled then table.insert(instructions, "Remove extra spaces.") end
+    if forceDotAtEndEnabled then table.insert(instructions, "End with a period.") end
+    if autoCommaEnabled then table.insert(instructions, "Add commas.") end
 
-    if emojiMode == "smart" then table.insert(instructions, "Add suitable emojis based on the context.")
-    elseif emojiMode == "end" then table.insert(instructions, "Add few relevant emojis only at the very end of the text.")
-    elseif emojiMode == "per_word" then table.insert(instructions, "Add an emoji next to almost every relevant word.")
-    elseif emojiMode == "encrypt" then table.insert(instructions, "Replace most words with emojis only (emoji encryption).")
+    if emojiMode == "smart" then table.insert(instructions, "Add context emojis.")
+    elseif emojiMode == "end" then table.insert(instructions, "Add emojis at end.")
+    elseif emojiMode == "per_word" then table.insert(instructions, "Add emoji per word.")
+    elseif emojiMode == "encrypt" then table.insert(instructions, "Replace words with emojis.")
     end
 
-    local promptPrefix = ""
+    local promptPrefix = "Process this text strictly based on instructions. No explanations, no markdown. Text: "
     if selectedDictationMode ~= "none" then
         for _, m in ipairs(dictationModes) do
-            if m.id == selectedDictationMode then promptPrefix = m.prompt; break end
+            if m.id == selectedDictationMode then promptPrefix = "Apply mode: " .. m.prompt .. " Text: "; break end
         end
-    else
-        promptPrefix = "Clean and format the following text: "
     end
 
-    local fullPrompt = promptPrefix .. "\nInstructions:\n- " .. table.concat(instructions, "\n- ") .. "\n\nText:\n" .. text .. "\n\nReturn ONLY the processed text:"
+    local fullPrompt = promptPrefix .. "\n\nText:\n" .. text .. "\n\nInstructions: " .. table.concat(instructions, " | ") .. "\nReturn ONLY the result:"
 
-    local creativity = aiCreativityLevel or 1
-    local temp = 0.3
-    if creativity == 0 then temp = 0.1
-    elseif creativity == 2 then temp = 0.8
-    end
-
+    local temp = 0.1 -- Always low for dictation to ensure speed and predictability
     makeAiRequest(fullPrompt, nil, nil, nil, callback, temp)
 end
 
@@ -4244,6 +4239,62 @@ function startVoiceRecognition(fromDashboard)
                 end
 
                 if not commandProcessed and recognizedText and recognizedText:match("%S") then
+                    local targetEditText = service.getEditText()
+                    if not targetEditText then
+                        service.asyncSpeak("يرجى الوقوف على حقل كتابة.")
+                        if shouldContinue then startListening() elseif not continuousDictationEnabled and not stopDictation then cleanupResources() end
+                        return
+                    end
+
+                    -- **Hardcoded Zero-Delay Dictation Commands**
+                    local cleanCmd = recognizedText:match("^%s*(.-)%s*$"):lower()
+                    if cleanCmd == "سطر جديد" or cleanCmd == "سطر" then
+                        service.insertText(targetEditText, "\n")
+                        lastInsertedDictationTextLength = 1
+                        service.asyncSpeak("سطر جديد")
+                        if shouldContinue then startListening() elseif not continuousDictationEnabled then cleanupResources() end
+                        return
+                    elseif cleanCmd == "حذف" or cleanCmd == "مسح" then
+                        if lastInsertedDictationTextLength > 0 then
+                            local currentContent = tostring(targetEditText.getText() or "")
+                            if #currentContent >= lastInsertedDictationTextLength then
+                                local newContent = currentContent:sub(1, -lastInsertedDictationTextLength - 1)
+                                local AccessibilityNodeInfo = luajava.bindClass("android.view.accessibility.AccessibilityNodeInfo")
+                                local b = luajava.bindClass("android.os.Bundle")()
+                                b.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, newContent)
+                                targetEditText.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, b)
+                                lastInsertedDictationTextLength = 0
+                                service.asyncSpeak("تم المسح")
+                            end
+                        else
+                             service.asyncSpeak("لا يوجد نص حديث لمسحه")
+                        end
+                        if shouldContinue then startListening() elseif not continuousDictationEnabled then cleanupResources() end
+                        return
+                    elseif cleanCmd == "إرسال" or cleanCmd == "ارسال" then
+                        -- Attempt to hit ENTER key as a fallback for send
+                        local AccessibilityNodeInfo = luajava.bindClass("android.view.accessibility.AccessibilityNodeInfo")
+                        -- Some apps respond to action click or action send on the edit text itself if IME action is set
+                        targetEditText.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                        -- Try finding a send button nearby (common content descriptions)
+                        local root = service.getRootInActiveWindow()
+                        if root then
+                            local sendNodes = root.findAccessibilityNodeInfosByText("إرسال")
+                            if sendNodes and sendNodes.size() > 0 then
+                                sendNodes.get(0).performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                            else
+                                local sendNodesEn = root.findAccessibilityNodeInfosByText("Send")
+                                if sendNodesEn and sendNodesEn.size() > 0 then
+                                    sendNodesEn.get(0).performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                                end
+                            end
+                            root.recycle()
+                        end
+                        service.asyncSpeak("تم الإرسال")
+                        if shouldContinue then startListening() elseif not continuousDictationEnabled then cleanupResources() end
+                        return
+                    end
+
                     local function insertFinalResult(finalTextToInsert, wasTranslated)
                         local feedbackKey = wasTranslated and "dictation_insert_verify_translated" or "dictation_insert_verify"
                         if finalTextToInsert and finalTextToInsert:match("%S") then
@@ -4258,6 +4309,7 @@ function startVoiceRecognition(fromDashboard)
                                 textToActuallyInsert = " " .. textToActuallyInsert
                             end
                             service.insertText(editTextNode, textToActuallyInsert)
+                            lastInsertedDictationTextLength = #tostring(textToActuallyInsert)
                             pcall(editTextNode.recycle, editTextNode)
                         end
                         if shouldContinue then startListening() elseif not continuousDictationEnabled then cleanupResources() end
