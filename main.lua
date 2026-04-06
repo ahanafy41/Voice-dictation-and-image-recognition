@@ -7,19 +7,46 @@ import "android.content.Intent"
 import "android.provider.Settings"
 
 if activity then
-    -- Check permissions first
     local needed_permissions = {
         Manifest.permission.RECORD_AUDIO,
         Manifest.permission.CAMERA,
         Manifest.permission.READ_EXTERNAL_STORAGE,
         Manifest.permission.WRITE_EXTERNAL_STORAGE
     }
-
     local perms_to_request = {}
     for i=1, #needed_permissions do
         if activity.checkSelfPermission(needed_permissions[i]) ~= PackageManager.PERMISSION_GRANTED then
             table.insert(perms_to_request, needed_permissions[i])
         end
+    end
+    if #perms_to_request > 0 then
+        activity.requestPermissions(perms_to_request, 100)
+    end
+    local accessibility_service_name = activity.getPackageName() .. "/com.androlua.LuaAccessibilityService"
+    local is_accessibility_enabled = false
+    local accessibility_settings = Settings.Secure.getString(activity.getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
+    if accessibility_settings ~= nil then
+        for service in string.gmatch(accessibility_settings, "([^:]+)") do
+            if service == accessibility_service_name then
+                is_accessibility_enabled = true
+                break
+            end
+        end
+    end
+    if not is_accessibility_enabled then
+        local Toast = import "android.widget.Toast"
+        Toast.makeText(activity, "الرجاء تفعيل خدمة إمكانية الوصول للتطبيق.", Toast.LENGTH_LONG).show()
+        local Intent = import "android.content.Intent"
+        local intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        activity.startActivity(intent)
+    else
+        local Toast = import "android.widget.Toast"
+        Toast.makeText(activity, "خدمة الوصول مفعلة وجاهزة للعمل في الخلفية. يمكنك غلق هذه الشاشة.", Toast.LENGTH_LONG).show()
+    end
+    return
+end
+
     end
 
     if #perms_to_request > 0 then
@@ -250,12 +277,12 @@ local geminiLiveVoices = {
 }
 
 -- **Load Settings with Defaults**
-local contextObj = activity
-if contextObj == nil then
+-- removed
+if false then
     contextObj = service
 end
 
-local prefs = contextObj.getSharedPreferences("voice_settings", Context.MODE_PRIVATE)
+local prefs = service.getSharedPreferences("voice_settings", Context.MODE_PRIVATE)
 selectedLanguage = prefs.getString("language", defaultSelectedLanguage)
 tashkeelEnabled = prefs.getBoolean("tashkeelEnabled", false)
 profanityFilterEnabled = prefs.getBoolean("profanityFilterEnabled", false)
@@ -426,7 +453,7 @@ stopDictation = false
 speechRecord = nil
 recognizer = nil
 
-local wm = contextObj.getSystemService(Context.WINDOW_SERVICE)
+local wm = service.getSystemService(Context.WINDOW_SERVICE)
 local settingsDialog = nil
 local resultWindow = nil
 local globalResultContentTextView = nil
