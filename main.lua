@@ -4694,15 +4694,15 @@ function showVideoEditorWindow()
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;800&display=swap');
-        body { font-family: 'Cairo', sans-serif; background-color: #f3f4f6; color: #1f2937; }
+        body { font-family: 'Cairo', sans-serif; background-color: #111827; color: #f3f4f6; }
         ::-webkit-scrollbar { width: 8px; height: 8px; }
-        ::-webkit-scrollbar-track { background: #f1f1f1; }
-        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
-        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        ::-webkit-scrollbar-track { background: #374151; }
+        ::-webkit-scrollbar-thumb { background: #4f46e5; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #6366f1; }
 
         .toast { transition: opacity 0.3s ease-in-out, transform 0.3s ease-in-out; transform: translateY(20px); opacity: 0; }
         .toast.show { transform: translateY(0); opacity: 1; }
-        *:focus-visible { outline: 3px solid #3b82f6 !important; outline-offset: 2px !important; }
+        *:focus-visible { outline: 3px solid #6366f1 !important; outline-offset: 2px !important; }
 
         #mp4-progress-container { display: none; }
     </style>
@@ -4727,109 +4727,121 @@ function showVideoEditorWindow()
         </div>
     </header>
 
-    <main class="flex-1 p-4 grid grid-cols-1 lg:grid-cols-12 gap-6">
+    <!-- شريط التبويبات -->
+    <nav class="bg-indigo-800 text-white flex justify-center border-b border-indigo-600" aria-label="التبويبات">
+        <button onclick="switchTab('tab-scenes')" id="btn-tab-scenes" class="flex-1 py-3 font-bold border-b-4 border-white bg-indigo-900 transition focus:outline-none focus:ring-2 focus:ring-white" aria-selected="true" aria-controls="tab-scenes">
+            <i class="fa-solid fa-clapperboard"></i> المشاهد
+        </button>
+        <button onclick="switchTab('tab-preview')" id="btn-tab-preview" class="flex-1 py-3 font-bold border-b-4 border-transparent hover:bg-indigo-700 transition focus:outline-none focus:ring-2 focus:ring-white" aria-selected="false" aria-controls="tab-preview">
+            <i class="fa-solid fa-play"></i> المعاينة
+        </button>
+        <button onclick="switchTab('tab-timeline')" id="btn-tab-timeline" class="flex-1 py-3 font-bold border-b-4 border-transparent hover:bg-indigo-700 transition focus:outline-none focus:ring-2 focus:ring-white" aria-selected="false" aria-controls="tab-timeline">
+            <i class="fa-solid fa-layer-group"></i> التايم لاين
+        </button>
+    </nav>
 
-        <!-- القسم الأيمن: مساعد المشاهد -->
-        <div class="lg:col-span-5 flex flex-col gap-6">
-            <section class="bg-white rounded-lg shadow p-4 border border-gray-200">
-                <h2 class="text-xl font-bold mb-4 flex items-center gap-2 text-indigo-700" tabindex="0">
-                    <i class="fa-solid fa-clapperboard"></i> 1. مساعد بناء المشاهد
+    <main class="flex-1 p-4 flex flex-col items-center bg-gray-900">
+
+        <!-- التبويب الأول: المشاهد والإضافة -->
+        <div id="tab-scenes" class="w-full max-w-2xl flex flex-col gap-6 tab-content" role="tabpanel" aria-labelledby="btn-tab-scenes">
+            <section class="bg-gray-800 rounded-lg shadow p-4 border border-gray-700">
+                <h2 class="text-xl font-bold mb-4 flex items-center gap-2 text-indigo-400" tabindex="0">
+                    <i class="fa-solid fa-wand-magic-sparkles"></i> 1. مساعد بناء المشاهد
                 </h2>
-
                 <div class="space-y-3 mb-4">
-                    <label for="script-prompt" class="block font-semibold">موضوع الفيديو:</label>
-                    <input type="text" id="script-prompt" class="w-full border rounded p-2 focus:ring-2 focus:ring-indigo-500" placeholder="مثال: قصة بناء الأهرامات..." aria-label="أدخل موضوع الفيديو لإنشاء المشاهد">
-                    <button id="btn-generate-script" class="w-full bg-indigo-100 hover:bg-indigo-200 text-indigo-800 p-2 rounded font-semibold transition flex items-center justify-center gap-2" onclick="generateScenes()">
-                        <i class="fa-solid fa-wand-magic-sparkles"></i> توليد المشاهد
+                    <label for="script-prompt" class="block font-semibold text-gray-300">موضوع الفيديو:</label>
+                    <input type="text" id="script-prompt" class="w-full bg-gray-900 border border-gray-600 rounded p-3 text-white focus:ring-2 focus:ring-indigo-500" placeholder="مثال: قصة بناء الأهرامات..." aria-label="أدخل موضوع الفيديو لإنشاء المشاهد">
+                    <button id="btn-generate-script" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white p-3 rounded font-semibold transition flex items-center justify-center gap-2 text-lg" onclick="generateScenes()">
+                        توليد المشاهد
                     </button>
                 </div>
-
-                <div id="scenes-container" class="space-y-4 max-h-[500px] overflow-y-auto pr-2" role="list" aria-label="قائمة المشاهد المولدة">
-                    <div class="text-center text-gray-400 py-4" tabindex="0">لم يتم توليد أي مشاهد بعد. قم بإدخال موضوع لتوليدها.</div>
-                </div>
-            </section>
-
-            <!-- إضافة موسيقى خلفية عامة (Soundtrack) -->
-            <section class="bg-white rounded-lg shadow p-4 border border-gray-200">
-                <h2 class="text-lg font-bold mb-2 flex items-center gap-2" tabindex="0">
-                    <i class="fa-solid fa-music"></i> 2. إضافة موسيقى خلفية (Soundtrack)
-                </h2>
-                <div class="space-y-2">
-                    <label for="upload-bg-music" class="sr-only">رفع موسيقى من جهازك</label>
-                    <button onclick="window.prompt('PICK_FILE', 'bg_music');" class="w-full bg-gray-200 hover:bg-gray-300 text-gray-800 p-2 rounded font-semibold transition">
-                        <i class="fa-solid fa-upload"></i> إضافة كخلفية للفيديو بالكامل
-                    </button>
+                <div id="scenes-container" class="space-y-4 max-h-[50vh] overflow-y-auto pr-2" role="list" aria-label="قائمة المشاهد المولدة">
+                    <div class="text-center text-gray-500 py-4" tabindex="0">لم يتم توليد أي مشاهد بعد.</div>
                 </div>
             </section>
 
-            <!-- الإضافة اليدوية (بدون ذكاء اصطناعي) -->
-            <section class="bg-white rounded-lg shadow p-4 border border-gray-200">
-                <h2 class="text-lg font-bold mb-3 flex items-center gap-2 text-indigo-700" tabindex="0">
-                    <i class="fa-solid fa-plus-circle"></i> 3. الإضافة اليدوية للملفات
+            <section class="bg-gray-800 rounded-lg shadow p-4 border border-gray-700">
+                <h2 class="text-lg font-bold mb-3 flex items-center gap-2 text-indigo-400" tabindex="0">
+                    <i class="fa-solid fa-plus-circle"></i> 2. إضافة ملفات يدوياً
                 </h2>
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
-                    <button onclick="window.prompt('PICK_FILE', 'manual_image');" class="bg-blue-100 hover:bg-blue-200 text-blue-800 p-2 rounded font-semibold transition flex items-center justify-center gap-2" aria-label="إضافة صورة يدوياً">
-                        <i class="fa-solid fa-image"></i> صورة
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <button onclick="window.prompt('PICK_FILE', 'bg_music');" class="bg-gray-700 hover:bg-gray-600 text-white p-3 rounded font-semibold transition flex justify-center gap-2" aria-label="إضافة موسيقى خلفية للفيديو بالكامل">
+                        <i class="fa-solid fa-music"></i> موسيقى خلفية
                     </button>
-                    <button onclick="window.prompt('PICK_FILE', 'manual_video');" class="bg-purple-100 hover:bg-purple-200 text-purple-800 p-2 rounded font-semibold transition flex items-center justify-center gap-2" aria-label="إضافة فيديو يدوياً">
-                        <i class="fa-solid fa-video"></i> فيديو
+                    <button onclick="window.prompt('PICK_FILE', 'manual_image');" class="bg-blue-900 hover:bg-blue-800 text-blue-200 p-3 rounded font-semibold transition flex justify-center gap-2" aria-label="إضافة صورة يدوياً">
+                        <i class="fa-solid fa-image"></i> إضافة صورة
                     </button>
-                    <button onclick="window.prompt('PICK_FILE', 'manual_audio');" class="bg-green-100 hover:bg-green-200 text-green-800 p-2 rounded font-semibold transition flex items-center justify-center gap-2" aria-label="إضافة صوت يدوياً">
-                        <i class="fa-solid fa-microphone"></i> صوت
+                    <button onclick="window.prompt('PICK_FILE', 'manual_video');" class="bg-purple-900 hover:bg-purple-800 text-purple-200 p-3 rounded font-semibold transition flex justify-center gap-2" aria-label="إضافة فيديو يدوياً">
+                        <i class="fa-solid fa-video"></i> إضافة فيديو
+                    </button>
+                    <button onclick="window.prompt('PICK_FILE', 'manual_audio');" class="bg-green-900 hover:bg-green-800 text-green-200 p-3 rounded font-semibold transition flex justify-center gap-2" aria-label="إضافة صوت يدوياً">
+                        <i class="fa-solid fa-microphone"></i> إضافة صوت
                     </button>
                 </div>
             </section>
         </div>
 
-        <!-- القسم الأيسر: المعاينة والتايم لاين -->
-        <div class="lg:col-span-7 flex flex-col gap-6">
+        <!-- التبويب الثاني: المعاينة -->
+        <div id="tab-preview" class="w-full max-w-3xl flex flex-col gap-6 tab-content hidden" role="tabpanel" aria-labelledby="btn-tab-preview" aria-hidden="true">
             <section class="bg-black rounded-lg shadow overflow-hidden relative flex items-center justify-center border-4 border-gray-800" style="aspect-ratio: 16/9;" aria-label="شاشة معاينة الفيديو">
                 <canvas id="preview-canvas" width="1280" height="720" class="w-full h-full object-contain" aria-hidden="true"></canvas>
 
-                <div class="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-gray-900 bg-opacity-80 rounded-full px-6 py-2 flex items-center gap-4 text-white z-10">
-                    <button id="btn-play-pause" onclick="togglePlay()" class="hover:text-indigo-400 text-xl transition" aria-label="تشغيل أو إيقاف المعاينة">
+                <div class="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-gray-900 bg-opacity-90 rounded-full px-6 py-3 flex items-center gap-6 text-white z-10 shadow-lg">
+                    <button id="btn-play-pause" onclick="togglePlay()" class="hover:text-indigo-400 text-2xl transition focus:outline-none focus:ring-2 focus:ring-indigo-500 rounded-full" aria-label="تشغيل المعاينة">
                         <i class="fa-solid fa-play" id="play-icon"></i>
                     </button>
-                    <div class="flex items-center gap-2 font-mono text-sm" aria-live="polite">
-                        <span id="time-current">0.0</span> / <span id="time-total">0.0</span> ثانية
+                    <div class="flex items-center gap-2 font-mono text-lg" aria-live="polite">
+                        <span id="time-current">0.0</span> / <span id="time-total">0.0</span> ث
                     </div>
                 </div>
             </section>
+        </div>
 
-            <section class="bg-white rounded-lg shadow p-3 flex flex-wrap gap-4 items-center text-sm">
-                <div class="flex items-center gap-2">
-                    <label for="voice-style" class="font-semibold">صوت المعلق (للذكاء الاصطناعي):</label>
-                    <select id="voice-style" class="border rounded p-1" aria-label="اختيار صوت المعلق لجميع المشاهد">
-                        <option value="Zephyr">Zephyr (رجالي قوي)</option>
-                        <option value="Kore">Kore (هادئ)</option>
-                        <option value="Aoede">Aoede (وثائقي)</option>
-                    </select>
-                </div>
-            </section>
-
-            <section class="bg-white rounded-lg shadow border border-gray-200 flex-1 flex flex-col">
-                <div class="bg-gray-100 p-3 border-b flex justify-between items-center">
-                    <h2 class="text-lg font-bold flex items-center gap-2" tabindex="0">
+        <!-- التبويب الثالث: التايم لاين -->
+        <div id="tab-timeline" class="w-full max-w-2xl flex flex-col gap-6 tab-content hidden" role="tabpanel" aria-labelledby="btn-tab-timeline" aria-hidden="true">
+            <section class="bg-gray-800 rounded-lg shadow border border-gray-700 flex-1 flex flex-col">
+                <div class="bg-gray-900 p-4 border-b border-gray-700 flex justify-between items-center">
+                    <h2 class="text-lg font-bold flex items-center gap-2 text-white" tabindex="0">
                         <i class="fa-solid fa-layer-group"></i> شريط الوقت (Timeline)
                     </h2>
-                    <button onclick="addTextLayer()" class="text-sm bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 rounded transition" aria-label="إضافة طبقة نص حر">
+                    <button onclick="addTextLayer()" class="text-sm bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded transition font-bold" aria-label="إضافة طبقة نص حر">
                         + نص جديد
                     </button>
                 </div>
 
-                <div class="p-4 flex-1 overflow-y-auto" style="max-height: 500px;">
-                    <p class="text-xs text-gray-500 mb-4" tabindex="0">
-                        يمكنك تعديل وقت البداية والنهاية، اختيار "تأثير الانتقال"، وتفعيل "صوت الانتقال" لكل مشهد بصري من القوائم أدناه.
-                    </p>
-                    <div id="timeline-items" class="space-y-4" role="list" aria-label="عناصر الفيديو والطبقات">
-                        <div class="text-center text-gray-400 py-8" id="empty-timeline-msg" tabindex="0">
-                            شريط الوقت فارغ.
-                        </div>
+                <div class="p-4 flex-1 overflow-y-auto" style="max-height: 60vh;">
+                    <div id="timeline-items" class="space-y-3" role="list" aria-label="عناصر التايم لاين">
+                        <div class="text-center text-gray-500 py-8" id="empty-timeline-msg" tabindex="0">شريط الوقت فارغ.</div>
                     </div>
                 </div>
             </section>
+
+            <section class="bg-gray-800 rounded-lg shadow p-4 border border-gray-700 flex items-center gap-3">
+                <label for="voice-style" class="font-bold text-gray-300">صوت المعلق:</label>
+                <select id="voice-style" class="bg-gray-900 border border-gray-600 text-white rounded p-2 flex-1 focus:ring-2 focus:ring-indigo-500" aria-label="اختيار صوت المعلق (الذكاء الاصطناعي) لجميع المشاهد">
+                    <option value="Zephyr">Zephyr (رجالي قوي)</option>
+                    <option value="Kore">Kore (هادئ)</option>
+                    <option value="Aoede">Aoede (وثائقي)</option>
+                </select>
+            </section>
         </div>
     </main>
+
+    <!-- Modal Form for Element Settings -->
+    <div id="element-settings-modal" class="fixed inset-0 bg-black bg-opacity-80 hidden z-50 flex items-center justify-center p-4" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+        <div class="bg-gray-800 border border-gray-600 rounded-lg shadow-xl max-w-md w-full flex flex-col">
+            <div class="p-4 border-b border-gray-700 flex justify-between items-center">
+                <h2 id="modal-title" class="text-xl font-bold text-white">إعدادات العنصر</h2>
+                <button onclick="closeSettingsModal()" class="text-gray-400 hover:text-white text-2xl focus:outline-none" aria-label="إغلاق نافذة الإعدادات">&times;</button>
+            </div>
+            <div id="modal-content" class="p-4 space-y-4 overflow-y-auto max-h-[60vh] text-white">
+                <!-- Content will be injected dynamically -->
+            </div>
+            <div class="p-4 border-t border-gray-700 flex justify-end">
+                <button onclick="closeSettingsModal()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-6 rounded focus:ring-2 focus:ring-white">تم</button>
+            </div>
+        </div>
+    </div>
 
     <script>
         const apiKey = "]] .. (geminiApiKey or "") .. [[";
@@ -4841,6 +4853,30 @@ function showVideoEditorWindow()
         let animationFrameId; let lastTimestamp = 0;
         const canvas = document.getElementById('preview-canvas'); const ctx = canvas.getContext('2d');
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+        // --- Tabs Logic ---
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(t => {
+                t.classList.add('hidden');
+                t.setAttribute('aria-hidden', 'true');
+            });
+            document.querySelectorAll('nav button').forEach(b => {
+                b.classList.remove('border-white', 'bg-indigo-900');
+                b.classList.add('border-transparent');
+                b.setAttribute('aria-selected', 'false');
+            });
+
+            const targetTab = document.getElementById(tabId);
+            targetTab.classList.remove('hidden');
+            targetTab.setAttribute('aria-hidden', 'false');
+
+            const targetBtn = document.getElementById('btn-' + tabId);
+            targetBtn.classList.remove('border-transparent');
+            targetBtn.classList.add('border-white', 'bg-indigo-900');
+            targetBtn.setAttribute('aria-selected', 'true');
+
+            targetBtn.focus();
+        }
 
         // العقدة الصوتية للتصدير (سيتم استخدامها لدمج كل الأصوات بما فيها مؤثرات الانتقال)
         let audioDest = null;
@@ -5240,6 +5276,83 @@ function showVideoEditorWindow()
             appState.duration = max; document.getElementById('time-total').innerText = appState.duration.toFixed(1);
         }
 
+        function openSettingsModal(itemId) {
+            const item = appState.timeline.find(i => i.id === itemId);
+            if (!item) return;
+
+            const modal = document.getElementById('element-settings-modal');
+            const content = document.getElementById('modal-content');
+
+            let html = `
+                <div class="space-y-4 text-white">
+                    <div class="flex items-center gap-4">
+                        <div class="flex-1">
+                            <label class="block text-sm font-bold text-gray-300 mb-1">وقت البداية (ثانية)</label>
+                            <input type="number" value="${item.start}" step="0.5" onchange="updateItemProperty('${item.id}', 'start', this.value)" class="w-full bg-gray-900 border border-gray-600 rounded p-2 focus:ring-2 focus:ring-indigo-500" aria-label="وقت بداية العنصر">
+                        </div>
+                        <div class="flex-1">
+                            <label class="block text-sm font-bold text-gray-300 mb-1">وقت النهاية (ثانية)</label>
+                            <input type="number" value="${item.end}" step="0.5" onchange="updateItemProperty('${item.id}', 'end', this.value)" class="w-full bg-gray-900 border border-gray-600 rounded p-2 focus:ring-2 focus:ring-indigo-500" aria-label="وقت نهاية العنصر">
+                        </div>
+                    </div>
+            `;
+
+            if (item.type === 'text') {
+                html += `
+                    <div>
+                        <label class="block text-sm font-bold text-gray-300 mb-1">النص</label>
+                        <input type="text" value="${item.text}" onchange="updateItemProperty('${item.id}', 'text', this.value)" class="w-full bg-gray-900 border border-gray-600 rounded p-2 focus:ring-2 focus:ring-indigo-500" aria-label="تعديل النص">
+                    </div>
+                `;
+            } else if (item.type === 'image' || item.type === 'video') {
+                const transitions = [
+                    {val: 'none', label: 'لا يوجد'}, {val: 'flash', label: 'فلاش'}, {val: 'blink', label: 'وميض'},
+                    {val: 'zigzag', label: 'زجزاج'}, {val: 'pageTurn', label: 'تقليب صفحة'},
+                    {val: 'zoomIn', label: 'تكبير'}, {val: 'zoomOut', label: 'تصغير'},
+                    {val: 'rotateCCW', label: 'دوران عكس عقارب'}, {val: 'rotateCW', label: 'دوران مع عقارب'}
+                ];
+                let transOptions = transitions.map(t => `<option value="${t.val}" ${item.transition === t.val ? 'selected' : ''}>${t.label}</option>`).join('');
+
+                html += `
+                    <div>
+                        <label class="block text-sm font-bold text-gray-300 mb-1">تأثير الانتقال</label>
+                        <select onchange="updateItemProperty('${item.id}', 'transition', this.value)" class="w-full bg-gray-900 border border-gray-600 rounded p-2 focus:ring-2 focus:ring-indigo-500" aria-label="اختيار تأثير انتقال">${transOptions}</select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-bold text-gray-300 mb-1">صوت الانتقال</label>
+                        <select onchange="updateItemProperty('${item.id}', 'transSound', this.value)" class="w-full bg-gray-900 border border-gray-600 rounded p-2 focus:ring-2 focus:ring-indigo-500" aria-label="تفعيل صوت الانتقال">
+                            <option value="false" ${!item.transSound ? 'selected' : ''}>إيقاف</option>
+                            <option value="true" ${item.transSound ? 'selected' : ''}>تفعيل</option>
+                        </select>
+                    </div>
+                    <div class="flex items-center gap-4">
+                        <div class="flex-1">
+                            <label class="block text-sm font-bold text-gray-300 mb-1">الطبقة (Layer)</label>
+                            <input type="number" value="${item.layer || 1}" onchange="updateItemProperty('${item.id}', 'layer', this.value)" class="w-full bg-gray-900 border border-gray-600 rounded p-2 focus:ring-2 focus:ring-indigo-500" aria-label="تحديد رقم الطبقة">
+                        </div>
+                        <div class="flex-1">
+                            <label class="block text-sm font-bold text-gray-300 mb-1">الحجم (%)</label>
+                            <input type="number" value="${item.scale || 100}" onchange="updateItemProperty('${item.id}', 'scale', this.value)" class="w-full bg-gray-900 border border-gray-600 rounded p-2 focus:ring-2 focus:ring-indigo-500" aria-label="تحديد حجم العنصر">
+                        </div>
+                    </div>
+                `;
+            }
+
+            html += `</div>`;
+            content.innerHTML = html;
+            modal.classList.remove('hidden');
+            modal.setAttribute('aria-hidden', 'false');
+
+            // Announce to screen reader
+            window.prompt('SPEAK', "تم فتح إعدادات العنصر");
+        }
+
+        function closeSettingsModal() {
+            const modal = document.getElementById('element-settings-modal');
+            modal.classList.add('hidden');
+            modal.setAttribute('aria-hidden', 'true');
+        }
+
         function renderTimelineUI() {
             const container = document.getElementById('timeline-items');
             if (!appState.timeline.length) return container.innerHTML = '<div class="text-center text-gray-400 py-8" tabindex="0">شريط الوقت فارغ.</div>';
@@ -5247,43 +5360,31 @@ function showVideoEditorWindow()
             const sortedItems = [...appState.timeline].sort((a, b) => a.start - b.start);
 
             sortedItems.forEach(item => {
-                const el = document.createElement('div'); el.className = 'bg-gray-50 p-3 rounded border border-gray-200 flex flex-col md:flex-row gap-3 md:items-center';
-                let icon = 'fa-image', color = 'text-purple-600 bg-purple-100', typeStr='صورة';
-                if(item.type === 'audio') { icon = 'fa-music'; color = 'text-blue-600 bg-blue-100'; typeStr='صوت'; }
-                if(item.type === 'video') { icon = 'fa-video'; color = 'text-red-600 bg-red-100'; typeStr='فيديو'; }
-                if(item.type === 'text') { icon = 'fa-font'; color = 'text-green-600 bg-green-100'; typeStr='نص'; }
+                const el = document.createElement('div'); el.className = 'bg-gray-800 p-3 rounded-lg border border-gray-600 flex items-center justify-between shadow';
 
-                let visualControls = '';
-                if (item.type === 'image' || item.type === 'video') {
-                    // قائمة الانتقالات المطلوبة
-                    const transitions = [
-                        {val: 'none', label: 'لا يوجد'}, {val: 'flash', label: 'فلاش'}, {val: 'blink', label: 'وميض'},
-                        {val: 'zigzag', label: 'زجزاج'}, {val: 'pageTurn', label: 'تقليب صفحة'},
-                        {val: 'zoomIn', label: 'تكبير'}, {val: 'zoomOut', label: 'تصغير'},
-                        {val: 'rotateCCW', label: 'دوران عكس عقارب'}, {val: 'rotateCW', label: 'دوران مع عقارب'}
-                    ];
-                    let transOptions = transitions.map(t => `<option value="${t.val}" ${item.transition === t.val ? 'selected' : ''}>${t.label}</option>`).join('');
-
-                    visualControls = `
-                    <div class="flex flex-wrap gap-2 mt-2 md:mt-0 bg-gray-100 p-2 rounded w-full md:w-auto">
-                        <div class="flex flex-col"><label class="text-xs text-gray-600 font-bold">انتقال الدخول</label><select onchange="updateItemProperty('${item.id}', 'transition', this.value)" class="border p-1 rounded text-sm w-28" aria-label="اختر نوع الانتقال لعنصر ${item.name}">${transOptions}</select></div>
-                        <div class="flex flex-col"><label class="text-xs text-gray-600 font-bold">صوت الانتقال؟</label><select onchange="updateItemProperty('${item.id}', 'transSound', this.value)" class="border p-1 rounded text-sm w-20" aria-label="تفعيل أو تعطيل صوت الانتقال"><option value="false" ${!item.transSound ? 'selected' : ''}>إيقاف</option><option value="true" ${item.transSound ? 'selected' : ''}>تفعيل</option></select></div>
-                        <div class="flex flex-col"><label class="text-xs text-gray-600 font-bold">الطبقة(Z)</label><input type="number" value="${item.layer || 1}" onchange="updateItemProperty('${item.id}', 'layer', this.value)" class="border p-1 rounded w-16 text-sm text-center" aria-label="طبقة عنصر ${item.name}"></div>
-                        <div class="flex flex-col"><label class="text-xs text-gray-600 font-bold">الحجم(%)</label><input type="number" value="${item.scale || 100}" onchange="updateItemProperty('${item.id}', 'scale', this.value)" class="border p-1 rounded w-16 text-sm text-center" aria-label="حجم عنصر ${item.name}"></div>
-                    </div>`;
-                }
-
-                let textInput = item.type === 'text' ? `<input type="text" value="${item.text}" onchange="updateItemProperty('${item.id}', 'text', this.value)" class="w-full border p-1 rounded mt-2">` : '';
+                let icon = 'fa-image', color = 'text-purple-400', typeStr='صورة';
+                if(item.type === 'audio') { icon = 'fa-music'; color = 'text-blue-400'; typeStr='صوت'; }
+                if(item.type === 'video') { icon = 'fa-video'; color = 'text-red-400'; typeStr='فيديو'; }
+                if(item.type === 'text') { icon = 'fa-font'; color = 'text-green-400'; typeStr='نص'; }
 
                 el.innerHTML = `
-                    <div class="flex items-center gap-2 w-full md:w-1/4"><span class="w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${color}"><i class="fa-solid ${icon}"></i></span><div class="font-bold text-sm truncate" tabindex="0" title="${item.name}">${typeStr}: ${item.name}</div></div>
-                    <div class="flex items-center gap-2">
-                        <div class="flex flex-col"><label class="text-xs text-gray-500">بداية (ث)</label><input type="number" value="${item.start}" step="0.5" onchange="updateItemProperty('${item.id}', 'start', this.value)" class="border p-1 rounded w-16 text-sm"></div>
-                        <div class="flex flex-col"><label class="text-xs text-gray-500">نهاية (ث)</label><input type="number" value="${item.end}" step="0.5" onchange="updateItemProperty('${item.id}', 'end', this.value)" class="border p-1 rounded w-16 text-sm"></div>
+                    <div class="flex items-center gap-3 w-2/3 truncate">
+                        <span class="w-10 h-10 rounded-full flex items-center justify-center bg-gray-900 ${color}">
+                            <i class="fa-solid ${icon} text-lg"></i>
+                        </span>
+                        <div class="flex flex-col truncate" tabindex="0" aria-label="${typeStr}: ${item.name}. من ${item.start} إلى ${item.end} ثانية">
+                            <span class="font-bold text-white text-base truncate">${item.name}</span>
+                            <span class="text-sm text-gray-400 font-mono">${item.start} - ${item.end} ث</span>
+                        </div>
                     </div>
-                    ${visualControls}
-                    ${textInput}
-                    <button onclick="removeFromTimeline('${item.id}')" class="text-red-500 hover:text-red-700 p-2 ml-auto" aria-label="حذف العنصر"><i class="fa-solid fa-trash"></i></button>`;
+                    <div class="flex items-center gap-2">
+                        <button onclick="openSettingsModal('${item.id}')" class="bg-indigo-600 hover:bg-indigo-700 text-white p-2 rounded transition focus:ring-2 focus:ring-white" aria-label="إعدادات العنصر ${item.name}">
+                            <i class="fa-solid fa-cog"></i> إعدادات
+                        </button>
+                        <button onclick="removeFromTimeline('${item.id}')" class="bg-red-600 hover:bg-red-700 text-white p-2 rounded transition focus:ring-2 focus:ring-white" aria-label="حذف ${item.name}">
+                            <i class="fa-solid fa-trash"></i>
+                        </button>
+                    </div>`;
                 container.appendChild(el);
             });
         }
@@ -5415,6 +5516,7 @@ function showVideoEditorWindow()
             if (appState.isPlaying) togglePlay();
             appState.currentTime = 0;
             appState.timeline.forEach(i => i.sfxPlayed = false); // إعادة ضبط الأصوات
+            appState.timeline.forEach(item => { if (item.type === 'audio' && item.audioElement) { item.audioElement.currentTime = 0; } });
 
             const btn = document.getElementById('export-btn');
             const progressContainer = document.getElementById('mp4-progress-container');
@@ -5423,11 +5525,8 @@ function showVideoEditorWindow()
             showToast('جاري تسجيل ومعالجة الفيديو...', 'info');
 
             let targetMimeType = 'video/webm';
-            let isNativeMP4 = false;
-            let extension = 'webm';
-
             if (MediaRecorder.isTypeSupported('video/mp4')) {
-                targetMimeType = 'video/mp4'; isNativeMP4 = true; extension = 'mp4';
+                targetMimeType = 'video/mp4';
             } else if (MediaRecorder.isTypeSupported('video/webm;codecs=h264')) {
                 targetMimeType = 'video/webm;codecs=h264';
             }
@@ -5435,15 +5534,17 @@ function showVideoEditorWindow()
             const canvasStream = canvas.captureStream(30);
 
             // إنشاء عُقدة صوتية رئيسية للتسجيل (لكل الملفات والمؤثرات)
+            if(audioCtx.state === 'suspended') audioCtx.resume();
             audioDest = audioCtx.createMediaStreamDestination();
-            const audioSources = [];
 
+            // ربط كل الأصوات بـ audioDest للتسجيل (مع الحفاظ على تشغيلها في السماعات)
             appState.timeline.forEach(item => {
                 if (item.type === 'audio' && item.audioElement) {
-                    const el = new Audio(item.src);
-                    const source = audioCtx.createMediaElementSource(el);
-                    source.connect(audioDest);
-                    audioSources.push({ el, item });
+                    if (!item.mediaSourceNode) {
+                        item.mediaSourceNode = audioCtx.createMediaElementSource(item.audioElement);
+                        item.mediaSourceNode.connect(audioCtx.destination); // للسماعات
+                    }
+                    item.mediaSourceNode.connect(audioDest); // للتسجيل
                 }
             });
 
@@ -5453,8 +5554,13 @@ function showVideoEditorWindow()
 
             mediaRecorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
 
-
             mediaRecorder.onstop = async () => {
+                // فصل التسجيل بعد الانتهاء
+                appState.timeline.forEach(item => {
+                    if (item.mediaSourceNode) {
+                        try { item.mediaSourceNode.disconnect(audioDest); } catch(e){}
+                    }
+                });
                 audioDest = null;
                 const recordedBlob = new Blob(chunks, { type: targetMimeType });
 
@@ -5464,38 +5570,81 @@ function showVideoEditorWindow()
                 reader.readAsDataURL(recordedBlob);
                 reader.onloadend = function() {
                     const base64data = reader.result;
-                    // Send to native Lua
                     window.prompt('SAVE_EXPORTED_VIDEO', base64data);
                     resetExportUI(btn, progressContainer);
                 };
             };
 
-            mediaRecorder.start();
-            const fps = 30; const step = 1 / fps;
             progressContainer.style.display = 'flex';
-            let lastSpokenPercent = 0;
+            document.getElementById('mp4-progress-text').innerText = "0%";
+            let lastSpokenTime = 0;
 
-            function processFrame() {
-                if (appState.currentTime >= appState.duration) {
+            // بدء التسجيل والتشغيل الفعلي (Real-time playback)
+            mediaRecorder.start();
+            appState.isPlaying = true;
+            let recordLastTimestamp = performance.now();
+
+            appState.timeline.forEach(item => {
+                if (item.type === 'audio' && item.audioElement && item.start === 0) {
+                     item.audioElement.play().catch(e=>console.log(e));
+                }
+            });
+
+            function recordLoop(timestamp) {
+                if (!appState.isPlaying) {
+                    // المستخدم أوقف التصدير يدوياً
                     mediaRecorder.stop();
                     return;
                 }
-                drawFrame(appState.currentTime);
 
-                // Update Progress UI
+                appState.currentTime += (timestamp - recordLastTimestamp) / 1000;
+                recordLastTimestamp = timestamp;
+
                 let percent = Math.floor((appState.currentTime / appState.duration) * 100);
+                if (percent > 100) percent = 100;
                 document.getElementById('mp4-progress-text').innerText = percent + "%";
 
-                // Speak progress every 25% for screen readers
-                if (percent >= lastSpokenPercent + 25) {
-                    lastSpokenPercent = percent;
+                // Speak progress every 5 seconds for screen readers
+                if (appState.currentTime >= lastSpokenTime + 5) {
+                    lastSpokenTime += 5;
                     window.prompt('SPEAK', `جاري التصدير: ${percent} في المئة`);
                 }
 
-                appState.currentTime += step;
-                setTimeout(processFrame, 1000/fps); // استخدام setTimeout لعدم تجميد واجهة المتصفح
+                if (appState.currentTime >= appState.duration) {
+                    appState.currentTime = appState.duration;
+                    drawFrame(appState.currentTime);
+                    appState.isPlaying = false;
+                    appState.timeline.forEach(item => { if (item.type === 'audio' && item.audioElement) item.audioElement.pause(); });
+                    mediaRecorder.stop();
+                    return;
+                }
+
+                appState.timeline.forEach(item => {
+                    if (item.type === 'audio' && item.audioElement) {
+                        const isInside = appState.currentTime >= item.start && appState.currentTime < item.end;
+                        const isPlaying = !item.audioElement.paused;
+                        if (isInside && !isPlaying) {
+                            item.audioElement.currentTime = appState.currentTime - item.start;
+                            item.audioElement.play().catch(e=>console.log(e));
+                        }
+                        else if (!isInside && isPlaying) {
+                            item.audioElement.pause();
+                        }
+                    }
+
+                    if ((item.type === 'image' || item.type === 'video') && item.transition !== 'none' && item.transSound) {
+                        if (appState.currentTime >= item.start && !item.sfxPlayed) {
+                            playTransitionSFX();
+                            item.sfxPlayed = true;
+                        }
+                    }
+                });
+
+                drawFrame(appState.currentTime);
+                requestAnimationFrame(recordLoop);
             }
-            processFrame();
+
+            requestAnimationFrame(recordLoop);
         }
 
         function downloadBlob(blob, filename) {
