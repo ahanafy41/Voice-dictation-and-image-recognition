@@ -223,7 +223,12 @@ selectedGeminiModelId = isValidModel and loadedModelId or defaultGeminiModelId
 
 selectedGroqModelId = prefs.getString("groqModelId", defaultGroqModelId)
 selectedSearchModelId = prefs.getString("searchModelId", "compound-beta")
-dashboardOrder = prefs.getString("dashboardOrder", "assistant,dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings")
+dashboardOrder = prefs.getString("dashboardOrder", "dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings")
+-- Remove assistant from legacy orders
+if dashboardOrder:match("assistant,") then dashboardOrder = dashboardOrder:gsub("assistant,", "") end
+if dashboardOrder:match(",assistant") then dashboardOrder = dashboardOrder:gsub(",assistant", "") end
+if dashboardOrder == "assistant" then dashboardOrder = "dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings" end
+
 selectedDictationMode = prefs.getString("selectedDictationMode", defaultDictationMode)
 
 -- Migration: Rename old keys
@@ -231,7 +236,7 @@ if dashboardOrder:match("reader") and not dashboardOrder:match("doc_reader") the
 if dashboardOrder:match("library") and not dashboardOrder:match("doc_reader") then dashboardOrder = dashboardOrder:gsub("library", "doc_reader") end
 
 -- Auto-append missing default buttons for old users
-local defaultButtons = {"assistant", "dictation", "geminiLive", "doc_reader", "video_analyzer", "image", "transcription", "settings"}
+local defaultButtons = {"dictation", "geminiLive", "doc_reader", "video_analyzer", "image", "transcription", "settings"}
 for _, btn in ipairs(defaultButtons) do
     if not dashboardOrder:match("^" .. btn .. "$") and not dashboardOrder:match("^" .. btn .. ",") and not dashboardOrder:match("," .. btn .. "$") and not dashboardOrder:match("," .. btn .. ",") then
         dashboardOrder = dashboardOrder .. "," .. btn
@@ -3298,7 +3303,7 @@ function saveSettings()
     editor.putString("groqModelId", selectedGroqModelId or defaultGroqModelId)
     editor.putString("audioModelId", selectedAudioModelId or defaultAudioModelId)
     editor.putString("searchModelId", selectedSearchModelId or "compound-beta")
-    editor.putString("dashboardOrder", dashboardOrder or "assistant,dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings")
+    editor.putString("dashboardOrder", dashboardOrder or "dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings")
     editor.putString("selectedDictationMode", selectedDictationMode or defaultDictationMode)
 
     editor.putBoolean("summarizeEnabled", summarizeEnabled)
@@ -3586,13 +3591,6 @@ function openMainWindow()
     contentL.addView(titleTxt)
 
     local buttons = {
-        assistant = function()
-            local btn = Button(service); btn.setText("🤖 المساعد الشخصي")
-            btn.setContentDescription("فتح المساعد الشخصي والبحث الذكي")
-            styleButton(btn, "primary")
-            btn.setOnClickListener(showPersonalAssistantWindow)
-            return btn
-        end,
         dictation = function()
             local btn = Button(service); btn.setText("🎙️ الإملاء والترجمة")
             btn.setContentDescription("فتح الإملاء الصوتي والترجمة")
@@ -3661,11 +3659,14 @@ function openMainWindow()
 
 
     -- Refresh from prefs in case it was modified
-    local orderStr = prefs.getString("dashboardOrder", "assistant,dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings")
+    local orderStr = prefs.getString("dashboardOrder", "dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings")
     if orderStr:match("reader") and not orderStr:match("doc_reader") then orderStr = orderStr:gsub("reader", "doc_reader") end
     if orderStr:match("library") and not orderStr:match("doc_reader") then orderStr = orderStr:gsub("library", "doc_reader") end
+    if orderStr:match("assistant,") then orderStr = orderStr:gsub("assistant,", "") end
+    if orderStr:match(",assistant") then orderStr = orderStr:gsub(",assistant", "") end
+    if orderStr == "assistant" then orderStr = "dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings" end
 
-    local defaultBtns = {"assistant", "dictation", "geminiLive", "doc_reader", "video_analyzer", "image", "transcription", "settings"}
+    local defaultBtns = {"dictation", "geminiLive", "doc_reader", "video_analyzer", "image", "transcription", "settings"}
     for _, btn in ipairs(defaultBtns) do
         if not orderStr:match("^" .. btn .. "$") and not orderStr:match("^" .. btn .. ",") and not orderStr:match("," .. btn .. "$") and not orderStr:match("," .. btn .. ",") then
             orderStr = orderStr .. "," .. btn
@@ -4035,7 +4036,6 @@ function openSettings()
     local function refreshSortUI()
         sortContainer.removeAllViews()
         local keyNames = {
-            assistant = "المساعد الشخصي",
             dictation = "الإملاء والترجمة",
             doc_reader = "المكتبة والقارئ", video_analyzer = "محلل الفيديو",
             image = "وصف الصور",
@@ -4045,11 +4045,15 @@ function openSettings()
 
         local keys = {}
 
-        dashboardOrder = prefs.getString("dashboardOrder", "assistant,dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings")
+        dashboardOrder = prefs.getString("dashboardOrder", "dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings")
         if dashboardOrder:match("reader") and not dashboardOrder:match("doc_reader") then dashboardOrder = dashboardOrder:gsub("reader", "doc_reader") end
         if dashboardOrder:match("library") and not dashboardOrder:match("doc_reader") then dashboardOrder = dashboardOrder:gsub("library", "doc_reader") end
+        if dashboardOrder:match("assistant,") then dashboardOrder = dashboardOrder:gsub("assistant,", "") end
+        if dashboardOrder:match(",assistant") then dashboardOrder = dashboardOrder:gsub(",assistant", "") end
+        if dashboardOrder == "assistant" then dashboardOrder = "dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings" end
 
-        local defaultBtns = {"assistant", "dictation", "geminiLive", "doc_reader", "video_analyzer", "image", "transcription", "settings"}
+
+        local defaultBtns = {"dictation", "geminiLive", "doc_reader", "video_analyzer", "image", "transcription", "settings"}
         for _, btn in ipairs(defaultBtns) do
             if not dashboardOrder:match("^" .. btn .. "$") and not dashboardOrder:match("^" .. btn .. ",") and not dashboardOrder:match("," .. btn .. "$") and not dashboardOrder:match("," .. btn .. ",") then
                 dashboardOrder = dashboardOrder .. "," .. btn
@@ -4261,13 +4265,6 @@ function startVoiceRecognition(fromDashboard)
 
                 if lowerRecognizedText == "stop" or recognizedText == "توقف" or lowerRecognizedText == "arrêter" then
                     service.asyncSpeak(getFeedbackString("command_stop", currentDictLangDetails.code)); stopDictation=true; cleanupResources(); return
-
-                elseif recognizedText == "المساعد الشخصي" or lowerRecognizedText == "assistant" or lowerRecognizedText == "personal assistant" then
-                    service.asyncSpeak("فتح المساعد الشخصي");
-                    stopDictation = true
-                    if recognizer then recognizer.destroy(); recognizer = nil end
-                    showPersonalAssistantWindow()
-                    return
 
                 elseif lowerRecognizedText == "settings" or recognizedText == "الضبط" or recognizedText == "ضبط" or recognizedText == "الإعدادات" or lowerRecognizedText == "paramètres" or lowerRecognizedText == "réglages" then
                     service.asyncSpeak("فتح لوحة التحكم");
@@ -4615,117 +4612,6 @@ function showVideoAnalyzerMenu()
 end
 
 -- ### Personal Assistant Feature ###
-local personalAssistantWindow = nil
-
-function showPersonalAssistantWindow()
-    if personalAssistantWindow then return end
-    hideMainWindow()
-
-    local layout = LinearLayout(service)
-    layout.setOrientation(LinearLayout.VERTICAL)
-    local bg = GradientDrawable()
-    bg.setColor(0xFF121212) -- Ultra dark background
-    layout.setBackgroundDrawable(bg)
-    layout.setPadding(30, 30, 30, 30)
-
-    -- Header
-    local headerL = LinearLayout(service)
-    headerL.setOrientation(LinearLayout.HORIZONTAL)
-    headerL.setGravity(Gravity.CENTER_VERTICAL)
-    headerL.setPadding(0, 10, 0, 30)
-
-    local titleTv = TextView(service)
-    titleTv.setText("🤖 المساعد الشخصي (AI Search)")
-    titleTv.setTextSize(20)
-    titleTv.setTypeface(nil, Typeface.BOLD)
-    titleTv.setTextColor(0xFF64B5F6)
-    local titleLp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0)
-    headerL.addView(titleTv, titleLp)
-
-    local closeBtn = Button(service)
-    closeBtn.setText("❌")
-    styleButton(closeBtn, "secondary")
-    closeBtn.setPadding(10, 10, 10, 10); closeBtn.setContentDescription("إغلاق نافذة المساعد الشخصي");
-    closeBtn.setOnClickListener(function()
-        if personalAssistantWindow then wm.removeView(personalAssistantWindow); personalAssistantWindow = nil end
-    end)
-    headerL.addView(closeBtn)
-    layout.addView(headerL)
-
-    -- Chat History Area
-    local chatScroll = ScrollView(service)
-    local chatLp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0)
-    chatLp.setMargins(0, 0, 0, 20)
-    chatScroll.setLayoutParams(chatLp)
-
-    local chatContentL = LinearLayout(service)
-    chatContentL.setOrientation(LinearLayout.VERTICAL)
-    chatScroll.addView(chatContentL)
-    layout.addView(chatScroll)
-
-    -- Input Area
-    local inputL = LinearLayout(service)
-    inputL.setOrientation(LinearLayout.HORIZONTAL)
-    inputL.setGravity(Gravity.CENTER_VERTICAL)
-
-    local inputEt = EditText(service)
-    inputEt.setHint("اسألني أي شيء أو ابحث...")
-    styleEditText(inputEt)
-    local etLp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0)
-    inputEt.setLayoutParams(etLp)
-    inputEt.setOnTouchListener(View.OnTouchListener{ onTouch = function(v, event) if event.getAction() == MotionEvent.ACTION_UP then v.requestFocus(); local imm = service.getSystemService(Context.INPUT_METHOD_SERVICE); if imm then imm.showSoftInput(v, 1) end end return false end })
-    inputL.addView(inputEt)
-
-    local sendBtn = Button(service)
-    sendBtn.setText("🔎"); sendBtn.setContentDescription("إرسال السؤال أو بدء البحث");
-    styleButton(sendBtn, "primary")
-    local btnLp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-    btnLp.leftMargin = 15
-    sendBtn.setLayoutParams(btnLp)
-    inputL.addView(sendBtn)
-    layout.addView(inputL)
-
-    -- Send Functionality
-    sendBtn.setOnClickListener(function()
-        local query = inputEt.getText().toString()
-        if query == "" then return end
-
-        -- Add User Message
-        chatContentL.addView(createChatBubble(query, true))
-        inputEt.setText("")
-
-        -- Add Loading Bubble
-        local loadingBubble = createChatBubble("⏳ جاري البحث والتفكير...", false)
-        chatContentL.addView(loadingBubble)
-
-        -- Auto scroll to bottom
-        mainHandler.postDelayed(function() chatScroll.fullScroll(View.FOCUS_DOWN) end, 100)
-
-        -- Switch to Gemini to bypass Groq 413 Payload Too Large errors for the Personal Assistant
-        local assistantModel = selectedGeminiModelId or "gemini-2.5-flash"
-        -- Force routing to Gemini in makeAiRequest if the user had selected a Groq compound model
-        if not assistantModel:match("gemini") then assistantModel = "gemini-2.5-flash" end
-
-        local promptInstruction = "أنت مساعد شخصي ذكي ومباشر. أجب دائماً باختصار شديد وبدون أي مقدمات أو خاتمات. إذا طُلب منك كود، اكتب الكود فقط. أعطِ الخلاصة المباشرة لسؤال المستخدم. اعتمد على محرك بحث جوجل الداخلي لديك للحصول على المعلومات الحديثة."
-        makeAiRequest(query, promptInstruction, nil, assistantModel, function(response)
-            -- Remove loading bubble and add actual response
-            chatContentL.removeView(loadingBubble)
-            chatContentL.addView(createChatBubble(response, false))
-            mainHandler.postDelayed(function() chatScroll.fullScroll(View.FOCUS_DOWN) end, 100)
-        end)
-    end)
-
-    -- Show Window
-    local params = WindowManager.LayoutParams(
-        WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
-        WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-        WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
-        PixelFormat.TRANSLUCENT
-    )
-    wm.addView(layout, params)
-    personalAssistantWindow = layout
-end
-
 function showGeminiLiveWindow()
     if geminiLiveWindow then return end
 
