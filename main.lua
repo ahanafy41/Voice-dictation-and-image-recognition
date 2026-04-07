@@ -174,7 +174,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 1.0
+local currentAppVersion = 1.1
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -4153,12 +4153,22 @@ function openSettings()
         local sortCard = createCard(contentL)
     addSectionHeader("ترتيب اللوحة السريعة", sortCard)
 
-    local sortContainer = LinearLayout(service)
-    sortContainer.setOrientation(LinearLayout.VERTICAL)
-    sortCard.addView(sortContainer)
+    local openSortDialogBtn = Button(service)
+    openSortDialogBtn.setText("تعديل ترتيب أزرار الواجهة الرئيسية")
+    styleButton(openSortDialogBtn, "primary")
+    openSortDialogBtn.setOnClickListener(function()
+        local builder = AlertDialog.Builder(service)
+        builder.setTitle("ترتيب اللوحة السريعة")
 
-    local function refreshSortUI()
-        sortContainer.removeAllViews()
+        local scrollView = ScrollView(service)
+        local sortContainer = LinearLayout(service)
+        sortContainer.setOrientation(LinearLayout.VERTICAL)
+        sortContainer.setPadding(30, 30, 30, 30)
+        scrollView.addView(sortContainer)
+        builder.setView(scrollView)
+
+        local sortDialog = nil
+
         local keyNames = {
             dictation = "الإملاء والترجمة",
             doc_reader = "المكتبة والقارئ", video_analyzer = "محلل الفيديو",
@@ -4167,15 +4177,12 @@ function openSettings()
             settings = "الإعدادات", geminiLive = "البث المباشر (Gemini Live)"
         }
 
-        local keys = {}
-
         dashboardOrder = prefs.getString("dashboardOrder", "dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings")
         if dashboardOrder:match("reader") and not dashboardOrder:match("doc_reader") then dashboardOrder = dashboardOrder:gsub("reader", "doc_reader") end
         if dashboardOrder:match("library") and not dashboardOrder:match("doc_reader") then dashboardOrder = dashboardOrder:gsub("library", "doc_reader") end
         if dashboardOrder:match("assistant,") then dashboardOrder = dashboardOrder:gsub("assistant,", "") end
         if dashboardOrder:match(",assistant") then dashboardOrder = dashboardOrder:gsub(",assistant", "") end
         if dashboardOrder == "assistant" then dashboardOrder = "dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings" end
-
 
         local defaultBtns = {"dictation", "geminiLive", "doc_reader", "video_analyzer", "image", "transcription", "settings"}
         for _, btn in ipairs(defaultBtns) do
@@ -4184,57 +4191,76 @@ function openSettings()
             end
         end
 
-        for k in dashboardOrder:gmatch("([^,]+)")
- do
-            local cleanKey = k:gsub("^%%s+", ""):gsub("%%s+$", "")
-            if keyNames[cleanKey] then
-                keys[#keys + 1] = cleanKey
+        local function refreshSortUI()
+            sortContainer.removeAllViews()
+
+            local keys = {}
+
+            for k in dashboardOrder:gmatch("([^,]+)") do
+                local cleanKey = k:gsub("^%%s+", ""):gsub("%%s+$", "")
+                if keyNames[cleanKey] then
+                    keys[#keys + 1] = cleanKey
+                end
+            end
+
+            for i, k in ipairs(keys) do
+                local row = LinearLayout(service)
+                row.setGravity(Gravity.CENTER_VERTICAL)
+                row.setPadding(0, 15, 0, 15)
+
+                local nameTv = TextView(service)
+                nameTv.setText(keyNames[k] or k)
+                nameTv.setTextColor(0xFF000000) -- Black text for dialog
+                nameTv.setTextSize(17)
+                local lp = LinearLayout.LayoutParams(0, -2, 1.0)
+                row.addView(nameTv, lp)
+
+                if i > 1 then
+                    local upBtn = Button(service); upBtn.setText("🔼"); styleButton(upBtn, "secondary")
+                    upBtn.setContentDescription("نقل " .. (keyNames[k] or k) .. " للأعلى")
+                    upBtn.setPadding(10, 10, 10, 10)
+                    upBtn.setOnClickListener(function()
+                        keys[i], keys[i-1] = keys[i-1], keys[i]
+                        dashboardOrder = table.concat(keys, ",")
+                        service.asyncSpeak("تم نقل " .. (keyNames[k] or k) .. " للأعلى")
+                        refreshSortUI()
+                    end)
+                    row.addView(upBtn)
+                end
+
+                if i < #keys then
+                    local downBtn = Button(service); downBtn.setText("🔽"); styleButton(downBtn, "secondary")
+                    downBtn.setContentDescription("نقل " .. (keyNames[k] or k) .. " للأسفل")
+                    downBtn.setPadding(10, 10, 10, 10)
+                    downBtn.setOnClickListener(function()
+                        keys[i], keys[i+1] = keys[i+1], keys[i]
+                        dashboardOrder = table.concat(keys, ",")
+                        service.asyncSpeak("تم نقل " .. (keyNames[k] or k) .. " للأسفل")
+                        refreshSortUI()
+                    end)
+                    local dlp = LinearLayout.LayoutParams(-2, -2)
+                    dlp.leftMargin = 15
+                    row.addView(downBtn, dlp)
+                end
+                sortContainer.addView(row)
             end
         end
+        refreshSortUI()
 
-        for i, k in ipairs(keys) do
-            local row = LinearLayout(service)
-            row.setGravity(Gravity.CENTER_VERTICAL)
-            row.setPadding(0, 15, 0, 15)
+        builder.setPositiveButton("حفظ وإغلاق", function()
+            local editor = prefs.edit()
+            editor.putString("dashboardOrder", dashboardOrder)
+            editor.apply()
+            service.asyncSpeak("تم حفظ ترتيب الأزرار")
+            if sortDialog then sortDialog.dismiss() end
+        end)
 
-            local nameTv = TextView(service)
-            nameTv.setText(keyNames[k] or k)
-            nameTv.setTextColor(0xFFFFFFFF)
-            nameTv.setTextSize(17)
-            local lp = LinearLayout.LayoutParams(0, -2, 1.0)
-            row.addView(nameTv, lp)
-
-            if i > 1 then
-                local upBtn = Button(service); upBtn.setText("🔼"); styleButton(upBtn, "secondary")
-                upBtn.setContentDescription("نقل " .. (keyNames[k] or k) .. " للأعلى")
-                upBtn.setPadding(10, 10, 10, 10)
-                upBtn.setOnClickListener(function()
-                    keys[i], keys[i-1] = keys[i-1], keys[i]
-                    dashboardOrder = table.concat(keys, ",")
-                    service.asyncSpeak("تم نقل " .. (keyNames[k] or k) .. " للأعلى")
-                    refreshSortUI()
-                end)
-                row.addView(upBtn)
-            end
-
-            if i < #keys then
-                local downBtn = Button(service); downBtn.setText("🔽"); styleButton(downBtn, "secondary")
-                downBtn.setContentDescription("نقل " .. (keyNames[k] or k) .. " للأسفل")
-                downBtn.setPadding(10, 10, 10, 10)
-                downBtn.setOnClickListener(function()
-                    keys[i], keys[i+1] = keys[i+1], keys[i]
-                    dashboardOrder = table.concat(keys, ",")
-                    service.asyncSpeak("تم نقل " .. (keyNames[k] or k) .. " للأسفل")
-                    refreshSortUI()
-                end)
-                local dlp = LinearLayout.LayoutParams(-2, -2)
-                dlp.leftMargin = 15
-                row.addView(downBtn, dlp)
-            end
-            sortContainer.addView(row)
-        end
-    end
-    refreshSortUI()
+        sortDialog = builder.create()
+        -- Must show before accessing window properties
+        sortDialog.getWindow().setType(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY)
+        sortDialog.show()
+    end)
+    sortCard.addView(openSortDialogBtn)
 
     -- SECTION: Voice & Language
     local voiceCard = createCard(contentL)
