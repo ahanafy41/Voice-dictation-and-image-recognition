@@ -3135,32 +3135,90 @@ function runImageDescription()
     end
 
     local currentDictLangDetails = getLanguageDetails(selectedLanguage)
-
-    if not keyToUse or keyToUse == "" then
-                        service.asyncSpeak(getFeedbackString("api_key_missing_for_feature", currentDictLangDetails.code, "Image Description (Gemini)"))
+    local apiKey = geminiApiKey
+    if not apiKey or apiKey == "" then
+        service.asyncSpeak(getFeedbackString("api_key_missing_for_feature", currentDictLangDetails.code, "Image Description (Gemini)"))
         return
     end
 
     isDescribingImage = true
-    service.asyncSpeak(getFeedbackString("image_desc_start", currentDictLangDetails.code))
-    takeScreenshotAndEncode(function(encImg)
-        if encImg then
-            describeImageWithGemini(encImg, function(descRes, rB64)
-                local d, o = parseImageDescription(descRes)
-                if descRes and (descRes:match("^Error:") or descRes:match("^خطأ:")) then
-                    service.asyncSpeak(getFeedbackString("image_desc_fail_api", currentDictLangDetails.code, descRes))
-                else
-                    service.asyncSpeak(getFeedbackString("image_desc_success", currentDictLangDetails.code))
-                end
-                showImageDescriptionWindow(d, o, rB64)
+
+    if not SpeechRecognizer.isRecognitionAvailable(service) then
+        -- Fallback to generic description if speech is unavailable
+        service.asyncSpeak(getFeedbackString("image_desc_start", currentDictLangDetails.code))
+        takeScreenshotAndEncode(function(encImg)
+            if encImg then
+                describeImageWithGemini(encImg, function(descRes, rB64)
+                    local d, o = parseImageDescription(descRes)
+                    if not (descRes:match("^Error:") or descRes:match("^خطأ:")) then service.asyncSpeak(getFeedbackString("image_desc_success", currentDictLangDetails.code)) end
+                    showImageDescriptionWindow(d, o, rB64)
+                    isDescribingImage = false
+                end)
+            else
+                service.asyncSpeak(getFeedbackString("image_desc_fail_screenshot", currentDictLangDetails.code))
                 isDescribingImage = false
-            end)
-        else
-            service.asyncSpeak(getFeedbackString("image_desc_fail_screenshot", currentDictLangDetails.code))
-            showResultWindow("خطأ في وصف الصورة", getFeedbackString("image_desc_fail_screenshot", currentDictLangDetails.code))
-            isDescribingImage = false
+            end
+        end)
+        return
+    end
+
+    service.asyncSpeak("ماذا تريد أن تعرف عن هذه الصورة؟")
+    local localRec = SpeechRecognizer.createSpeechRecognizer(service)
+    local qIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+    qIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+    qIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, selectedLanguage or "ar")
+    qIntent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+
+    local function processScreenshotWithQuery(userQuery)
+        service.asyncSpeak("جاري التقاط الصورة وتحليلها...")
+        takeScreenshotAndEncode(function(encImg)
+            if encImg then
+                local prompt = userQuery and ("User Query: " .. userQuery .. "\nRespond to the user query directly. If they asked to read text, ONLY return the extracted text. If they asked for a description, provide it.") or nil
+
+                if prompt then
+                    queryImageWithGemini(encImg, userQuery, "", function(descRes)
+                        if not (descRes:match("^Error:") or descRes:match("^خطأ:")) then service.asyncSpeak("تم التحليل.") end
+                        showImageDescriptionWindow(descRes, "", encImg)
+                        isDescribingImage = false
+                    end)
+                else
+                    describeImageWithGemini(encImg, function(descRes, rB64)
+                        local d, o = parseImageDescription(descRes)
+                        if not (descRes:match("^Error:") or descRes:match("^خطأ:")) then service.asyncSpeak(getFeedbackString("image_desc_success", currentDictLangDetails.code)) end
+                        showImageDescriptionWindow(d, o, rB64)
+                        isDescribingImage = false
+                    end)
+                end
+            else
+                service.asyncSpeak(getFeedbackString("image_desc_fail_screenshot", currentDictLangDetails.code))
+                isDescribingImage = false
+            end
+        end)
+    end
+
+    localRec.setRecognitionListener(RecognitionListener{
+        onReadyForSpeech = function() end, onBeginningOfSpeech = function() end, onRmsChanged = function() end, onBufferReceived = function() end, onEndOfSpeech = function() end,
+        onError = function(e)
+            pcall(function() localRec.destroy() end)
+            -- If user doesn't speak (timeout), fallback to generic description
+            if e == SpeechRecognizer.ERROR_SPEECH_TIMEOUT or e == SpeechRecognizer.ERROR_NO_MATCH then
+                processScreenshotWithQuery(nil)
+            else
+                service.asyncSpeak("خطأ في الاستماع، جاري الوصف العام.")
+                processScreenshotWithQuery(nil)
+            end
+        end,
+        onResults = function(r)
+            local m = r.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+            local uQ = (m and m.size() > 0) and m.get(0) or nil
+            pcall(function() localRec.destroy() end)
+            processScreenshotWithQuery(uQ)
         end
-    end)
+    })
+
+    -- Slight delay to ensure TTS starts before mic opens
+    Thread.sleep(1000)
+    pcall(function() localRec.startListening(qIntent) end)
 end
 
 function takeScreenshotAndEncode(callback)
