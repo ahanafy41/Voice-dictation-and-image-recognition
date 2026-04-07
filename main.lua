@@ -223,7 +223,12 @@ selectedGeminiModelId = isValidModel and loadedModelId or defaultGeminiModelId
 
 selectedGroqModelId = prefs.getString("groqModelId", defaultGroqModelId)
 selectedSearchModelId = prefs.getString("searchModelId", "compound-beta")
-dashboardOrder = prefs.getString("dashboardOrder", "assistant,dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings")
+dashboardOrder = prefs.getString("dashboardOrder", "dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings")
+-- Remove assistant from legacy orders
+if dashboardOrder:match("assistant,") then dashboardOrder = dashboardOrder:gsub("assistant,", "") end
+if dashboardOrder:match(",assistant") then dashboardOrder = dashboardOrder:gsub(",assistant", "") end
+if dashboardOrder == "assistant" then dashboardOrder = "dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings" end
+
 selectedDictationMode = prefs.getString("selectedDictationMode", defaultDictationMode)
 
 -- Migration: Rename old keys
@@ -231,7 +236,7 @@ if dashboardOrder:match("reader") and not dashboardOrder:match("doc_reader") the
 if dashboardOrder:match("library") and not dashboardOrder:match("doc_reader") then dashboardOrder = dashboardOrder:gsub("library", "doc_reader") end
 
 -- Auto-append missing default buttons for old users
-local defaultButtons = {"assistant", "dictation", "geminiLive", "doc_reader", "video_analyzer", "image", "transcription", "settings"}
+local defaultButtons = {"dictation", "geminiLive", "doc_reader", "video_analyzer", "image", "transcription", "settings"}
 for _, btn in ipairs(defaultButtons) do
     if not dashboardOrder:match("^" .. btn .. "$") and not dashboardOrder:match("^" .. btn .. ",") and not dashboardOrder:match("," .. btn .. "$") and not dashboardOrder:match("," .. btn .. ",") then
         dashboardOrder = dashboardOrder .. "," .. btn
@@ -363,6 +368,7 @@ mainHandler = Handler(Looper.getMainLooper())
 stopDictation = false
 speechRecord = nil
 recognizer = nil
+lastInsertedDictationTextLength = 0 -- Track last text length for "undo/delete" feature
 local wm = service.getSystemService(Context.WINDOW_SERVICE)
 local settingsDialog = nil
 local resultWindow = nil
@@ -983,6 +989,13 @@ function makeAiRequest(prompt, systemInstruction, imageBase64, modelIdOverride, 
         combinedSystemInstruction = systemInstruction or "You are a helpful AI assistant with search capabilities."
     end
 
+    -- Truncate massive text prompts to prevent HTTP 413 (Payload Too Large) errors in Personal Assistant
+    local maxPromptLength = 6000
+    local safePrompt = prompt
+    if safePrompt and #safePrompt > maxPromptLength then
+        safePrompt = safePrompt:sub(1, maxPromptLength) .. "\n\n[...النص مقطوع لتجاوز الحد المسموح...]"
+    end
+
     local url, requestBody, headers
 
     if useGroq then
@@ -998,11 +1011,11 @@ function makeAiRequest(prompt, systemInstruction, imageBase64, modelIdOverride, 
 
         local userContent = {}
         if imageBase64 then
-            table.insert(userContent, { type = "text", text = prompt })
+            table.insert(userContent, { type = "text", text = safePrompt })
             table.insert(userContent, { type = "image_url", image_url = { url = "data:image/png;base64," .. imageBase64 } })
             table.insert(messages, { role = "user", content = userContent })
         else
-            table.insert(messages, { role = "user", content = prompt })
+            table.insert(messages, { role = "user", content = safePrompt })
         end
 
         local jsonMessages = toJavaJSON(messages)
@@ -1020,9 +1033,9 @@ function makeAiRequest(prompt, systemInstruction, imageBase64, modelIdOverride, 
         if combinedSystemInstruction then
             table.insert(parts, { text = "System: " .. combinedSystemInstruction })
         end
-        table.insert(parts, { text = prompt })
+        table.insert(parts, { text = safePrompt })
         if imageBase64 then
-            table.insert(parts, { inline_data = { mime_type = "image/png", data = imageBase64 } })
+            table.insert(parts, { inline_data = { mime_type = "image/jpeg", data = imageBase64 } })
         end
 
         local partsArray = toJavaJSON(parts)
@@ -1076,39 +1089,33 @@ end
 -- ### Feature Wrapper Functions
 function correctWithAi(text, callback)
     local instructions = {}
-    table.insert(instructions, "Clean fillers. FIX ARABIC SPELLING STRICTLY: (ة/ه, ي/ى, and Hamzas أ/إ/ء) keep dialect.")
+    -- Strict, ultra-short prompt for speed and zero hallucinations
+    table.insert(instructions, "DO NOT change any words. ONLY fix Arabic spelling (Hamzas أإء, Taa/Haa ةه, Yaa ىي). KEEP the exact dialect.")
 
-    if tashkeelEnabled then table.insert(instructions, "Add proper Arabic tashkeel (diacritics).") end
-    if profanityFilterEnabled then table.insert(instructions, "Replace any profanity or offensive words with stars (***).") end
-    if newLinePerSentenceEnabled then table.insert(instructions, "Start a new line for every sentence.") end
-    if convertNumbersEnabled then table.insert(instructions, "Convert digits into their written Arabic words (e.g., 5 to خمسة).") end
-    if cleanExtraSpacesEnabled then table.insert(instructions, "Remove any double or extra spaces.") end
-    if forceDotAtEndEnabled then table.insert(instructions, "MUST end the final text with a period (.).") end
-    if autoCommaEnabled then table.insert(instructions, "Add commas between appropriate clauses.") end
+    if tashkeelEnabled then table.insert(instructions, "Add proper Arabic tashkeel.") end
+    if profanityFilterEnabled then table.insert(instructions, "Replace profanity with ***.") end
+    if newLinePerSentenceEnabled then table.insert(instructions, "Start new line per sentence.") end
+    if convertNumbersEnabled then table.insert(instructions, "Convert digits to Arabic words.") end
+    if cleanExtraSpacesEnabled then table.insert(instructions, "Remove extra spaces.") end
+    if forceDotAtEndEnabled then table.insert(instructions, "End with a period.") end
+    if autoCommaEnabled then table.insert(instructions, "Add commas.") end
 
-    if emojiMode == "smart" then table.insert(instructions, "Add suitable emojis based on the context.")
-    elseif emojiMode == "end" then table.insert(instructions, "Add few relevant emojis only at the very end of the text.")
-    elseif emojiMode == "per_word" then table.insert(instructions, "Add an emoji next to almost every relevant word.")
-    elseif emojiMode == "encrypt" then table.insert(instructions, "Replace most words with emojis only (emoji encryption).")
+    if emojiMode == "smart" then table.insert(instructions, "Add context emojis.")
+    elseif emojiMode == "end" then table.insert(instructions, "Add emojis at end.")
+    elseif emojiMode == "per_word" then table.insert(instructions, "Add emoji per word.")
+    elseif emojiMode == "encrypt" then table.insert(instructions, "Replace words with emojis.")
     end
 
-    local promptPrefix = ""
+    local promptPrefix = "Process this text strictly based on instructions. No explanations, no markdown. Text: "
     if selectedDictationMode ~= "none" then
         for _, m in ipairs(dictationModes) do
-            if m.id == selectedDictationMode then promptPrefix = m.prompt; break end
+            if m.id == selectedDictationMode then promptPrefix = "Apply mode: " .. m.prompt .. " Text: "; break end
         end
-    else
-        promptPrefix = "Clean and format the following text: "
     end
 
-    local fullPrompt = promptPrefix .. "\nInstructions:\n- " .. table.concat(instructions, "\n- ") .. "\n\nText:\n" .. text .. "\n\nReturn ONLY the processed text:"
+    local fullPrompt = promptPrefix .. "\n\nText:\n" .. text .. "\n\nInstructions: " .. table.concat(instructions, " | ") .. "\nReturn ONLY the result:"
 
-    local creativity = aiCreativityLevel or 1
-    local temp = 0.3
-    if creativity == 0 then temp = 0.1
-    elseif creativity == 2 then temp = 0.8
-    end
-
+    local temp = 0.1 -- Always low for dictation to ensure speed and predictability
     makeAiRequest(fullPrompt, nil, nil, nil, callback, temp)
 end
 
@@ -3140,37 +3147,136 @@ function runImageDescription()
     end
 
     local currentDictLangDetails = getLanguageDetails(selectedLanguage)
-
-    if not keyToUse or keyToUse == "" then
-                        service.asyncSpeak(getFeedbackString("api_key_missing_for_feature", currentDictLangDetails.code, "Image Description (Gemini)"))
+    local apiKey = geminiApiKey
+    if not apiKey or apiKey == "" then
+        service.asyncSpeak(getFeedbackString("api_key_missing_for_feature", currentDictLangDetails.code, "Image Description (Gemini)"))
         return
     end
 
     isDescribingImage = true
-    service.asyncSpeak(getFeedbackString("image_desc_start", currentDictLangDetails.code))
-    takeScreenshotAndEncode(function(encImg)
-        if encImg then
-            describeImageWithGemini(encImg, function(descRes, rB64)
-                local d, o = parseImageDescription(descRes)
-                if descRes and (descRes:match("^Error:") or descRes:match("^خطأ:")) then
-                    service.asyncSpeak(getFeedbackString("image_desc_fail_api", currentDictLangDetails.code, descRes))
-                else
-                    service.asyncSpeak(getFeedbackString("image_desc_success", currentDictLangDetails.code))
-                end
-                showImageDescriptionWindow(d, o, rB64)
+
+    if not SpeechRecognizer.isRecognitionAvailable(service) then
+        -- Fallback to generic description if speech is unavailable
+        service.asyncSpeak(getFeedbackString("image_desc_start", currentDictLangDetails.code))
+        takeScreenshotAndEncode(function(encImg)
+            if encImg then
+                describeImageWithGemini(encImg, function(descRes, rB64)
+                    local d, o = parseImageDescription(descRes)
+                    if not (descRes:match("^Error:") or descRes:match("^خطأ:")) then service.asyncSpeak(getFeedbackString("image_desc_success", currentDictLangDetails.code)) end
+                    showImageDescriptionWindow(d, o, rB64)
+                    isDescribingImage = false
+                end)
+            else
+                service.asyncSpeak(getFeedbackString("image_desc_fail_screenshot", currentDictLangDetails.code))
                 isDescribingImage = false
-            end)
-        else
-            service.asyncSpeak(getFeedbackString("image_desc_fail_screenshot", currentDictLangDetails.code))
-            showResultWindow("خطأ في وصف الصورة", getFeedbackString("image_desc_fail_screenshot", currentDictLangDetails.code))
-            isDescribingImage = false
+            end
+        end)
+        return
+    end
+
+    service.asyncSpeak("ماذا تريد أن تعرف عن هذه الصورة؟")
+    local localRec = SpeechRecognizer.createSpeechRecognizer(service)
+    local qIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+    qIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+    qIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, selectedLanguage or "ar")
+    qIntent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+
+    local function processScreenshotWithQuery(userQuery)
+        service.asyncSpeak("جاري التقاط الصورة وتحليلها...")
+        takeScreenshotAndEncode(function(encImg)
+            if encImg then
+                local prompt = userQuery and ("User Query: " .. userQuery .. "\nRespond to the user query directly. If they asked to read text, ONLY return the extracted text. If they asked for a description, provide it.") or nil
+
+                if prompt then
+                    queryImageWithGemini(encImg, userQuery, "", function(descRes)
+                        if not (descRes:match("^Error:") or descRes:match("^خطأ:")) then service.asyncSpeak("تم التحليل.") end
+                        showImageDescriptionWindow(descRes, "", encImg)
+                        isDescribingImage = false
+                    end)
+                else
+                    describeImageWithGemini(encImg, function(descRes, rB64)
+                        local d, o = parseImageDescription(descRes)
+                        if not (descRes:match("^Error:") or descRes:match("^خطأ:")) then service.asyncSpeak(getFeedbackString("image_desc_success", currentDictLangDetails.code)) end
+                        showImageDescriptionWindow(d, o, rB64)
+                        isDescribingImage = false
+                    end)
+                end
+            else
+                service.asyncSpeak(getFeedbackString("image_desc_fail_screenshot", currentDictLangDetails.code))
+                isDescribingImage = false
+            end
+        end)
+    end
+
+    localRec.setRecognitionListener(RecognitionListener{
+        onReadyForSpeech = function() end, onBeginningOfSpeech = function() end, onRmsChanged = function() end, onBufferReceived = function() end, onEndOfSpeech = function() end,
+        onError = function(e)
+            pcall(function() localRec.destroy() end)
+            -- If user doesn't speak (timeout), fallback to generic description
+            if e == SpeechRecognizer.ERROR_SPEECH_TIMEOUT or e == SpeechRecognizer.ERROR_NO_MATCH then
+                processScreenshotWithQuery(nil)
+            else
+                service.asyncSpeak("خطأ في الاستماع، جاري الوصف العام.")
+                processScreenshotWithQuery(nil)
+            end
+        end,
+        onResults = function(r)
+            local m = r.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+            local uQ = (m and m.size() > 0) and m.get(0) or nil
+            pcall(function() localRec.destroy() end)
+            processScreenshotWithQuery(uQ)
         end
-    end)
+    })
+
+    -- Slight delay to ensure TTS starts before mic opens
+    Thread.sleep(1000)
+    pcall(function() localRec.startListening(qIntent) end)
 end
 
 function takeScreenshotAndEncode(callback)
-    local function procBmp(bmp) if bmp then local s,r=pcall(function() local b=ByteArrayOutputStream(); bmp.compress(Bitmap.CompressFormat.PNG,90,b); local iB=b.toByteArray(); b.close(); pcall(bmp.recycle,bmp); return Base64.encodeToString(iB,Base64.NO_WRAP) end); if s then callback(r) elseif bmp and not bmp.isRecycled() then pcall(bmp.recycle,bmp); callback(nil) end else callback(nil) end end
-    if screenshotMode=="focus" then local n=service.getFocusView(); if n then pcall(function() service.getScreenShot(n,{onScreenCaptureDone=procBmp}) end); pcall(n.recycle,n) else pcall(function() service.getScreenShot({onScreenCaptureDone=procBmp}) end) end else pcall(function() service.getScreenShot({onScreenCaptureDone=procBmp}) end) end
+    local function procBmp(bmp)
+        if bmp then
+            local s, r = pcall(function()
+                -- Scale down image to prevent 413 Payload Too Large error
+                local width = bmp.getWidth()
+                local height = bmp.getHeight()
+                local max_dim = 1200
+                local finalBmp = bmp
+                if width > max_dim or height > max_dim then
+                    local scale = math.min(max_dim / width, max_dim / height)
+                    local newWidth = math.floor(width * scale)
+                    local newHeight = math.floor(height * scale)
+                    finalBmp = Bitmap.createScaledBitmap(bmp, newWidth, newHeight, true)
+                end
+
+                local b = ByteArrayOutputStream()
+                -- Use JPEG and 70% quality for massive size reduction
+                finalBmp.compress(Bitmap.CompressFormat.JPEG, 70, b)
+                local iB = b.toByteArray()
+                b.close()
+
+                if finalBmp ~= bmp then pcall(finalBmp.recycle, finalBmp) end
+                pcall(bmp.recycle, bmp)
+
+                return Base64.encodeToString(iB, Base64.NO_WRAP)
+            end)
+            if s then callback(r) elseif bmp and not bmp.isRecycled() then pcall(bmp.recycle, bmp); callback(nil) end
+        else
+            callback(nil)
+        end
+    end
+
+    if screenshotMode == "focus" then
+        local n = service.getFocusView()
+        if n then
+            pcall(function() service.getScreenShot(n, {onScreenCaptureDone = procBmp}) end)
+            pcall(n.recycle, n)
+        else
+            pcall(function() service.getScreenShot({onScreenCaptureDone = procBmp}) end)
+        end
+    else
+        pcall(function() service.getScreenShot({onScreenCaptureDone = procBmp}) end)
+    end
 end
 
 -- ### Settings Management
@@ -3197,7 +3303,7 @@ function saveSettings()
     editor.putString("groqModelId", selectedGroqModelId or defaultGroqModelId)
     editor.putString("audioModelId", selectedAudioModelId or defaultAudioModelId)
     editor.putString("searchModelId", selectedSearchModelId or "compound-beta")
-    editor.putString("dashboardOrder", dashboardOrder or "assistant,dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings")
+    editor.putString("dashboardOrder", dashboardOrder or "dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings")
     editor.putString("selectedDictationMode", selectedDictationMode or defaultDictationMode)
 
     editor.putBoolean("summarizeEnabled", summarizeEnabled)
@@ -3485,13 +3591,6 @@ function openMainWindow()
     contentL.addView(titleTxt)
 
     local buttons = {
-        assistant = function()
-            local btn = Button(service); btn.setText("🤖 المساعد الشخصي")
-            btn.setContentDescription("فتح المساعد الشخصي والبحث الذكي")
-            styleButton(btn, "primary")
-            btn.setOnClickListener(showPersonalAssistantWindow)
-            return btn
-        end,
         dictation = function()
             local btn = Button(service); btn.setText("🎙️ الإملاء والترجمة")
             btn.setContentDescription("فتح الإملاء الصوتي والترجمة")
@@ -3560,11 +3659,14 @@ function openMainWindow()
 
 
     -- Refresh from prefs in case it was modified
-    local orderStr = prefs.getString("dashboardOrder", "assistant,dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings")
+    local orderStr = prefs.getString("dashboardOrder", "dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings")
     if orderStr:match("reader") and not orderStr:match("doc_reader") then orderStr = orderStr:gsub("reader", "doc_reader") end
     if orderStr:match("library") and not orderStr:match("doc_reader") then orderStr = orderStr:gsub("library", "doc_reader") end
+    if orderStr:match("assistant,") then orderStr = orderStr:gsub("assistant,", "") end
+    if orderStr:match(",assistant") then orderStr = orderStr:gsub(",assistant", "") end
+    if orderStr == "assistant" then orderStr = "dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings" end
 
-    local defaultBtns = {"assistant", "dictation", "geminiLive", "doc_reader", "video_analyzer", "image", "transcription", "settings"}
+    local defaultBtns = {"dictation", "geminiLive", "doc_reader", "video_analyzer", "image", "transcription", "settings"}
     for _, btn in ipairs(defaultBtns) do
         if not orderStr:match("^" .. btn .. "$") and not orderStr:match("^" .. btn .. ",") and not orderStr:match("," .. btn .. "$") and not orderStr:match("," .. btn .. ",") then
             orderStr = orderStr .. "," .. btn
@@ -3934,7 +4036,6 @@ function openSettings()
     local function refreshSortUI()
         sortContainer.removeAllViews()
         local keyNames = {
-            assistant = "المساعد الشخصي",
             dictation = "الإملاء والترجمة",
             doc_reader = "المكتبة والقارئ", video_analyzer = "محلل الفيديو",
             image = "وصف الصور",
@@ -3944,11 +4045,15 @@ function openSettings()
 
         local keys = {}
 
-        dashboardOrder = prefs.getString("dashboardOrder", "assistant,dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings")
+        dashboardOrder = prefs.getString("dashboardOrder", "dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings")
         if dashboardOrder:match("reader") and not dashboardOrder:match("doc_reader") then dashboardOrder = dashboardOrder:gsub("reader", "doc_reader") end
         if dashboardOrder:match("library") and not dashboardOrder:match("doc_reader") then dashboardOrder = dashboardOrder:gsub("library", "doc_reader") end
+        if dashboardOrder:match("assistant,") then dashboardOrder = dashboardOrder:gsub("assistant,", "") end
+        if dashboardOrder:match(",assistant") then dashboardOrder = dashboardOrder:gsub(",assistant", "") end
+        if dashboardOrder == "assistant" then dashboardOrder = "dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings" end
 
-        local defaultBtns = {"assistant", "dictation", "geminiLive", "doc_reader", "video_analyzer", "image", "transcription", "settings"}
+
+        local defaultBtns = {"dictation", "geminiLive", "doc_reader", "video_analyzer", "image", "transcription", "settings"}
         for _, btn in ipairs(defaultBtns) do
             if not dashboardOrder:match("^" .. btn .. "$") and not dashboardOrder:match("^" .. btn .. ",") and not dashboardOrder:match("," .. btn .. "$") and not dashboardOrder:match("," .. btn .. ",") then
                 dashboardOrder = dashboardOrder .. "," .. btn
@@ -4161,13 +4266,6 @@ function startVoiceRecognition(fromDashboard)
                 if lowerRecognizedText == "stop" or recognizedText == "توقف" or lowerRecognizedText == "arrêter" then
                     service.asyncSpeak(getFeedbackString("command_stop", currentDictLangDetails.code)); stopDictation=true; cleanupResources(); return
 
-                elseif recognizedText == "المساعد الشخصي" or lowerRecognizedText == "assistant" or lowerRecognizedText == "personal assistant" then
-                    service.asyncSpeak("فتح المساعد الشخصي");
-                    stopDictation = true
-                    if recognizer then recognizer.destroy(); recognizer = nil end
-                    showPersonalAssistantWindow()
-                    return
-
                 elseif lowerRecognizedText == "settings" or recognizedText == "الضبط" or recognizedText == "ضبط" or recognizedText == "الإعدادات" or lowerRecognizedText == "paramètres" or lowerRecognizedText == "réglages" then
                     service.asyncSpeak("فتح لوحة التحكم");
                     stopDictation = true
@@ -4244,6 +4342,62 @@ function startVoiceRecognition(fromDashboard)
                 end
 
                 if not commandProcessed and recognizedText and recognizedText:match("%S") then
+                    local targetEditText = service.getEditText()
+                    if not targetEditText then
+                        service.asyncSpeak("يرجى الوقوف على حقل كتابة.")
+                        if shouldContinue then startListening() elseif not continuousDictationEnabled and not stopDictation then cleanupResources() end
+                        return
+                    end
+
+                    -- **Hardcoded Zero-Delay Dictation Commands**
+                    local cleanCmd = recognizedText:match("^%s*(.-)%s*$"):lower()
+                    if cleanCmd == "سطر جديد" or cleanCmd == "سطر" then
+                        service.insertText(targetEditText, "\n")
+                        lastInsertedDictationTextLength = 1
+                        service.asyncSpeak("سطر جديد")
+                        if shouldContinue then startListening() elseif not continuousDictationEnabled then cleanupResources() end
+                        return
+                    elseif cleanCmd == "حذف" or cleanCmd == "مسح" then
+                        if lastInsertedDictationTextLength > 0 then
+                            local currentContent = tostring(targetEditText.getText() or "")
+                            if #currentContent >= lastInsertedDictationTextLength then
+                                local newContent = currentContent:sub(1, -lastInsertedDictationTextLength - 1)
+                                local AccessibilityNodeInfo = luajava.bindClass("android.view.accessibility.AccessibilityNodeInfo")
+                                local b = luajava.bindClass("android.os.Bundle")()
+                                b.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, newContent)
+                                targetEditText.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, b)
+                                lastInsertedDictationTextLength = 0
+                                service.asyncSpeak("تم المسح")
+                            end
+                        else
+                             service.asyncSpeak("لا يوجد نص حديث لمسحه")
+                        end
+                        if shouldContinue then startListening() elseif not continuousDictationEnabled then cleanupResources() end
+                        return
+                    elseif cleanCmd == "إرسال" or cleanCmd == "ارسال" then
+                        -- Attempt to hit ENTER key as a fallback for send
+                        local AccessibilityNodeInfo = luajava.bindClass("android.view.accessibility.AccessibilityNodeInfo")
+                        -- Some apps respond to action click or action send on the edit text itself if IME action is set
+                        targetEditText.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                        -- Try finding a send button nearby (common content descriptions)
+                        local root = service.getRootInActiveWindow()
+                        if root then
+                            local sendNodes = root.findAccessibilityNodeInfosByText("إرسال")
+                            if sendNodes and sendNodes.size() > 0 then
+                                sendNodes.get(0).performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                            else
+                                local sendNodesEn = root.findAccessibilityNodeInfosByText("Send")
+                                if sendNodesEn and sendNodesEn.size() > 0 then
+                                    sendNodesEn.get(0).performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                                end
+                            end
+                            root.recycle()
+                        end
+                        service.asyncSpeak("تم الإرسال")
+                        if shouldContinue then startListening() elseif not continuousDictationEnabled then cleanupResources() end
+                        return
+                    end
+
                     local function insertFinalResult(finalTextToInsert, wasTranslated)
                         local feedbackKey = wasTranslated and "dictation_insert_verify_translated" or "dictation_insert_verify"
                         if finalTextToInsert and finalTextToInsert:match("%S") then
@@ -4258,6 +4412,7 @@ function startVoiceRecognition(fromDashboard)
                                 textToActuallyInsert = " " .. textToActuallyInsert
                             end
                             service.insertText(editTextNode, textToActuallyInsert)
+                            lastInsertedDictationTextLength = #tostring(textToActuallyInsert)
                             pcall(editTextNode.recycle, editTextNode)
                         end
                         if shouldContinue then startListening() elseif not continuousDictationEnabled then cleanupResources() end
@@ -4457,114 +4612,6 @@ function showVideoAnalyzerMenu()
 end
 
 -- ### Personal Assistant Feature ###
-local personalAssistantWindow = nil
-
-function showPersonalAssistantWindow()
-    if personalAssistantWindow then return end
-    hideMainWindow()
-
-    local layout = LinearLayout(service)
-    layout.setOrientation(LinearLayout.VERTICAL)
-    local bg = GradientDrawable()
-    bg.setColor(0xFF121212) -- Ultra dark background
-    layout.setBackgroundDrawable(bg)
-    layout.setPadding(30, 30, 30, 30)
-
-    -- Header
-    local headerL = LinearLayout(service)
-    headerL.setOrientation(LinearLayout.HORIZONTAL)
-    headerL.setGravity(Gravity.CENTER_VERTICAL)
-    headerL.setPadding(0, 10, 0, 30)
-
-    local titleTv = TextView(service)
-    titleTv.setText("🤖 المساعد الشخصي (AI Search)")
-    titleTv.setTextSize(20)
-    titleTv.setTypeface(nil, Typeface.BOLD)
-    titleTv.setTextColor(0xFF64B5F6)
-    local titleLp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0)
-    headerL.addView(titleTv, titleLp)
-
-    local closeBtn = Button(service)
-    closeBtn.setText("❌")
-    styleButton(closeBtn, "secondary")
-    closeBtn.setPadding(10, 10, 10, 10); closeBtn.setContentDescription("إغلاق نافذة المساعد الشخصي");
-    closeBtn.setOnClickListener(function()
-        if personalAssistantWindow then wm.removeView(personalAssistantWindow); personalAssistantWindow = nil end
-    end)
-    headerL.addView(closeBtn)
-    layout.addView(headerL)
-
-    -- Chat History Area
-    local chatScroll = ScrollView(service)
-    local chatLp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0)
-    chatLp.setMargins(0, 0, 0, 20)
-    chatScroll.setLayoutParams(chatLp)
-
-    local chatContentL = LinearLayout(service)
-    chatContentL.setOrientation(LinearLayout.VERTICAL)
-    chatScroll.addView(chatContentL)
-    layout.addView(chatScroll)
-
-    -- Input Area
-    local inputL = LinearLayout(service)
-    inputL.setOrientation(LinearLayout.HORIZONTAL)
-    inputL.setGravity(Gravity.CENTER_VERTICAL)
-
-    local inputEt = EditText(service)
-    inputEt.setHint("اسألني أي شيء أو ابحث...")
-    styleEditText(inputEt)
-    local etLp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0)
-    inputEt.setLayoutParams(etLp)
-    inputEt.setOnTouchListener(View.OnTouchListener{ onTouch = function(v, event) if event.getAction() == MotionEvent.ACTION_UP then v.requestFocus(); local imm = service.getSystemService(Context.INPUT_METHOD_SERVICE); if imm then imm.showSoftInput(v, 1) end end return false end })
-    inputL.addView(inputEt)
-
-    local sendBtn = Button(service)
-    sendBtn.setText("🔎"); sendBtn.setContentDescription("إرسال السؤال أو بدء البحث");
-    styleButton(sendBtn, "primary")
-    local btnLp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-    btnLp.leftMargin = 15
-    sendBtn.setLayoutParams(btnLp)
-    inputL.addView(sendBtn)
-    layout.addView(inputL)
-
-    -- Send Functionality
-    sendBtn.setOnClickListener(function()
-        local query = inputEt.getText().toString()
-        if query == "" then return end
-
-        -- Add User Message
-        chatContentL.addView(createChatBubble(query, true))
-        inputEt.setText("")
-
-        -- Add Loading Bubble
-        local loadingBubble = createChatBubble("⏳ جاري البحث والتفكير...", false)
-        chatContentL.addView(loadingBubble)
-
-        -- Auto scroll to bottom
-        mainHandler.postDelayed(function() chatScroll.fullScroll(View.FOCUS_DOWN) end, 100)
-
-        -- AI Request using the model selected in Groq settings (e.g., compound-beta)
-        local assistantModel = selectedSearchModelId or "compound-beta"
-
-        makeAiRequest(query, "You are a helpful personal assistant. If the model supports search, provide updated info and links.", nil, assistantModel, function(response)
-            -- Remove loading bubble and add actual response
-            chatContentL.removeView(loadingBubble)
-            chatContentL.addView(createChatBubble(response, false))
-            mainHandler.postDelayed(function() chatScroll.fullScroll(View.FOCUS_DOWN) end, 100)
-        end)
-    end)
-
-    -- Show Window
-    local params = WindowManager.LayoutParams(
-        WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
-        WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-        WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
-        PixelFormat.TRANSLUCENT
-    )
-    wm.addView(layout, params)
-    personalAssistantWindow = layout
-end
-
 function showGeminiLiveWindow()
     if geminiLiveWindow then return end
 
