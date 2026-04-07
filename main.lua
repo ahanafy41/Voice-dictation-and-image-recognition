@@ -984,6 +984,13 @@ function makeAiRequest(prompt, systemInstruction, imageBase64, modelIdOverride, 
         combinedSystemInstruction = systemInstruction or "You are a helpful AI assistant with search capabilities."
     end
 
+    -- Truncate massive text prompts to prevent HTTP 413 (Payload Too Large) errors in Personal Assistant
+    local maxPromptLength = 6000
+    local safePrompt = prompt
+    if safePrompt and #safePrompt > maxPromptLength then
+        safePrompt = safePrompt:sub(1, maxPromptLength) .. "\n\n[...النص مقطوع لتجاوز الحد المسموح...]"
+    end
+
     local url, requestBody, headers
 
     if useGroq then
@@ -999,11 +1006,11 @@ function makeAiRequest(prompt, systemInstruction, imageBase64, modelIdOverride, 
 
         local userContent = {}
         if imageBase64 then
-            table.insert(userContent, { type = "text", text = prompt })
+            table.insert(userContent, { type = "text", text = safePrompt })
             table.insert(userContent, { type = "image_url", image_url = { url = "data:image/png;base64," .. imageBase64 } })
             table.insert(messages, { role = "user", content = userContent })
         else
-            table.insert(messages, { role = "user", content = prompt })
+            table.insert(messages, { role = "user", content = safePrompt })
         end
 
         local jsonMessages = toJavaJSON(messages)
@@ -1021,9 +1028,9 @@ function makeAiRequest(prompt, systemInstruction, imageBase64, modelIdOverride, 
         if combinedSystemInstruction then
             table.insert(parts, { text = "System: " .. combinedSystemInstruction })
         end
-        table.insert(parts, { text = prompt })
+        table.insert(parts, { text = safePrompt })
         if imageBase64 then
-            table.insert(parts, { inline_data = { mime_type = "image/png", data = imageBase64 } })
+            table.insert(parts, { inline_data = { mime_type = "image/jpeg", data = imageBase64 } })
         end
 
         local partsArray = toJavaJSON(parts)
