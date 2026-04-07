@@ -173,6 +173,11 @@ local supportedLanguages = {
 local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
+-- **Current App Version & OTA Updates**
+local currentAppVersion = 1.0
+local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
+local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
+
 -- **Gemini Live Voices**
 local geminiLiveVoices = {
     { id = "Zephyr", name = "Zephyr (مشرق - Bright)" },
@@ -3853,6 +3858,125 @@ function openAiSettingsWindow()
 
     pcall(function() wm.addView(aiSettingsDialog, p) end)
 end
+-- ### OTA Update Functions ###
+function downloadUpdateAndApply()
+    service.asyncSpeak("جاري تنزيل التحديث...")
+    showResultWindow("تحديث الإضافة", "⏳ جاري تنزيل ملف التحديث من الخادم...")
+
+    Http.get(updateUrl, nil, "UTF-8", nil, function(code, body)
+        if code == 200 and body and #body > 100 then
+            -- We need to find the actual script path
+            local success, err = pcall(function()
+                import "java.io.File"
+                import "java.io.FileOutputStream"
+                import "java.io.OutputStreamWriter"
+
+                -- luajava bindClass is safer for Context
+                local ctx = activity or service
+                if not ctx then error("No context available to find file path") end
+
+                -- Usually in AndroLua, the script directory can be accessed via activity.getLuaDir() or similar.
+                -- However, for Accessibility Services (Jieshuo plugins), the current file path might be accessible via specific globals or we can try to guess it.
+                -- A more robust way in Lua is to use debug.getinfo to get the current file's source.
+                local src = debug.getinfo(1, "S").source
+                local scriptPath = nil
+
+                if src:sub(1,1) == "@" then
+                    scriptPath = src:sub(2)
+                end
+
+                if not scriptPath then
+                     error("Could not determine current script path.")
+                end
+
+                local file = File(scriptPath)
+                if not file.exists() then
+                     error("Script file does not exist at determined path: " .. scriptPath)
+                end
+
+                -- Write the new body to the file
+                local fos = FileOutputStream(file)
+                local osw = OutputStreamWriter(fos, "UTF-8")
+                osw.write(body)
+                osw.flush()
+                osw.close()
+
+            end)
+
+            mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                run = function()
+                    if success then
+                        service.asyncSpeak("تم التحديث بنجاح! يرجى إغلاق الإضافة وفتحها مرة أخرى لتطبيق التغييرات.")
+                        showResultWindow("تم التحديث ✅", "تم تثبيت التحديث الجديد بنجاح.\n\nيرجى الرجوع وإغلاق الإضافة، ثم فتحها من جديد ليعمل الإصدار الجديد.")
+                    else
+                        service.asyncSpeak("حدث خطأ أثناء تطبيق التحديث.")
+                        showResultWindow("خطأ ❌", "فشل في حفظ ملف التحديث: \n" .. tostring(err))
+                    end
+                end
+            }))
+        else
+            mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                run = function()
+                    service.asyncSpeak("فشل تنزيل التحديث. يرجى التحقق من الاتصال بالإنترنت.")
+                    showResultWindow("خطأ ❌", "فشل تنزيل ملف التحديث (رمز الخطأ: " .. tostring(code) .. ")")
+                end
+            }))
+        end
+    end)
+end
+
+function checkForUpdates(silent)
+    if not silent then
+        service.asyncSpeak("جاري البحث عن تحديثات...")
+    end
+
+    Http.get(versionUrl, nil, "UTF-8", nil, function(code, body)
+        if code == 200 and body then
+            local newVersionStr = body:match("^%s*([%d%.]+)")
+            local newVersion = tonumber(newVersionStr)
+
+            mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                run = function()
+                    if newVersion and newVersion > currentAppVersion then
+                        -- Update available
+                        if not silent then
+                            service.asyncSpeak("يوجد تحديث جديد للإضافة برقم " .. newVersionStr)
+                        end
+
+                        local builder = AlertDialog.Builder(service)
+                        builder.setTitle("تحديث جديد متاح! 🚀")
+                        builder.setMessage("إصدار جديد من الإضافة متاح الآن.\n\nالإصدار الحالي: " .. currentAppVersion .. "\nالإصدار الجديد: " .. newVersionStr .. "\n\nهل تريد تنزيل وتثبيت التحديث الآن؟")
+                        builder.setPositiveButton("تحديث الآن", function()
+                            downloadUpdateAndApply()
+                        end)
+                        builder.setNegativeButton("لاحقاً", nil)
+
+                        local dialog = builder.create()
+                        dialog.getWindow().setType(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY)
+                        dialog.show()
+
+                    else
+                        if not silent then
+                            service.asyncSpeak("الإضافة محدثة لآخر إصدار.")
+                            showResultWindow("لا يوجد تحديثات", "الإضافة محدثة بالفعل لآخر إصدار (" .. currentAppVersion .. ") ✅")
+                        end
+                    end
+                end
+            }))
+        else
+            if not silent then
+                mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                    run = function()
+                        service.asyncSpeak("تعذر التحقق من التحديثات.")
+                        showResultWindow("خطأ", "تعذر الاتصال بخادم التحديثات.")
+                    end
+                }))
+            end
+        end
+    end)
+end
+
+
 function openSettings()
     if settingsDialog then return end
     settingsDialog = LinearLayout(service)
@@ -4194,13 +4318,29 @@ function openSettings()
     end)
 
     local uiCard = createCard(contentL)
-    addSectionHeader("الواجهة", uiCard)
+    addSectionHeader("الواجهة والتحديثات", uiCard)
     local switchStart = Switch(service); switchStart.setChecked(startWithDictation); switchStart.setOnCheckedChangeListener(function(_, c) startWithDictation=c end)
     createSettingRow("بدء التطبيق بالإملاء", switchStart, uiCard)
 
 
     local switchFloat = Switch(service); switchFloat.setChecked(showFloatingSettingsButtonEnabled); switchFloat.setOnCheckedChangeListener(function(_, c) showFloatingSettingsButtonEnabled=c end)
     createSettingRow("الزر العائم", switchFloat, uiCard)
+
+    -- Update Button
+    local checkUpdateBtn = Button(service); checkUpdateBtn.setText("🔄 التحقق من وجود تحديثات"); styleButton(checkUpdateBtn, "secondary")
+    checkUpdateBtn.setOnClickListener(function()
+        checkForUpdates(false)
+    end)
+    local updateLp = LinearLayout.LayoutParams(-1, -2)
+    updateLp.topMargin = 20
+    uiCard.addView(checkUpdateBtn, updateLp)
+
+    local versionTv = TextView(service)
+    versionTv.setText("الإصدار الحالي: " .. currentAppVersion)
+    versionTv.setTextColor(0xFF888888)
+    versionTv.setGravity(Gravity.CENTER)
+    versionTv.setPadding(0, 10, 0, 0)
+    uiCard.addView(versionTv)
 
     local btnL = LinearLayout(service); btnL.setOrientation(LinearLayout.VERTICAL); btnL.setGravity(Gravity.CENTER); btnL.setPadding(0,40,0,10)
     local saveBtn = Button(service); saveBtn.setText("💾 حفظ وإغلاق"); styleButton(saveBtn, "primary"); saveBtn.setContentDescription("حفظ التغييرات وإغلاق الإعدادات");
@@ -4483,6 +4623,9 @@ end
 mainHandler.post(luajava.createProxy("java.lang.Runnable", {
     run = function()
         createAndShowFloatingButton()
+        -- Run silent update check
+        checkForUpdates(true)
+
         if startWithDictation then startVoiceRecognition(false) else openMainWindow() end
     end
 }))
