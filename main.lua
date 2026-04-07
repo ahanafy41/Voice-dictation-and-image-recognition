@@ -174,7 +174,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 1.1
+local currentAppVersion = 1.2
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -701,6 +701,33 @@ end
 
 
 -- **Floating Button Management**
+-- Broadcast Receiver for Home Button
+import "android.content.BroadcastReceiver"
+import "android.content.IntentFilter"
+
+local function registerHomeButtonReceiver()
+    if homeButtonReceiver then return end
+    homeButtonReceiver = luajava.createProxy("android.content.BroadcastReceiver", {
+        onReceive = function(context, intent)
+            local action = intent.getAction()
+            if action == Intent.ACTION_CLOSE_SYSTEM_DIALOGS then
+                local reason = intent.getStringExtra("reason")
+                if reason == "homekey" or reason == "recentapps" then
+                    -- Hide resultWindow if it's the document viewer
+                    if resultWindow and _G.globalHideDocumentViewer then
+                        _G.globalHideDocumentViewer()
+                    end
+                end
+            end
+        end
+    })
+    local filter = IntentFilter(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)
+    pcall(function() service.registerReceiver(homeButtonReceiver, filter) end)
+end
+
+-- Ensure receiver is registered
+pcall(registerHomeButtonReceiver)
+
 function createAndShowFloatingButton()
     if floatingSettingsBtn or not showFloatingSettingsButtonEnabled then return end
     if not Settings.canDrawOverlays(service) then
@@ -2158,7 +2185,18 @@ function openDocumentPickerWindow(startPath, onFileSelected)
     showUniversalFilePicker("اختر مستند أو فيديو (PDF/Video/...) 📄", startPath, docFilter, onFileSelected)
 end
 
+
+    _G.globalHideDocumentViewer = function()
+        if resultWindow then
+            pcall(function() wm.removeView(resultWindow) end)
+            isDocumentReaderBackgrounded = true
+            -- Do not set resultWindow = nil so we can restore it later
+        end
+    end
+
 function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, epubSpine, savedProg)
+    globalDocViewerPath = filePath
+    isDocumentReaderBackgrounded = false
     if resultWindow then pcall(function() wm.removeView(resultWindow) end); resultWindow = nil end
     local currentDictLangDetails = getLanguageDetails(selectedLanguage)
     local isTxt = filePath:lower():match("%.txt$") ~= nil
@@ -2177,6 +2215,8 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
     titleV.setText("📄 " .. titleText); titleV.setTextSize(18); titleV.setTextColor(0xFFFFFFFF); titleV.setTypeface(nil, Typeface.BOLD)
     headerL.addView(titleV, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0))
 
+    local minBtn = Button(service); minBtn.setText("➖"); styleButton(minBtn, "secondary"); minBtn.setContentDescription("إخفاء للقراءة في الخلفية");
+    minBtn.setPadding(10,10,10,10)
     local fastCloseBtn = Button(service); fastCloseBtn.setText("❌"); styleButton(fastCloseBtn, "danger"); fastCloseBtn.setContentDescription("إغلاق سريع للنافذة");
     fastCloseBtn.setPadding(10,10,10,10)
 
@@ -2194,6 +2234,7 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
     lpFav.setMargins(10,0,10,0)
     headerL.addView(favBtn, lpFav)
 
+    headerL.addView(minBtn, lpFav)
     headerL.addView(fastCloseBtn, LinearLayout.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT))
     resultWindow.addView(headerL)
 
@@ -2235,6 +2276,8 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
         if stopReading then stopReading() end
         if docTts then pcall(function() docTts.shutdown() end) end
         if resultWindow then pcall(function() wm.removeView(resultWindow) end); resultWindow = nil end
+        globalDocViewerPath = nil
+        isDocumentReaderBackgrounded = false
         service.asyncSpeak("تم إغلاق المستند.")
     end
 
@@ -2261,20 +2304,7 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
         controlsL.addView(loadBtn)
     end
 
-    local playbackL = LinearLayout(service); playbackL.setOrientation(LinearLayout.HORIZONTAL); playbackL.setGravity(Gravity.CENTER); playbackL.setPadding(0,10,0,10)
-    local prevSkipBtn = Button(service); prevSkipBtn.setText("⏪"); styleButton(prevSkipBtn, "secondary"); prevSkipBtn.setContentDescription("الجملة السابقة");
-    local playBtn = Button(service); playBtn.setText("▶️"); styleButton(playBtn, "primary"); playBtn.setContentDescription("بدء أو إيقاف القراءة الصوتية");
-    local nextSkipBtn = Button(service); nextSkipBtn.setText("⏩"); styleButton(nextSkipBtn, "secondary"); nextSkipBtn.setContentDescription("الجملة التالية");
-    local ttsSetBtn = Button(service); ttsSetBtn.setText("⚙️"); styleButton(ttsSetBtn, "secondary"); ttsSetBtn.setContentDescription("إعدادات صوت القراءة");
 
-    local btnParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0); btnParams.setMargins(5,0,5,0)
-    playbackL.addView(prevSkipBtn, btnParams); playbackL.addView(playBtn, btnParams); playbackL.addView(nextSkipBtn, btnParams); playbackL.addView(ttsSetBtn, LinearLayout.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT))
-    controlsL.addView(playbackL)
-
-    local progressL = LinearLayout(service); progressL.setOrientation(LinearLayout.HORIZONTAL); progressL.setGravity(Gravity.CENTER_VERTICAL); progressL.setPadding(10,0,10,10)
-    local seekBar = SeekBar(service); seekBar.setMax(100); local lpS = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0); progressL.addView(seekBar, lpS)
-    local progressTv = TextView(service); progressTv.setText("0%"); progressTv.setTextColor(0xFF64B5F6); progressTv.setPadding(10,0,0,0); progressL.addView(progressTv)
-    controlsL.addView(progressL)
 
     local listView = ListView(service); listView.setDividerHeight(0)
     listView.setChoiceMode(ListView.CHOICE_MODE_SINGLE)
@@ -2303,13 +2333,32 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
     qnaScroll.setLayoutParams(LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 150))
     local qnaHistoryLayout = LinearLayout(service); qnaHistoryLayout.setOrientation(LinearLayout.VERTICAL); qnaScroll.addView(qnaHistoryLayout); footerL.addView(qnaScroll)
 
+    -- New Material Design Bottom Bar controls
+    local progressL = LinearLayout(service); progressL.setOrientation(LinearLayout.HORIZONTAL); progressL.setGravity(Gravity.CENTER_VERTICAL); progressL.setPadding(10,0,10,10)
+    local seekBar = SeekBar(service); seekBar.setMax(100); local lpS = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0); progressL.addView(seekBar, lpS)
+    local progressTv = TextView(service); progressTv.setText("0%"); progressTv.setTextColor(0xFF64B5F6); progressTv.setPadding(10,0,0,0); progressL.addView(progressTv)
+    footerL.addView(progressL)
+
+    local playbackL = LinearLayout(service); playbackL.setOrientation(LinearLayout.HORIZONTAL); playbackL.setGravity(Gravity.CENTER); playbackL.setPadding(0,10,0,10)
+    local prevPageBtn = Button(service); prevPageBtn.setText("⏮️"); styleButton(prevPageBtn, "secondary"); prevPageBtn.setContentDescription("الصفحة السابقة");
+    local prevSkipBtn = Button(service); prevSkipBtn.setText("⏪"); styleButton(prevSkipBtn, "secondary"); prevSkipBtn.setContentDescription("الجملة السابقة");
+    local playBtn = Button(service); playBtn.setText("▶️"); styleButton(playBtn, "primary"); playBtn.setContentDescription("بدء أو إيقاف القراءة الصوتية");
+    local nextSkipBtn = Button(service); nextSkipBtn.setText("⏩"); styleButton(nextSkipBtn, "secondary"); nextSkipBtn.setContentDescription("الجملة التالية");
+    local nextPageBtn = Button(service); nextPageBtn.setText("⏭️"); styleButton(nextPageBtn, "secondary"); nextPageBtn.setContentDescription("الصفحة التالية");
+
+    local btnParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0); btnParams.setMargins(5,0,5,0)
+    playbackL.addView(prevPageBtn, btnParams); playbackL.addView(prevSkipBtn, btnParams); playbackL.addView(playBtn, btnParams); playbackL.addView(nextSkipBtn, btnParams); playbackL.addView(nextPageBtn, btnParams)
+    footerL.addView(playbackL)
+
     local footerBtnsL = LinearLayout(service); footerBtnsL.setOrientation(LinearLayout.HORIZONTAL)
     local voiceQBtn = Button(service); voiceQBtn.setText("🎤 سؤال"); styleButton(voiceQBtn, "primary"); voiceQBtn.setContentDescription("سؤال المساعد صوتياً حول محتوى المستند");
-    local closeBtn = Button(service); closeBtn.setText("❌ إغلاق"); styleButton(closeBtn, "danger"); closeBtn.setContentDescription("إغلاق نافذة عارض المستندات");
+    local ttsSetBtn = Button(service); ttsSetBtn.setText("⚙️ إعدادات"); styleButton(ttsSetBtn, "secondary"); ttsSetBtn.setContentDescription("إعدادات صوت القراءة");
+    local closeBtn = Button(service); closeBtn.setText("❌ إغلاق"); styleButton(closeBtn, "danger"); closeBtn.setContentDescription("إغلاق تام للعارض");
 
     local lpBtn = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0)
-    lpBtn.setMargins(10, 5, 10, 5)
+    lpBtn.setMargins(5, 5, 5, 5)
     footerBtnsL.addView(voiceQBtn, lpBtn)
+    footerBtnsL.addView(ttsSetBtn, lpBtn)
     footerBtnsL.addView(closeBtn, lpBtn)
     footerL.addView(footerBtnsL)
 
@@ -2414,15 +2463,21 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
     end
 
 
+    local pageStartIndices = {}
+
     rebuildSentencesList = function()
         sentencesList = {}
+        pageStartIndices = {}
         adapter.clear()
+        local accumulator = 0
         for i, pageText in ipairs(pagesCache) do
+            table.insert(pageStartIndices, accumulator + 1)
             local pageSentences = splitIntoSentences(pageText)
             for _, s in ipairs(pageSentences) do
                 table.insert(sentencesList, s)
                 adapter.add(s)
             end
+            accumulator = accumulator + #pageSentences
         end
         if currentSentenceIdx > #sentencesList then currentSentenceIdx = 1 end
         if #sentencesList > 0 then
@@ -2631,6 +2686,33 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
 
     playBtn.setOnClickListener(function() if isPlaying then stopReading() else readCurrentSentence() end end)
 
+    local function getCurrentPageIndex()
+        if not pageStartIndices or #pageStartIndices == 0 then return 1 end
+        local cPIdx = 1
+        for i = 1, #pageStartIndices do
+            if currentSentenceIdx >= pageStartIndices[i] then cPIdx = i end
+        end
+        return cPIdx
+    end
+
+    prevPageBtn.setOnClickListener(function()
+        local wasPlaying = isPlaying; stopReading()
+        local cPIdx = getCurrentPageIndex()
+        if cPIdx > 1 then currentSentenceIdx = pageStartIndices[cPIdx - 1] else currentSentenceIdx = 1 end
+        updateProgress()
+        saveCurrentProgress(); listView.setItemChecked(currentSentenceIdx - 1, true); listView.setSelection(currentSentenceIdx - 1)
+        if wasPlaying then readCurrentSentence() end
+    end)
+
+    nextPageBtn.setOnClickListener(function()
+        local wasPlaying = isPlaying; stopReading()
+        local cPIdx = getCurrentPageIndex()
+        if cPIdx < #pageStartIndices then currentSentenceIdx = pageStartIndices[cPIdx + 1] else currentSentenceIdx = #sentencesList end
+        updateProgress()
+        saveCurrentProgress(); listView.setItemChecked(currentSentenceIdx - 1, true); listView.setSelection(currentSentenceIdx - 1)
+        if wasPlaying then readCurrentSentence() end
+    end)
+
     prevSkipBtn.setOnClickListener(function()
         local wasPlaying = isPlaying; stopReading()
         currentSentenceIdx = math.max(1, currentSentenceIdx - 4)
@@ -2696,6 +2778,7 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
 
 
 
+    minBtn.setOnClickListener(function() if _G.globalHideDocumentViewer then _G.globalHideDocumentViewer() end; service.asyncSpeak("الاستمرار في الخلفية") end)
     fastCloseBtn.setOnClickListener(function() closeAction() end)
     closeBtn.setOnClickListener(function() closeAction() end)
 
@@ -3616,7 +3699,14 @@ function openMainWindow()
             styleButton(btn, "secondary")
             btn.setOnClickListener(function()
                 hideMainWindow()
-                if showLibraryWindow then showLibraryWindow() end
+                if isDocumentReaderBackgrounded and resultWindow then
+                    -- Just re-add the existing view to window manager
+                    local winP = WindowManager.LayoutParams(); winP.width=WindowManager.LayoutParams.MATCH_PARENT; winP.height=math.floor(service.getResources().getDisplayMetrics().heightPixels*0.85); winP.type=WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY; winP.flags=WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL; winP.format=PixelFormat.TRANSLUCENT; winP.gravity=Gravity.CENTER; winP.horizontalMargin=0.05; winP.verticalMargin=0.05
+                    pcall(function() wm.addView(resultWindow, winP) end)
+                    isDocumentReaderBackgrounded = false
+                else
+                    if showLibraryWindow then showLibraryWindow() end
+                end
             end)
             return btn
         end,
@@ -3935,6 +4025,12 @@ function checkForUpdates(silent)
             local newVersionStr = body:match("^%s*([%d%.]+)")
             local newVersion = tonumber(newVersionStr)
 
+            -- Extract "What's new" message if any (everything after the first line)
+            local updateMessage = body:match("^%s*[%d%.]+%s*[\r\n]+(.*)")
+            if not updateMessage or updateMessage:match("^%s*$") then
+                updateMessage = "تحسينات عامة على الأداء والسرعة."
+            end
+
             mainHandler.post(luajava.createProxy("java.lang.Runnable", {
                 run = function()
                     if newVersion and newVersion > currentAppVersion then
@@ -3945,8 +4041,12 @@ function checkForUpdates(silent)
 
                         local builder = AlertDialog.Builder(service)
                         builder.setTitle("تحديث جديد متاح! 🚀")
-                        builder.setMessage("إصدار جديد من الإضافة متاح الآن.\n\nالإصدار الحالي: " .. currentAppVersion .. "\nالإصدار الجديد: " .. newVersionStr .. "\n\nهل تريد تنزيل وتثبيت التحديث الآن؟")
+                        builder.setMessage("إصدار جديد من الإضافة متاح الآن.\n\nالإصدار الحالي: " .. currentAppVersion .. "\nالإصدار الجديد: " .. newVersionStr .. "\n\nالجديد في هذا التحديث:\n" .. updateMessage .. "\n\nهل تريد تنزيل وتثبيت التحديث الآن؟")
                         builder.setPositiveButton("تحديث الآن", function()
+                            -- Save the message to preferences to read it on next launch
+                            local editor = prefs.edit()
+                            editor.putString("pending_update_message", "تم التحديث بنجاح للإصدار " .. newVersionStr .. ". الجديد في هذا التحديث: " .. updateMessage)
+                            editor.apply()
                             downloadUpdateAndApply()
                         end)
                         builder.setNegativeButton("لاحقاً", nil)
@@ -4643,6 +4743,7 @@ end
 
 -- **On Destroy Cleanup**
 function onDestroy()
+    pcall(function() if homeButtonReceiver then service.unregisterReceiver(homeButtonReceiver); homeButtonReceiver = nil end end)
     cleanupResources()
 end
 
@@ -4651,6 +4752,15 @@ mainHandler.post(luajava.createProxy("java.lang.Runnable", {
         createAndShowFloatingButton()
         -- Run silent update check
         checkForUpdates(true)
+
+        -- Check if there's a pending update message to read
+        local updateMsg = prefs.getString("pending_update_message", "")
+        if updateMsg ~= "" then
+            service.asyncSpeak(updateMsg)
+            local editor = prefs.edit()
+            editor.remove("pending_update_message")
+            editor.apply()
+        end
 
         if startWithDictation then startVoiceRecognition(false) else openMainWindow() end
     end
