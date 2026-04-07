@@ -4701,10 +4701,12 @@ function showPersonalAssistantWindow()
         -- Auto scroll to bottom
         mainHandler.postDelayed(function() chatScroll.fullScroll(View.FOCUS_DOWN) end, 100)
 
-        -- AI Request using the model selected in Groq settings (e.g., compound-beta)
-        local assistantModel = selectedSearchModelId or "compound-beta"
+        -- Switch to Gemini to bypass Groq 413 Payload Too Large errors for the Personal Assistant
+        local assistantModel = selectedGeminiModelId or "gemini-2.5-flash"
+        -- Force routing to Gemini in makeAiRequest if the user had selected a Groq compound model
+        if not assistantModel:match("gemini") then assistantModel = "gemini-2.5-flash" end
 
-        local promptInstruction = "أنت مساعد شخصي ذكي ومباشر. أجب دائماً باختصار شديد وبدون أي مقدمات أو خاتمات. إذا طُلب منك كود، اكتب الكود فقط. أعطِ الخلاصة المباشرة لسؤال المستخدم."
+        local promptInstruction = "أنت مساعد شخصي ذكي ومباشر. أجب دائماً باختصار شديد وبدون أي مقدمات أو خاتمات. إذا طُلب منك كود، اكتب الكود فقط. أعطِ الخلاصة المباشرة لسؤال المستخدم. اعتمد على محرك بحث جوجل الداخلي لديك للحصول على المعلومات الحديثة."
         makeAiRequest(query, promptInstruction, nil, assistantModel, function(response)
             -- Remove loading bubble and add actual response
             chatContentL.removeView(loadingBubble)
