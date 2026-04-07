@@ -4656,7 +4656,8 @@ function showPersonalAssistantWindow()
         -- AI Request using the model selected in Groq settings (e.g., compound-beta)
         local assistantModel = selectedSearchModelId or "compound-beta"
 
-        makeAiRequest(query, "You are a helpful personal assistant. If the model supports search, provide updated info and links.", nil, assistantModel, function(response)
+        local promptInstruction = "أنت مساعد شخصي ذكي ومباشر. أجب دائماً باختصار شديد وبدون أي مقدمات أو خاتمات. إذا طُلب منك كود، اكتب الكود فقط. أعطِ الخلاصة المباشرة لسؤال المستخدم."
+        makeAiRequest(query, promptInstruction, nil, assistantModel, function(response)
             -- Remove loading bubble and add actual response
             chatContentL.removeView(loadingBubble)
             chatContentL.addView(createChatBubble(response, false))
