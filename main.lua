@@ -3222,8 +3222,49 @@ function runImageDescription()
 end
 
 function takeScreenshotAndEncode(callback)
-    local function procBmp(bmp) if bmp then local s,r=pcall(function() local b=ByteArrayOutputStream(); bmp.compress(Bitmap.CompressFormat.PNG,90,b); local iB=b.toByteArray(); b.close(); pcall(bmp.recycle,bmp); return Base64.encodeToString(iB,Base64.NO_WRAP) end); if s then callback(r) elseif bmp and not bmp.isRecycled() then pcall(bmp.recycle,bmp); callback(nil) end else callback(nil) end end
-    if screenshotMode=="focus" then local n=service.getFocusView(); if n then pcall(function() service.getScreenShot(n,{onScreenCaptureDone=procBmp}) end); pcall(n.recycle,n) else pcall(function() service.getScreenShot({onScreenCaptureDone=procBmp}) end) end else pcall(function() service.getScreenShot({onScreenCaptureDone=procBmp}) end) end
+    local function procBmp(bmp)
+        if bmp then
+            local s, r = pcall(function()
+                -- Scale down image to prevent 413 Payload Too Large error
+                local width = bmp.getWidth()
+                local height = bmp.getHeight()
+                local max_dim = 1200
+                local finalBmp = bmp
+                if width > max_dim or height > max_dim then
+                    local scale = math.min(max_dim / width, max_dim / height)
+                    local newWidth = math.floor(width * scale)
+                    local newHeight = math.floor(height * scale)
+                    finalBmp = Bitmap.createScaledBitmap(bmp, newWidth, newHeight, true)
+                end
+
+                local b = ByteArrayOutputStream()
+                -- Use JPEG and 70% quality for massive size reduction
+                finalBmp.compress(Bitmap.CompressFormat.JPEG, 70, b)
+                local iB = b.toByteArray()
+                b.close()
+
+                if finalBmp ~= bmp then pcall(finalBmp.recycle, finalBmp) end
+                pcall(bmp.recycle, bmp)
+
+                return Base64.encodeToString(iB, Base64.NO_WRAP)
+            end)
+            if s then callback(r) elseif bmp and not bmp.isRecycled() then pcall(bmp.recycle, bmp); callback(nil) end
+        else
+            callback(nil)
+        end
+    end
+
+    if screenshotMode == "focus" then
+        local n = service.getFocusView()
+        if n then
+            pcall(function() service.getScreenShot(n, {onScreenCaptureDone = procBmp}) end)
+            pcall(n.recycle, n)
+        else
+            pcall(function() service.getScreenShot({onScreenCaptureDone = procBmp}) end)
+        end
+    else
+        pcall(function() service.getScreenShot({onScreenCaptureDone = procBmp}) end)
+    end
 end
 
 -- ### Settings Management
