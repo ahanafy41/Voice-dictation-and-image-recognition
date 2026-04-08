@@ -174,7 +174,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 1.2
+local currentAppVersion = 1.3
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -532,6 +532,87 @@ function toggleNativeFlashMode(enable, callback)
         end
     })
     t.start()
+end
+
+-- ### WAV Header and Concatenation Helper
+_G.appendWavFiles = function(tempFiles, finalPath)
+    import "java.io.FileOutputStream"
+    import "java.io.FileInputStream"
+    import "java.io.File"
+    local Byte = luajava.bindClass("java.lang.Byte")
+
+    local success, err = pcall(function()
+        local finalFile = File(finalPath)
+        if finalFile.exists() then finalFile.delete() end
+        local fos = FileOutputStream(finalFile)
+
+        -- Header placeholders (we will rewrite these at the end)
+        local headerBuffer = luajava.newArray(Byte.TYPE, 44)
+        local totalAudioLen = 0
+        local sampleRate = 0
+        local channels = 1
+        local bitsPerSample = 16
+
+        -- Write a blank header first (44 bytes)
+        fos.write(headerBuffer)
+
+        local bufferSize = 8192
+        local copyBuffer = luajava.newArray(Byte.TYPE, bufferSize)
+
+        for i, tFile in ipairs(tempFiles) do
+            if tFile.exists() and tFile.length() > 44 then
+                local fis = FileInputStream(tFile)
+                -- Read and parse the first file's header to get formatting
+                if i == 1 then
+                    fis.read(headerBuffer, 0, 44)
+                    -- Crude parse for sample rate (bytes 24-27, little endian)
+                    -- In Lua/Java interop reading raw bytes is tricky, we rely on the header being exactly 44 bytes of standard PCM
+                else
+                    -- Skip the 44 byte header for subsequent files
+                    fis.skip(44)
+                end
+
+                local fileAudioLen = tFile.length() - 44
+                totalAudioLen = totalAudioLen + fileAudioLen
+
+                local readBytes = fis.read(copyBuffer)
+                while readBytes > 0 do
+                    fos.write(copyBuffer, 0, readBytes)
+                    readBytes = fis.read(copyBuffer)
+                end
+                fis.close()
+            end
+        end
+        fos.flush()
+        fos.close()
+
+        -- Now rewrite the exact valid WAV header
+        -- We just open the file again using RandomAccessFile to overwrite the first 44 bytes
+        import "java.io.RandomAccessFile"
+        local raf = RandomAccessFile(finalFile, "rw")
+
+        -- Ensure we grabbed a valid header from the first file
+        local totalDataLen = totalAudioLen + 36
+        local byteRate = 0 -- Need to extract or default
+
+        -- Patch lengths in the headerBuffer
+        -- Total Data Length at pos 4 (Little Endian)
+        headerBuffer[4] = bit.band(totalDataLen, 0xFF)
+        headerBuffer[5] = bit.band(bit.rshift(totalDataLen, 8), 0xFF)
+        headerBuffer[6] = bit.band(bit.rshift(totalDataLen, 16), 0xFF)
+        headerBuffer[7] = bit.band(bit.rshift(totalDataLen, 24), 0xFF)
+
+        -- Audio Length at pos 40 (Little Endian)
+        headerBuffer[40] = bit.band(totalAudioLen, 0xFF)
+        headerBuffer[41] = bit.band(bit.rshift(totalAudioLen, 8), 0xFF)
+        headerBuffer[42] = bit.band(bit.rshift(totalAudioLen, 16), 0xFF)
+        headerBuffer[43] = bit.band(bit.rshift(totalAudioLen, 24), 0xFF)
+
+        raf.seek(0)
+        raf.write(headerBuffer)
+        raf.close()
+    end)
+    return success, err
 end
 
 -- ### Storage and Path Helpers
@@ -2361,6 +2442,311 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
     footerBtnsL.addView(ttsSetBtn, lpBtn)
     footerBtnsL.addView(closeBtn, lpBtn)
     footerL.addView(footerBtnsL)
+
+    -- Export Options
+    local exportL = LinearLayout(service); exportL.setOrientation(LinearLayout.HORIZONTAL); exportL.setGravity(Gravity.CENTER)
+    local exportTxtBtn = Button(service); exportTxtBtn.setText("📄 استخراج كنص"); styleButton(exportTxtBtn, "primary"); exportTxtBtn.setContentDescription("حفظ المستند كملف نصي")
+    local exportWavBtn = Button(service); exportWavBtn.setText("🎧 استخراج كصوت"); styleButton(exportWavBtn, "secondary"); exportWavBtn.setContentDescription("تحويل المستند إلى ملف صوتي WAV")
+
+    exportTxtBtn.setOnClickListener(function()
+        import "java.io.FileOutputStream"
+        import "java.io.OutputStreamWriter"
+        import "java.io.File"
+        import "android.os.Environment"
+        import "android.widget.Toast"
+
+        local success, err = pcall(function()
+            local downloadsPath = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).getAbsolutePath()
+            local baseName = "export_text_" .. os.time() .. ".txt"
+            if filePath then
+                local extractedName = filePath:match("([^/]+)$")
+                if extractedName then
+                    baseName = extractedName:gsub("%.%w+$", "") .. "_export.txt"
+                end
+            end
+
+            local outFile = File(downloadsPath, baseName)
+            local fos = FileOutputStream(outFile)
+            local osw = OutputStreamWriter(fos, "UTF-8")
+
+            -- Write the full text (rebuild from cache or initialText if loaded)
+            local fullContent = ""
+            if pagesCache and #pagesCache > 0 then
+                for _, pageText in ipairs(pagesCache) do
+                    fullContent = fullContent .. pageText .. "\n"
+                end
+            elseif initialText then
+                fullContent = initialText
+            elseif sentencesList and #sentencesList > 0 then
+                fullContent = table.concat(sentencesList, " ")
+            end
+
+            if fullContent == "" then
+                error("لا يوجد نص للتصدير.")
+            end
+
+            osw.write(fullContent)
+            osw.flush()
+            osw.close()
+
+            service.asyncSpeak("تم حفظ الملف النصي بنجاح في مجلد التنزيلات.")
+            Toast.makeText(service, "تم الحفظ: " .. outFile.getAbsolutePath(), Toast.LENGTH_LONG).show()
+        end)
+
+        if not success then
+             service.asyncSpeak("حدث خطأ أثناء الحفظ.")
+             print("Export Error: " .. tostring(err))
+             showResultWindow("خطأ تصدير", tostring(err))
+        end
+    end)
+
+    exportWavBtn.setOnClickListener(function()
+        if not sentencesList or #sentencesList == 0 then
+            service.asyncSpeak("لا يوجد نص لتحويله.")
+            return
+        end
+
+        local startSentenceIdx = currentSentenceIdx or 1
+        local totalSentences = #sentencesList - startSentenceIdx + 1
+        if totalSentences <= 0 then
+            service.asyncSpeak("أنت في نهاية المستند بالفعل.")
+            return
+        end
+
+        local builder = AlertDialog.Builder(service)
+        builder.setTitle("تحويل النص إلى صوت (WAV) 🎧")
+        builder.setMessage("سيتم تحويل " .. totalSentences .. " جملة متبقية (من مكان وقوفك الحالي إلى النهاية) باستخدام محرك النطق الحالي.\n\nهل ترغب في البدء؟")
+
+        builder.setPositiveButton("بدء التحويل", function()
+            service.asyncSpeak("جاري بدء تحويل الصوت. يرجى الانتظار...")
+
+            local ProgressDialog = luajava.bindClass("android.app.ProgressDialog")
+            local pd = ProgressDialog(service)
+            pd.setTitle("الماكينة تعمل ⚙️")
+            pd.setMessage("جاري إنشاء الملف الصوتي... قد يستغرق هذا بعض الوقت.")
+            pd.setProgressStyle(1) -- STYLE_HORIZONTAL
+            pd.setCancelable(false)
+            pd.getWindow().setType(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY)
+            pd.show()
+
+            import "java.lang.Thread"
+            import "java.lang.Runnable"
+
+            local t = Thread(Runnable{
+                run = function()
+                    local function doExport()
+                        import "android.os.Environment"
+                        import "java.io.File"
+                        import "android.speech.tts.TextToSpeech"
+                        import "android.speech.tts.UtteranceProgressListener"
+                        local SystemClass = luajava.bindClass("java.lang.System")
+
+                        local downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                        local baseName = "audio_book_" .. os.time()
+                        if filePath then
+                            local extractedName = filePath:match("([^/]+)$")
+                            if extractedName then
+                                baseName = extractedName:gsub("%.%w+$", "") .. "_audio"
+                            end
+                        end
+
+                        -- Gather all target sentences
+                        local textsToSynthesize = {}
+                        for i = startSentenceIdx, #sentencesList do
+                            local str = tostring(sentencesList[i] or ""):gsub("^%s+", ""):gsub("%s+$", "")
+                            if #str > 0 then table.insert(textsToSynthesize, str) end
+                        end
+
+                        if #textsToSynthesize == 0 then
+                            error("لا توجد نصوص صالحة للتحويل.")
+                        end
+
+                        mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                            run = function()
+                                pd.setMax(#textsToSynthesize)
+                                pd.setProgress(0)
+                            end
+                        }))
+
+                        local tempFiles = {}
+                        local currentItemIndex = 1
+                        local ttsExportEngine = nil
+
+                        -- Initialize TTS Engine on the Main Thread (Requires Looper)
+                        local isTtsReady = false
+                        local ttsError = false
+
+                        mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                            run = function()
+                                local initListener = TextToSpeech.OnInitListener{
+                                    onInit = function(status)
+                                        if status == TextToSpeech.SUCCESS then
+                                            if pdfTtsVoiceName and pdfTtsVoiceName ~= "" then
+                                                local voices = ttsExportEngine.getVoices()
+                                                if voices then
+                                                    local it = voices.iterator()
+                                                    while it.hasNext() do
+                                                        local v = it.next()
+                                                        if v.getName() == pdfTtsVoiceName then
+                                                            ttsExportEngine.setVoice(v)
+                                                            break
+                                                        end
+                                                    end
+                                                end
+                                            end
+                                            ttsExportEngine.setSpeechRate(pdfTtsSpeed or 1.0)
+                                            isTtsReady = true
+                                        else
+                                            ttsError = true
+                                        end
+                                    end
+                                }
+
+                                if pdfTtsEngine and pdfTtsEngine ~= "" then
+                                    ttsExportEngine = TextToSpeech(service, initListener, pdfTtsEngine)
+                                else
+                                    ttsExportEngine = TextToSpeech(service, initListener)
+                                end
+                            end
+                        }))
+
+                        -- Wait for TTS Initialization
+                        local waitAttempts = 0
+                        while not isTtsReady and not ttsError and waitAttempts < 50 do
+                            Thread.sleep(100)
+                            waitAttempts = waitAttempts + 1
+                        end
+
+                        if ttsError or not isTtsReady then
+                            if ttsExportEngine then pcall(function() ttsExportEngine.shutdown() end) end
+                            error("فشل في تهيئة محرك النطق للتصدير.")
+                        end
+
+                        local function finalizeExport()
+                            mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                                run = function()
+                                    pd.setMessage("جاري التجميع النهائي لملف الـ WAV... ⏳\nيرجى الانتظار بدون إغلاق التطبيق.")
+                                end
+                            }))
+
+                            -- Launch a dedicated background thread for the heavy concatenation I/O
+                            -- so it doesn't block the TTS Binder or UI thread.
+                            local concatThread = Thread(Runnable{
+                                run = function()
+                                    local finalWavFile = File(downloadsDir, baseName .. ".wav")
+                                    local concatSuccess, concatErr = _G.appendWavFiles(tempFiles, finalWavFile.getAbsolutePath())
+
+                                    for _, tf in ipairs(tempFiles) do pcall(function() if tf.exists() then tf.delete() end end) end
+                                    pcall(function() ttsExportEngine.shutdown() end)
+
+                                    mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                                        run = function()
+                                            pcall(function() pd.dismiss() end)
+                                            if concatSuccess then
+                                                service.asyncSpeak("تم الانتهاء بنجاح. تم حفظ الملف الصوتي.")
+                                                showResultWindow("نجاح التصدير 🎉", "تم إنشاء وحفظ الملف الصوتي بنجاح في المسار:\n\n" .. finalWavFile.getAbsolutePath())
+                                            else
+                                                service.asyncSpeak("فشل تجميع الملفات الصوتية.")
+                                                showResultWindow("خطأ استخراج", "حدث خطأ أثناء تجميع الصوت:\n" .. tostring(concatErr))
+                                            end
+                                        end
+                                    }))
+                                end
+                            })
+                            concatThread.start()
+                        end
+
+                        local function handleExportError(errMsg)
+                            for _, tf in ipairs(tempFiles) do pcall(function() if tf.exists() then tf.delete() end end) end
+                            pcall(function() ttsExportEngine.shutdown() end)
+
+                            mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                                run = function()
+                                    pcall(function() pd.dismiss() end)
+                                    service.asyncSpeak("فشل استخراج الصوت.")
+                                    showResultWindow("خطأ استخراج", "حدث خطأ أثناء إنشاء الصوت:\n" .. tostring(errMsg))
+                                end
+                            }))
+                        end
+
+                        -- Setup the single listener once outside the loop to avoid memory overhead
+                        local progressListener = luajava.createProxy("android.speech.tts.UtteranceProgressListener", {
+                            onStart = function(uid) end,
+                            onDone = function(uid)
+                                mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                                    run = function()
+                                        pd.setProgress(currentItemIndex)
+                                        if currentItemIndex % 50 == 0 then
+                                            service.asyncSpeak("اكتمل " .. currentItemIndex .. " من " .. #textsToSynthesize)
+                                        end
+                                    end
+                                }))
+                                currentItemIndex = currentItemIndex + 1
+
+                                -- Yield back to Android OS for 50ms before triggering the next chunk.
+                                -- This prevents CPU starvation and solves the "UI Freeze" completely.
+                                mainHandler.postDelayed(luajava.createProxy("java.lang.Runnable", {
+                                    run = function()
+                                        processNextChunk()
+                                    end
+                                }), 50)
+                            end,
+                            onError = function(uid)
+                                handleExportError("خطأ في توليد الصوت في الجملة رقم " .. currentItemIndex)
+                            end
+                        })
+                        ttsExportEngine.setOnUtteranceProgressListener(progressListener)
+
+                        -- Declare the recursive function globally to the scope
+                        _G.processNextChunk = function()
+                            if currentItemIndex > #textsToSynthesize then
+                                finalizeExport()
+                                return
+                            end
+
+                            local textChunk = textsToSynthesize[currentItemIndex]
+                            local tempFile = File(downloadsDir, baseName .. "_part_" .. currentItemIndex .. ".wav")
+                            table.insert(tempFiles, tempFile)
+
+                            local utteranceId = "export_" .. currentItemIndex
+                            local bundle = luajava.bindClass("android.os.Bundle")()
+                            local synthResult = ttsExportEngine.synthesizeToFile(textChunk, bundle, tempFile, utteranceId)
+
+                            if synthResult == TextToSpeech.ERROR then
+                                handleExportError("فشل في بدء عملية تحويل الصوت للجملة: " .. currentItemIndex)
+                            end
+                        end
+
+                        -- Kick off the asynchronous chain
+                        _G.processNextChunk()
+                        return "STARTED"
+                    end
+
+                    -- Catch any catastrophic background errors and safely dismiss the dialog
+                    local ok, result = pcall(doExport)
+                    if not ok then
+                        mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                            run = function()
+                                pcall(function() pd.dismiss() end)
+                                service.asyncSpeak("حدث خطأ تقني في التحويل.")
+                                showResultWindow("خطأ استخراج", "حدث خطأ:\n" .. tostring(result))
+                            end
+                        }))
+                    end
+                end
+            })
+            t.start()
+        end)
+        builder.setNegativeButton("إلغاء", nil)
+
+        local dialog = builder.create()
+        dialog.getWindow().setType(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY)
+        dialog.show()
+    end)
+
+    exportL.addView(exportTxtBtn, lpBtn)
+    exportL.addView(exportWavBtn, lpBtn)
+    footerL.addView(exportL)
 
     local currentChapterIdx = savedProg and savedProg.chapterIdx or 1
     if isEpub and epubSpine then
@@ -4760,6 +5146,7 @@ mainHandler.post(luajava.createProxy("java.lang.Runnable", {
             local editor = prefs.edit()
             editor.remove("pending_update_message")
             editor.apply()
+            showResultWindow("تم التحديث بنجاح 🎉", updateMsg)
         end
 
         if startWithDictation then startVoiceRecognition(false) else openMainWindow() end
