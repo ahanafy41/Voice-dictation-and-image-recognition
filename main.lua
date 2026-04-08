@@ -2572,39 +2572,43 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
                         local currentItemIndex = 1
                         local ttsExportEngine = nil
 
-                        -- Initialize TTS Engine
+                        -- Initialize TTS Engine on the Main Thread (Requires Looper)
                         local isTtsReady = false
                         local ttsError = false
 
-                        local initListener = TextToSpeech.OnInitListener{
-                            onInit = function(status)
-                                if status == TextToSpeech.SUCCESS then
-                                    if pdfTtsVoiceName and pdfTtsVoiceName ~= "" then
-                                        local voices = ttsExportEngine.getVoices()
-                                        if voices then
-                                            local it = voices.iterator()
-                                            while it.hasNext() do
-                                                local v = it.next()
-                                                if v.getName() == pdfTtsVoiceName then
-                                                    ttsExportEngine.setVoice(v)
-                                                    break
+                        mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                            run = function()
+                                local initListener = TextToSpeech.OnInitListener{
+                                    onInit = function(status)
+                                        if status == TextToSpeech.SUCCESS then
+                                            if pdfTtsVoiceName and pdfTtsVoiceName ~= "" then
+                                                local voices = ttsExportEngine.getVoices()
+                                                if voices then
+                                                    local it = voices.iterator()
+                                                    while it.hasNext() do
+                                                        local v = it.next()
+                                                        if v.getName() == pdfTtsVoiceName then
+                                                            ttsExportEngine.setVoice(v)
+                                                            break
+                                                        end
+                                                    end
                                                 end
                                             end
+                                            ttsExportEngine.setSpeechRate(pdfTtsSpeed or 1.0)
+                                            isTtsReady = true
+                                        else
+                                            ttsError = true
                                         end
                                     end
-                                    ttsExportEngine.setSpeechRate(pdfTtsSpeed or 1.0)
-                                    isTtsReady = true
+                                }
+
+                                if pdfTtsEngine and pdfTtsEngine ~= "" then
+                                    ttsExportEngine = TextToSpeech(service, initListener, pdfTtsEngine)
                                 else
-                                    ttsError = true
+                                    ttsExportEngine = TextToSpeech(service, initListener)
                                 end
                             end
-                        }
-
-                        if pdfTtsEngine and pdfTtsEngine ~= "" then
-                            ttsExportEngine = TextToSpeech(service, initListener, pdfTtsEngine)
-                        else
-                            ttsExportEngine = TextToSpeech(service, initListener)
-                        end
+                        }))
 
                         -- Wait for TTS Initialization
                         local waitAttempts = 0
