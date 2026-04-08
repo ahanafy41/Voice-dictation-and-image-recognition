@@ -2621,28 +2621,35 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
                         local function finalizeExport()
                             mainHandler.post(luajava.createProxy("java.lang.Runnable", {
                                 run = function()
-                                    pd.setMessage("جاري التجميع النهائي لملف الـ WAV... ⏳")
+                                    pd.setMessage("جاري التجميع النهائي لملف الـ WAV... ⏳\nيرجى الانتظار بدون إغلاق التطبيق.")
                                 end
                             }))
 
-                            local finalWavFile = File(downloadsDir, baseName .. ".wav")
-                            local concatSuccess, concatErr = _G.appendWavFiles(tempFiles, finalWavFile.getAbsolutePath())
-
-                            for _, tf in ipairs(tempFiles) do pcall(function() if tf.exists() then tf.delete() end end) end
-                            pcall(function() ttsExportEngine.shutdown() end)
-
-                            mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                            -- Launch a dedicated background thread for the heavy concatenation I/O
+                            -- so it doesn't block the TTS Binder or UI thread.
+                            local concatThread = Thread(Runnable{
                                 run = function()
-                                    pd.dismiss()
-                                    if concatSuccess then
-                                        service.asyncSpeak("تم الانتهاء بنجاح. تم حفظ الملف الصوتي.")
-                                        showResultWindow("نجاح التصدير 🎉", "تم إنشاء وحفظ الملف الصوتي بنجاح في المسار:\n\n" .. finalWavFile.getAbsolutePath())
-                                    else
-                                        service.asyncSpeak("فشل تجميع الملفات الصوتية.")
-                                        showResultWindow("خطأ استخراج", "حدث خطأ أثناء تجميع الصوت:\n" .. tostring(concatErr))
-                                    end
+                                    local finalWavFile = File(downloadsDir, baseName .. ".wav")
+                                    local concatSuccess, concatErr = _G.appendWavFiles(tempFiles, finalWavFile.getAbsolutePath())
+
+                                    for _, tf in ipairs(tempFiles) do pcall(function() if tf.exists() then tf.delete() end end) end
+                                    pcall(function() ttsExportEngine.shutdown() end)
+
+                                    mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                                        run = function()
+                                            pcall(function() pd.dismiss() end)
+                                            if concatSuccess then
+                                                service.asyncSpeak("تم الانتهاء بنجاح. تم حفظ الملف الصوتي.")
+                                                showResultWindow("نجاح التصدير 🎉", "تم إنشاء وحفظ الملف الصوتي بنجاح في المسار:\n\n" .. finalWavFile.getAbsolutePath())
+                                            else
+                                                service.asyncSpeak("فشل تجميع الملفات الصوتية.")
+                                                showResultWindow("خطأ استخراج", "حدث خطأ أثناء تجميع الصوت:\n" .. tostring(concatErr))
+                                            end
+                                        end
+                                    }))
                                 end
-                            }))
+                            })
+                            concatThread.start()
                         end
 
                         local function handleExportError(errMsg)
@@ -2651,25 +2658,46 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
 
                             mainHandler.post(luajava.createProxy("java.lang.Runnable", {
                                 run = function()
-                                    pd.dismiss()
+                                    pcall(function() pd.dismiss() end)
                                     service.asyncSpeak("فشل استخراج الصوت.")
                                     showResultWindow("خطأ استخراج", "حدث خطأ أثناء إنشاء الصوت:\n" .. tostring(errMsg))
                                 end
                             }))
                         end
 
-                        -- Chained execution: Only trigger the next chunk after the current one finishes via the event listener.
-                        local processNextChunk
-                        processNextChunk = function()
+                        -- Setup the single listener once outside the loop to avoid memory overhead
+                        local progressListener = luajava.createProxy("android.speech.tts.UtteranceProgressListener", {
+                            onStart = function(uid) end,
+                            onDone = function(uid)
+                                mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                                    run = function()
+                                        pd.setProgress(currentItemIndex)
+                                        if currentItemIndex % 50 == 0 then
+                                            service.asyncSpeak("اكتمل " .. currentItemIndex .. " من " .. #textsToSynthesize)
+                                        end
+                                    end
+                                }))
+                                currentItemIndex = currentItemIndex + 1
+
+                                -- Yield back to Android OS for 50ms before triggering the next chunk.
+                                -- This prevents CPU starvation and solves the "UI Freeze" completely.
+                                mainHandler.postDelayed(luajava.createProxy("java.lang.Runnable", {
+                                    run = function()
+                                        processNextChunk()
+                                    end
+                                }), 50)
+                            end,
+                            onError = function(uid)
+                                handleExportError("خطأ في توليد الصوت في الجملة رقم " .. currentItemIndex)
+                            end
+                        })
+                        ttsExportEngine.setOnUtteranceProgressListener(progressListener)
+
+                        -- Declare the recursive function globally to the scope
+                        _G.processNextChunk = function()
                             if currentItemIndex > #textsToSynthesize then
                                 finalizeExport()
                                 return
-                            end
-
-                            -- Force aggressive garbage collection every 20 chunks to prevent OOM
-                            if currentItemIndex % 20 == 0 then
-                                SystemClass.gc()
-                                collectgarbage("collect")
                             end
 
                             local textChunk = textsToSynthesize[currentItemIndex]
@@ -2677,29 +2705,6 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
                             table.insert(tempFiles, tempFile)
 
                             local utteranceId = "export_" .. currentItemIndex
-
-                            local progressListener = luajava.createProxy("android.speech.tts.UtteranceProgressListener", {
-                                onStart = function(uid) end,
-                                onDone = function(uid)
-                                    mainHandler.post(luajava.createProxy("java.lang.Runnable", {
-                                        run = function()
-                                            pd.setProgress(currentItemIndex)
-                                            -- Throttle voice updates to prevent TTS stuttering
-                                            if currentItemIndex % 50 == 0 then
-                                                service.asyncSpeak("اكتمل " .. currentItemIndex .. " من " .. #textsToSynthesize)
-                                            end
-                                        end
-                                    }))
-                                    currentItemIndex = currentItemIndex + 1
-                                    processNextChunk()
-                                end,
-                                onError = function(uid)
-                                    handleExportError("خطأ في توليد الصوت في الجملة رقم " .. currentItemIndex)
-                                end
-                            })
-
-                            ttsExportEngine.setOnUtteranceProgressListener(progressListener)
-
                             local bundle = luajava.bindClass("android.os.Bundle")()
                             local synthResult = ttsExportEngine.synthesizeToFile(textChunk, bundle, tempFile, utteranceId)
 
@@ -2709,7 +2714,7 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
                         end
 
                         -- Kick off the asynchronous chain
-                        processNextChunk()
+                        _G.processNextChunk()
                         return "STARTED"
                     end
 
