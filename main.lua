@@ -2642,49 +2642,51 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
                             }))
                         end
 
-                        local processNextChunk
-                        processNextChunk = function()
-                            if currentItemIndex > #textsToSynthesize then
-                                finalizeExport()
-                                return
-                            end
-
-                            local textChunk = textsToSynthesize[currentItemIndex]
-                            local tempFile = File(downloadsDir, baseName .. "_part_" .. currentItemIndex .. ".wav")
-                            table.insert(tempFiles, tempFile)
-
-                            local utteranceId = "export_" .. currentItemIndex
-
-                            local progressListener = luajava.createProxy("android.speech.tts.UtteranceProgressListener", {
-                                onStart = function(uid) end,
-                                onDone = function(uid)
-                                    if currentItemIndex % 10 == 0 then
+                        -- Setup one listener for all queued chunks
+                        local progressListener = luajava.createProxy("android.speech.tts.UtteranceProgressListener", {
+                            onStart = function(uid) end,
+                            onDone = function(uid)
+                                local idxStr = uid:match("export_(%d+)")
+                                if idxStr then
+                                    local idx = tonumber(idxStr)
+                                    if idx % 10 == 0 then
                                         mainHandler.post(luajava.createProxy("java.lang.Runnable", {
                                             run = function()
-                                                service.asyncSpeak("تم تحويل " .. currentItemIndex .. " جملة من " .. #textsToSynthesize)
+                                                service.asyncSpeak("تم تحويل " .. idx .. " جملة من " .. #textsToSynthesize)
                                             end
                                         }))
                                     end
-                                    currentItemIndex = currentItemIndex + 1
-                                    processNextChunk()
-                                end,
-                                onError = function(uid)
-                                    handleExportError("خطأ في توليد الصوت في الجملة رقم " .. currentItemIndex)
+                                    -- Check if this is the very last chunk
+                                    if idx == #textsToSynthesize then
+                                        finalizeExport()
+                                    end
                                 end
-                            })
+                            end,
+                            onError = function(uid)
+                                local idxStr = uid:match("export_(%d+)")
+                                handleExportError("خطأ في توليد الصوت في الجملة رقم " .. (idxStr or "غير محدد"))
+                            end
+                        })
 
-                            ttsExportEngine.setOnUtteranceProgressListener(progressListener)
+                        ttsExportEngine.setOnUtteranceProgressListener(progressListener)
 
+                        -- Queue all chunks to the Android TTS engine immediately (it handles them sequentially)
+                        for i = 1, #textsToSynthesize do
+                            local textChunk = textsToSynthesize[i]
+                            local tempFile = File(downloadsDir, baseName .. "_part_" .. i .. ".wav")
+                            table.insert(tempFiles, tempFile)
+
+                            local utteranceId = "export_" .. i
                             local bundle = luajava.bindClass("android.os.Bundle")()
+                            -- Use synthesizeToFile for each chunk. The engine handles the queue internally.
                             local synthResult = ttsExportEngine.synthesizeToFile(textChunk, bundle, tempFile, utteranceId)
 
                             if synthResult == TextToSpeech.ERROR then
-                                handleExportError("فشل في بدء عملية تحويل الصوت.")
+                                handleExportError("فشل في بدء عملية تحويل الصوت للجملة: " .. i)
+                                return "ERROR"
                             end
                         end
 
-                        -- Start the asynchronous chain
-                        processNextChunk()
                         return "STARTED"
                     end
 
