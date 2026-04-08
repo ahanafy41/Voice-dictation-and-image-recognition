@@ -138,6 +138,7 @@ local groqModels = {
     { name = "Llama 4 Maverick 17B (ذكاء فائق)", id = "meta-llama/llama-4-maverick-17b-128e-instruct" },
     { name = "Qwen 3 32B (قوة في التفكير)", id = "qwen/qwen3-32b" },
     { name = "Llama 3.1 8B (سريع جداً)", id = "llama-3.1-8b-instant" },
+    { name = "Gemma 4 31B (للإملاء السريع - Google)", id = "gemma-4-31b-it" },
     { name = "Gemma 2 9B IT", id = "gemma2-9b-it" },
     { name = "Groq Search (العملاق)", id = "compound-beta" }
 }
@@ -174,7 +175,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 1.2
+local currentAppVersion = 1.3
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -228,11 +229,7 @@ selectedGeminiModelId = isValidModel and loadedModelId or defaultGeminiModelId
 
 selectedGroqModelId = prefs.getString("groqModelId", defaultGroqModelId)
 selectedSearchModelId = prefs.getString("searchModelId", "compound-beta")
-dashboardOrder = prefs.getString("dashboardOrder", "dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings")
--- Remove assistant from legacy orders
-if dashboardOrder:match("assistant,") then dashboardOrder = dashboardOrder:gsub("assistant,", "") end
-if dashboardOrder:match(",assistant") then dashboardOrder = dashboardOrder:gsub(",assistant", "") end
-if dashboardOrder == "assistant" then dashboardOrder = "dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings" end
+dashboardOrder = prefs.getString("dashboardOrder", "assistant,dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings")
 
 selectedDictationMode = prefs.getString("selectedDictationMode", defaultDictationMode)
 
@@ -241,7 +238,7 @@ if dashboardOrder:match("reader") and not dashboardOrder:match("doc_reader") the
 if dashboardOrder:match("library") and not dashboardOrder:match("doc_reader") then dashboardOrder = dashboardOrder:gsub("library", "doc_reader") end
 
 -- Auto-append missing default buttons for old users
-local defaultButtons = {"dictation", "geminiLive", "doc_reader", "video_analyzer", "image", "transcription", "settings"}
+local defaultButtons = {"assistant", "dictation", "geminiLive", "doc_reader", "video_analyzer", "image", "transcription", "settings"}
 for _, btn in ipairs(defaultButtons) do
     if not dashboardOrder:match("^" .. btn .. "$") and not dashboardOrder:match("^" .. btn .. ",") and not dashboardOrder:match("," .. btn .. "$") and not dashboardOrder:match("," .. btn .. ",") then
         dashboardOrder = dashboardOrder .. "," .. btn
@@ -384,6 +381,7 @@ local floatingSettingsBtn = nil
 local summaryWindow = nil
 local summaryQueryRecognizer = nil
 local isNativeFlashOn = false
+local assistantWindowDialog = nil
 
 -- **Set Audio Focus** (for asyncSpeak)
 if service and service.setAsyncAudioFocus then
@@ -770,6 +768,7 @@ function cleanupResources()
     if settingsDialog then local r = pcall(function() wm.removeView(settingsDialog) end); if r then settingsDialog = nil end end
     if resultWindow then local r = pcall(function() wm.removeView(resultWindow) end); if r then resultWindow = nil; globalResultContentTextView = nil end end
     if summaryWindow then local r = pcall(function() wm.removeView(summaryWindow) end); if r then summaryWindow = nil end end
+    if assistantWindowDialog then local r = pcall(function() wm.removeView(assistantWindowDialog) end); if r then assistantWindowDialog = nil end end
     removeFloatingButton()
     speechRecord = nil
 
@@ -1005,13 +1004,17 @@ function makeAiRequest(prompt, systemInstruction, imageBase64, modelIdOverride, 
     local useGroq = true -- Default to Groq for text
     if imageBase64 then useGroq = false end -- Images ALWAYS use Gemini
     if modelIdOverride then
-        if string.match(modelIdOverride:lower(), "gemini") then useGroq = false else useGroq = true end
+        if string.match(modelIdOverride:lower(), "gemini") or string.match(modelIdOverride:lower(), "gemma%-4%-31b") then useGroq = false else useGroq = true end
     end
 
-    local apiKey = useGroq and groqApiKey or geminiApiKey
     local model = modelIdOverride or (useGroq and selectedGroqModelId or selectedGeminiModelId)
+
+    -- Explicitly route gemma-4-31b-it to Gemini API regardless of default text settings
+    if model == "gemma-4-31b-it" then useGroq = false end
+
+    local apiKey = useGroq and groqApiKey or geminiApiKey
     if apiKey == "" then
-        callback("Error: API Key is missing for " .. (useGroq and "Groq" or "Gemini"))
+        callback("Error: API Key is missing for " .. (useGroq and "Groq" or "Gemini (Google AI)"))
         return
     end
 
@@ -3391,7 +3394,7 @@ function saveSettings()
     editor.putString("groqModelId", selectedGroqModelId or defaultGroqModelId)
     editor.putString("audioModelId", selectedAudioModelId or defaultAudioModelId)
     editor.putString("searchModelId", selectedSearchModelId or "compound-beta")
-    editor.putString("dashboardOrder", dashboardOrder or "dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings")
+    editor.putString("dashboardOrder", dashboardOrder or "assistant,dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings")
     editor.putString("selectedDictationMode", selectedDictationMode or defaultDictationMode)
 
     editor.putBoolean("summarizeEnabled", summarizeEnabled)
@@ -3679,6 +3682,13 @@ function openMainWindow()
     contentL.addView(titleTxt)
 
     local buttons = {
+        assistant = function()
+            local btn = Button(service); btn.setText("🤖 المساعد الشخصي (البحث والتفكير)")
+            btn.setContentDescription("فتح المساعد الشخصي للبحث والنقاش المستمر")
+            styleButton(btn, "primary")
+            btn.setOnClickListener(function() hideMainWindow(); showPersonalAssistantWindow() end)
+            return btn
+        end,
         dictation = function()
             local btn = Button(service); btn.setText("🎙️ الإملاء والترجمة")
             btn.setContentDescription("فتح الإملاء الصوتي والترجمة")
@@ -4270,6 +4280,7 @@ function openSettings()
         local sortDialog = nil
 
         local keyNames = {
+            assistant = "المساعد الشخصي (الجديد)",
             dictation = "الإملاء والترجمة",
             doc_reader = "المكتبة والقارئ", video_analyzer = "محلل الفيديو",
             image = "وصف الصور",
@@ -4277,14 +4288,11 @@ function openSettings()
             settings = "الإعدادات", geminiLive = "البث المباشر (Gemini Live)"
         }
 
-        dashboardOrder = prefs.getString("dashboardOrder", "dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings")
+        dashboardOrder = prefs.getString("dashboardOrder", "assistant,dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings")
         if dashboardOrder:match("reader") and not dashboardOrder:match("doc_reader") then dashboardOrder = dashboardOrder:gsub("reader", "doc_reader") end
         if dashboardOrder:match("library") and not dashboardOrder:match("doc_reader") then dashboardOrder = dashboardOrder:gsub("library", "doc_reader") end
-        if dashboardOrder:match("assistant,") then dashboardOrder = dashboardOrder:gsub("assistant,", "") end
-        if dashboardOrder:match(",assistant") then dashboardOrder = dashboardOrder:gsub(",assistant", "") end
-        if dashboardOrder == "assistant" then dashboardOrder = "dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings" end
 
-        local defaultBtns = {"dictation", "geminiLive", "doc_reader", "video_analyzer", "image", "transcription", "settings"}
+        local defaultBtns = {"assistant", "dictation", "geminiLive", "doc_reader", "video_analyzer", "image", "transcription", "settings"}
         for _, btn in ipairs(defaultBtns) do
             if not dashboardOrder:match("^" .. btn .. "$") and not dashboardOrder:match("^" .. btn .. ",") and not dashboardOrder:match("," .. btn .. "$") and not dashboardOrder:match("," .. btn .. ",") then
                 dashboardOrder = dashboardOrder .. "," .. btn
@@ -4760,6 +4768,7 @@ mainHandler.post(luajava.createProxy("java.lang.Runnable", {
             local editor = prefs.edit()
             editor.remove("pending_update_message")
             editor.apply()
+            showResultWindow("تم التحديث بنجاح 🎉", updateMsg)
         end
 
         if startWithDictation then startVoiceRecognition(false) else openMainWindow() end
@@ -5398,3 +5407,293 @@ function showGeminiLiveWindow()
 end
 
 -- Integration of Gemini Live (Audio-to-Audio) Complete.
+
+-- ### Personal Assistant (Gemma 4 31B with Search) ###
+function showPersonalAssistantWindow()
+    if assistantWindowDialog then return end
+    local currentDictLangDetails = getLanguageDetails(selectedLanguage)
+
+    assistantWindowDialog = LinearLayout(service)
+    assistantWindowDialog.setOrientation(LinearLayout.VERTICAL)
+    assistantWindowDialog.setBackgroundColor(0xFF121212)
+    assistantWindowDialog.setPadding(20, 20, 20, 20)
+
+    -- Handle Back button
+    assistantWindowDialog.setFocusableInTouchMode(true)
+    assistantWindowDialog.requestFocus()
+    assistantWindowDialog.setOnKeyListener(View.OnKeyListener{
+        onKey = function(v, keyCode, event)
+            if event.getAction() == android.view.KeyEvent.ACTION_UP and keyCode == android.view.KeyEvent.KEYCODE_BACK then
+                if assistantWindowDialog then
+                    pcall(function() wm.removeView(assistantWindowDialog) end)
+                    assistantWindowDialog = nil
+                end
+                return true
+            end
+            return false
+        end
+    })
+
+    -- Header
+    local headerL = LinearLayout(service)
+    headerL.setOrientation(LinearLayout.HORIZONTAL)
+    headerL.setGravity(Gravity.CENTER_VERTICAL)
+    headerL.setPadding(0, 10, 0, 20)
+
+    local titleTv = TextView(service)
+    titleTv.setText("🤖 المساعد الشخصي")
+    titleTv.setTextSize(22)
+    titleTv.setTypeface(nil, Typeface.BOLD)
+    titleTv.setTextColor(0xFF00FFCC) -- Distinctive color
+    local titleLp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0)
+    headerL.addView(titleTv, titleLp)
+
+    local closeBtn = Button(service)
+    closeBtn.setText("❌ إغلاق")
+    styleButton(closeBtn, "danger")
+    closeBtn.setContentDescription("إغلاق نافذة المساعد الشخصي")
+    closeBtn.setOnClickListener(function()
+        if assistantWindowDialog then
+            pcall(function() wm.removeView(assistantWindowDialog) end)
+            assistantWindowDialog = nil
+        end
+    end)
+    headerL.addView(closeBtn)
+    assistantWindowDialog.addView(headerL)
+
+    -- Scrollable Chat Area
+    local scrollV = ScrollView(service)
+    local chatHistoryLayout = LinearLayout(service)
+    chatHistoryLayout.setOrientation(LinearLayout.VERTICAL)
+    chatHistoryLayout.setPadding(10, 10, 10, 10)
+    scrollV.addView(chatHistoryLayout)
+
+    local scrollLp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0)
+    scrollLp.bottomMargin = 20
+    assistantWindowDialog.addView(scrollV, scrollLp)
+
+    -- Welcome Message
+    local welcomeMsg = createChatBubble("مرحباً بك! أنا مساعدك الشخصي الذكي المدعوم بنموذج Gemma 4 والبحث الحي في الإنترنت. كيف يمكنني مساعدتك اليوم؟", false)
+    chatHistoryLayout.addView(welcomeMsg)
+    service.asyncSpeak("مرحباً بك في المساعد الشخصي.")
+
+    -- Input Area
+    local inputContainer = LinearLayout(service)
+    inputContainer.setOrientation(LinearLayout.HORIZONTAL)
+    inputContainer.setGravity(Gravity.BOTTOM)
+
+    local inputEt = EditText(service)
+    inputEt.setHint("اكتب سؤالك هنا...")
+    styleEditText(inputEt)
+    local inputLp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0)
+    inputLp.rightMargin = 10
+    inputContainer.addView(inputEt, inputLp)
+
+    local sendBtn = Button(service)
+    sendBtn.setText("رسال 📤")
+    styleButton(sendBtn, "primary")
+    sendBtn.setContentDescription("إرسال الرسالة للمساعد")
+
+    local voiceBtn = Button(service)
+    voiceBtn.setText("🎤")
+    styleButton(voiceBtn, "secondary")
+    voiceBtn.setContentDescription("إملاء صوتي لسؤال المساعد")
+    local voiceLp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+    voiceLp.rightMargin = 10
+    inputContainer.addView(voiceBtn, voiceLp)
+    inputContainer.addView(sendBtn, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+
+    assistantWindowDialog.addView(inputContainer)
+
+    -- Conversation History Context
+    local conversationHistory = {}
+
+    local function sendQueryToAssistant(query)
+        if not query or query == "" then return end
+
+        if geminiApiKey == "" then
+             service.asyncSpeak("مفتاح Gemini API مفقود. يرجى إضافته في الإعدادات.")
+             return
+        end
+
+        local userBubble = createChatBubble(query, true)
+        chatHistoryLayout.addView(userBubble)
+        inputEt.setText("")
+
+        local aiBubble = createChatBubble("جاري التفكير والبحث...", false)
+        chatHistoryLayout.addView(aiBubble)
+        pcall(function() scrollV.fullScroll(ScrollView.FOCUS_DOWN) end)
+        service.asyncSpeak("جاري البحث...")
+
+        sendBtn.setEnabled(false)
+        voiceBtn.setEnabled(false)
+
+        import "java.lang.Thread"
+        import "java.lang.Runnable"
+
+        local t = Thread(Runnable{
+            run = function()
+                local success, err = pcall(function()
+                    local url = "https://generativelanguage.googleapis.com/v1beta/models/gemma-4-31b-it:generateContent?key=" .. geminiApiKey
+                    local headers = {["Content-Type"] = "application/json"}
+
+                    local root = JSONObject()
+                    local contentsArray = JSONArray()
+
+                    -- Append history
+                    for _, msg in ipairs(conversationHistory) do
+                        local historyObj = JSONObject()
+                        historyObj.put("role", msg.role)
+                        local partsArray = JSONArray()
+                        local textPart = JSONObject()
+                        textPart.put("text", msg.text)
+                        partsArray.put(textPart)
+                        historyObj.put("parts", partsArray)
+                        contentsArray.put(historyObj)
+                    end
+
+                    -- Add current query
+                    local currentObj = JSONObject()
+                    currentObj.put("role", "user")
+                    local currPartsArray = JSONArray()
+                    local currTextPart = JSONObject()
+                    currTextPart.put("text", query)
+                    currPartsArray.put(currTextPart)
+                    currentObj.put("parts", currPartsArray)
+                    contentsArray.put(currentObj)
+
+                    root.put("contents", contentsArray)
+
+                    -- Generation Config (Thinking HIGH)
+                    local genConfig = JSONObject()
+                    local thinkConfig = JSONObject()
+                    thinkConfig.put("thinkingLevel", "HIGH")
+                    genConfig.put("thinkingConfig", thinkConfig)
+                    root.put("generationConfig", genConfig)
+
+                    -- Tools (Google Search)
+                    local toolsArray = JSONArray()
+                    local toolObj = JSONObject()
+                    toolObj.put("googleSearch", JSONObject())
+                    toolsArray.put(toolObj)
+                    root.put("tools", toolsArray)
+
+                    local requestBody = root.toString()
+
+                    Http.post(url, requestBody, headers, function(status, response)
+                        mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                            run = function()
+                                sendBtn.setEnabled(true)
+                                voiceBtn.setEnabled(true)
+
+                                local finalResult = ""
+                                if status == 200 then
+                                    local s, j = pcall(function() return JSONObject(response) end)
+                                    if s and j.has("candidates") then
+                                        local cands = j.getJSONArray("candidates")
+                                        if cands.length() > 0 then
+                                            local candContent = cands.getJSONObject(0).getJSONObject("content")
+                                            if candContent.has("parts") then
+                                                local parts = candContent.getJSONArray("parts")
+                                                for i = 0, parts.length() - 1 do
+                                                    if parts.getJSONObject(i).has("text") then
+                                                         finalResult = finalResult .. parts.getJSONObject(i).getString("text")
+                                                    end
+                                                end
+                                            end
+                                        end
+                                    end
+                                else
+                                    finalResult = "حدث خطأ في الاتصال: " .. status
+                                    pcall(function()
+                                        local ej = JSONObject(response)
+                                        if ej.has("error") and ej.getJSONObject("error").has("message") then
+                                            finalResult = finalResult .. "\n" .. ej.getJSONObject("error").getString("message")
+                                        end
+                                    end)
+                                end
+
+                                if finalResult == "" then finalResult = "لم أتمكن من إيجاد إجابة مناسبة." end
+
+                                aiBubble.getChildAt(0).setText(finalResult)
+                                speakAIResponseViaCustomTTS(finalResult, "ar")
+
+                                -- Update history
+                                table.insert(conversationHistory, {role = "user", text = query})
+                                table.insert(conversationHistory, {role = "model", text = finalResult})
+
+                                pcall(function() scrollV.fullScroll(ScrollView.FOCUS_DOWN) end)
+                            end
+                        }))
+                    end)
+                end)
+                if not success then
+                    mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                        run = function()
+                            sendBtn.setEnabled(true)
+                            voiceBtn.setEnabled(true)
+                            aiBubble.getChildAt(0).setText("حدث خطأ تقني: " .. tostring(err))
+                            service.asyncSpeak("حدث خطأ تقني.")
+                        end
+                    }))
+                end
+            end
+        })
+        t.start()
+    end
+
+    sendBtn.setOnClickListener(function()
+        local q = inputEt.getText().toString()
+        sendQueryToAssistant(q)
+    end)
+
+    local assistantVoiceRecognizer = nil
+    voiceBtn.setOnClickListener(function()
+        if assistantVoiceRecognizer then return end
+        if not SpeechRecognizer.isRecognitionAvailable(service) then
+            service.asyncSpeak("التعرف على الصوت غير متاح.")
+            return
+        end
+
+        voiceBtn.setText("⏳")
+        inputEt.setHint("جاري الاستماع...")
+
+        assistantVoiceRecognizer = SpeechRecognizer.createSpeechRecognizer(service)
+        local intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, selectedLanguage or "ar")
+        intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+
+        assistantVoiceRecognizer.setRecognitionListener(RecognitionListener{
+            onReadyForSpeech=function() end, onBeginningOfSpeech=function()end, onRmsChanged=function()end, onBufferReceived=function()end, onEndOfSpeech=function() voiceBtn.setText("🤔") end,
+            onError=function(e)
+                service.asyncSpeak("خطأ في الاستماع.")
+                pcall(function()assistantVoiceRecognizer.destroy()end); assistantVoiceRecognizer=nil
+                voiceBtn.setText("🎤")
+                inputEt.setHint("اكتب سؤالك هنا...")
+            end,
+            onResults=function(r)
+                local m=r.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                if m and m.size()>0 then
+                    local uQ = m.get(0)
+                    inputEt.setText(uQ)
+                    sendQueryToAssistant(uQ)
+                end
+                pcall(function()assistantVoiceRecognizer.destroy()end); assistantVoiceRecognizer=nil
+                voiceBtn.setText("🎤")
+                inputEt.setHint("اكتب سؤالك هنا...")
+            end,
+            onPartialResults=function()end, onEvent=function()end
+        })
+        pcall(function() assistantVoiceRecognizer.startListening(intent) end)
+    end)
+
+    local winP = WindowManager.LayoutParams()
+    winP.width = WindowManager.LayoutParams.MATCH_PARENT
+    winP.height = WindowManager.LayoutParams.MATCH_PARENT
+    winP.type = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
+    winP.flags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+    winP.format = PixelFormat.TRANSLUCENT
+    winP.gravity = Gravity.CENTER
+    pcall(function() wm.addView(assistantWindowDialog, winP) end)
+end
