@@ -2542,6 +2542,8 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
                         local SystemClass = luajava.bindClass("java.lang.System")
 
                         local downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                        -- Save temporary pieces to the internal app cache to bypass MediaScanner indexing freezes
+                        local tempCacheDir = service.getCacheDir()
                         local baseName = "audio_book_" .. os.time()
                         if filePath then
                             local extractedName = filePath:match("([^/]+)$")
@@ -2550,12 +2552,21 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
                             end
                         end
 
-                        -- Gather all target sentences
+                        -- Chunk texts into larger blocks (e.g. 2000 chars) to drastically reduce I/O file creations
                         local textsToSynthesize = {}
+                        local currentChunk = ""
                         for i = startSentenceIdx, #sentencesList do
                             local str = tostring(sentencesList[i] or ""):gsub("^%s+", ""):gsub("%s+$", "")
-                            if #str > 0 then table.insert(textsToSynthesize, str) end
+                            if #str > 0 then
+                                if #currentChunk + #str > 2000 then
+                                    table.insert(textsToSynthesize, currentChunk)
+                                    currentChunk = str .. " "
+                                else
+                                    currentChunk = currentChunk .. str .. " "
+                                end
+                            end
                         end
+                        if #currentChunk > 0 then table.insert(textsToSynthesize, currentChunk) end
 
                         if #textsToSynthesize == 0 then
                             error("لا توجد نصوص صالحة للتحويل.")
@@ -2572,55 +2583,10 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
                         local currentItemIndex = 1
                         local ttsExportEngine = nil
 
-                        -- Initialize TTS Engine on the Main Thread (Requires Looper)
-                        local isTtsReady = false
-                        local ttsError = false
-
-                        mainHandler.post(luajava.createProxy("java.lang.Runnable", {
-                            run = function()
-                                local initListener = TextToSpeech.OnInitListener{
-                                    onInit = function(status)
-                                        if status == TextToSpeech.SUCCESS then
-                                            if pdfTtsVoiceName and pdfTtsVoiceName ~= "" then
-                                                local voices = ttsExportEngine.getVoices()
-                                                if voices then
-                                                    local it = voices.iterator()
-                                                    while it.hasNext() do
-                                                        local v = it.next()
-                                                        if v.getName() == pdfTtsVoiceName then
-                                                            ttsExportEngine.setVoice(v)
-                                                            break
-                                                        end
-                                                    end
-                                                end
-                                            end
-                                            ttsExportEngine.setSpeechRate(pdfTtsSpeed or 1.0)
-                                            isTtsReady = true
-                                        else
-                                            ttsError = true
-                                        end
-                                    end
-                                }
-
-                                if pdfTtsEngine and pdfTtsEngine ~= "" then
-                                    ttsExportEngine = TextToSpeech(service, initListener, pdfTtsEngine)
-                                else
-                                    ttsExportEngine = TextToSpeech(service, initListener)
-                                end
-                            end
-                        }))
-
-                        -- Wait for TTS Initialization
-                        local waitAttempts = 0
-                        while not isTtsReady and not ttsError and waitAttempts < 50 do
-                            Thread.sleep(100)
-                            waitAttempts = waitAttempts + 1
-                        end
-
-                        if ttsError or not isTtsReady then
-                            if ttsExportEngine then pcall(function() ttsExportEngine.shutdown() end) end
-                            error("فشل في تهيئة محرك النطق للتصدير.")
-                        end
+                        -- Global references for callbacks to prevent GC
+                        _G.exportInitListener = nil
+                        _G.exportProgressListener = nil
+                        _G.processNextChunk = nil
 
                         local function finalizeExport()
                             mainHandler.post(luajava.createProxy("java.lang.Runnable", {
@@ -2629,8 +2595,6 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
                                 end
                             }))
 
-                            -- Launch a dedicated background thread for the heavy concatenation I/O
-                            -- so it doesn't block the TTS Binder or UI thread.
                             local concatThread = Thread(Runnable{
                                 run = function()
                                     local finalWavFile = File(downloadsDir, baseName .. ".wav")
@@ -2658,7 +2622,7 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
 
                         local function handleExportError(errMsg)
                             for _, tf in ipairs(tempFiles) do pcall(function() if tf.exists() then tf.delete() end end) end
-                            pcall(function() ttsExportEngine.shutdown() end)
+                            if ttsExportEngine then pcall(function() ttsExportEngine.shutdown() end) end
 
                             mainHandler.post(luajava.createProxy("java.lang.Runnable", {
                                 run = function()
@@ -2669,35 +2633,6 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
                             }))
                         end
 
-                        -- Setup the single listener once outside the loop to avoid memory overhead
-                        local progressListener = luajava.createProxy("android.speech.tts.UtteranceProgressListener", {
-                            onStart = function(uid) end,
-                            onDone = function(uid)
-                                mainHandler.post(luajava.createProxy("java.lang.Runnable", {
-                                    run = function()
-                                        pd.setProgress(currentItemIndex)
-                                        if currentItemIndex % 50 == 0 then
-                                            service.asyncSpeak("اكتمل " .. currentItemIndex .. " من " .. #textsToSynthesize)
-                                        end
-                                    end
-                                }))
-                                currentItemIndex = currentItemIndex + 1
-
-                                -- Yield back to Android OS for 50ms before triggering the next chunk.
-                                -- This prevents CPU starvation and solves the "UI Freeze" completely.
-                                mainHandler.postDelayed(luajava.createProxy("java.lang.Runnable", {
-                                    run = function()
-                                        processNextChunk()
-                                    end
-                                }), 50)
-                            end,
-                            onError = function(uid)
-                                handleExportError("خطأ في توليد الصوت في الجملة رقم " .. currentItemIndex)
-                            end
-                        })
-                        ttsExportEngine.setOnUtteranceProgressListener(progressListener)
-
-                        -- Declare the recursive function globally to the scope
                         _G.processNextChunk = function()
                             if currentItemIndex > #textsToSynthesize then
                                 finalizeExport()
@@ -2705,7 +2640,8 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
                             end
 
                             local textChunk = textsToSynthesize[currentItemIndex]
-                            local tempFile = File(downloadsDir, baseName .. "_part_" .. currentItemIndex .. ".wav")
+                            -- Write temporary files to cacheDir to avoid MediaScanner lockups
+                            local tempFile = File(tempCacheDir, baseName .. "_part_" .. currentItemIndex .. ".wav")
                             table.insert(tempFiles, tempFile)
 
                             local utteranceId = "export_" .. currentItemIndex
@@ -2717,8 +2653,77 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
                             end
                         end
 
-                        -- Kick off the asynchronous chain
-                        _G.processNextChunk()
+                        _G.exportProgressListener = luajava.createProxy("android.speech.tts.UtteranceProgressListener", {
+                            onStart = function(uid) end,
+                            onDone = function(uid)
+                                mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                                    run = function()
+                                        pd.setProgress(currentItemIndex)
+                                        if currentItemIndex % 5 == 0 then
+                                            service.asyncSpeak("اكتمل " .. currentItemIndex .. " من " .. #textsToSynthesize)
+                                        end
+                                    end
+                                }))
+                                currentItemIndex = currentItemIndex + 1
+
+                                mainHandler.postDelayed(luajava.createProxy("java.lang.Runnable", {
+                                    run = function()
+                                        if _G.processNextChunk then _G.processNextChunk() end
+                                    end
+                                }), 50)
+                            end,
+                            onError = function(uid)
+                                handleExportError("خطأ في توليد الصوت للمقطع رقم " .. currentItemIndex)
+                            end
+                        })
+
+                        local function initializeTtsEngine(enginePkg)
+                            _G.exportInitListener = luajava.createProxy("android.speech.tts.TextToSpeech$OnInitListener", {
+                                onInit = function(status)
+                                    if status == TextToSpeech.SUCCESS then
+                                        if pdfTtsVoiceName and pdfTtsVoiceName ~= "" then
+                                            local voices = ttsExportEngine.getVoices()
+                                            if voices then
+                                                local it = voices.iterator()
+                                                while it.hasNext() do
+                                                    local v = it.next()
+                                                    if v.getName() == pdfTtsVoiceName then
+                                                        ttsExportEngine.setVoice(v)
+                                                        break
+                                                    end
+                                                end
+                                            end
+                                        end
+                                        ttsExportEngine.setSpeechRate(pdfTtsSpeed or 1.0)
+                                        ttsExportEngine.setOnUtteranceProgressListener(_G.exportProgressListener)
+
+                                        _G.processNextChunk()
+                                    else
+                                        -- Fallback mechanism
+                                        if enginePkg ~= nil then
+                                            -- Preferred engine failed, fallback to system default
+                                            if ttsExportEngine then pcall(function() ttsExportEngine.shutdown() end) end
+                                            initializeTtsEngine(nil)
+                                        else
+                                            handleExportError("فشل في تهيئة أي محرك نطق.")
+                                        end
+                                    end
+                                end
+                            })
+
+                            if enginePkg and enginePkg ~= "" then
+                                ttsExportEngine = TextToSpeech(service, _G.exportInitListener, enginePkg)
+                            else
+                                ttsExportEngine = TextToSpeech(service, _G.exportInitListener)
+                            end
+                        end
+
+                        -- Start Event-driven initialization on the Main Thread
+                        mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                            run = function()
+                                initializeTtsEngine(pdfTtsEngine)
+                            end
+                        }))
                         return "STARTED"
                     end
 
