@@ -241,7 +241,11 @@ if dashboardOrder:match("library") and not dashboardOrder:match("doc_reader") th
 local defaultButtons = {"assistant", "dictation", "geminiLive", "doc_reader", "video_analyzer", "image", "transcription", "settings"}
 for _, btn in ipairs(defaultButtons) do
     if not dashboardOrder:match("^" .. btn .. "$") and not dashboardOrder:match("^" .. btn .. ",") and not dashboardOrder:match("," .. btn .. "$") and not dashboardOrder:match("," .. btn .. ",") then
-        dashboardOrder = dashboardOrder .. "," .. btn
+        if btn == "assistant" then
+            dashboardOrder = btn .. "," .. dashboardOrder
+        else
+            dashboardOrder = dashboardOrder .. "," .. btn
+        end
     end
 end
 
@@ -1083,8 +1087,16 @@ function makeAiRequest(prompt, systemInstruction, imageBase64, modelIdOverride, 
         root.put("contents", contentsArray)
 
         local genConfig = JSONObject()
-        genConfig.put("temperature", 0.3)
+        genConfig.put("temperature", tempOverride or 0.3)
         genConfig.put("candidateCount", 1)
+
+        -- Disable thinking for standard fast text generation (Dictation) if model supports it
+        if model == "gemma-4-31b-it" and not imageBase64 and tempOverride == 0.1 then
+            local thinkConfig = JSONObject()
+            thinkConfig.put("thinkingLevel", "MINIMAL") -- Low budget to prevent CoT output for dictation
+            genConfig.put("thinkingConfig", thinkConfig)
+        end
+
         root.put("generationConfig", genConfig)
 
         requestBody = root.toString()
@@ -1125,7 +1137,7 @@ end
 function correctWithAi(text, callback)
     local instructions = {}
     -- Strict, ultra-short prompt for speed and zero hallucinations
-    table.insert(instructions, "DO NOT change any words. ONLY fix Arabic spelling (Hamzas أإء, Taa/Haa ةه, Yaa ىي). KEEP the exact dialect.")
+    table.insert(instructions, "DO NOT change any words. ONLY fix Arabic spelling (Hamzas أإء, Taa/Haa ةه, Yaa ىي). KEEP the exact dialect. DO NOT include ANY reasoning, explanations, tags, or extra words. Output ONLY the fixed text directly.")
 
     if tashkeelEnabled then table.insert(instructions, "Add proper Arabic tashkeel.") end
     if profanityFilterEnabled then table.insert(instructions, "Replace profanity with ***.") end
@@ -4295,7 +4307,11 @@ function openSettings()
         local defaultBtns = {"assistant", "dictation", "geminiLive", "doc_reader", "video_analyzer", "image", "transcription", "settings"}
         for _, btn in ipairs(defaultBtns) do
             if not dashboardOrder:match("^" .. btn .. "$") and not dashboardOrder:match("^" .. btn .. ",") and not dashboardOrder:match("," .. btn .. "$") and not dashboardOrder:match("," .. btn .. ",") then
-                dashboardOrder = dashboardOrder .. "," .. btn
+                if btn == "assistant" then
+                    dashboardOrder = btn .. "," .. dashboardOrder
+                else
+                    dashboardOrder = dashboardOrder .. "," .. btn
+                end
             end
         end
 
