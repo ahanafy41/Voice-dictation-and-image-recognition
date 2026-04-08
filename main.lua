@@ -2603,74 +2603,23 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
                             error("فشل في تهيئة محرك النطق للتصدير.")
                         end
 
-                        local function finalizeExport()
-                            -- All chunks generated, now concatenate
-                            local finalWavFile = File(downloadsDir, baseName .. ".wav")
-                            local concatSuccess, concatErr = _G.appendWavFiles(tempFiles, finalWavFile.getAbsolutePath())
+                        local isChunkDone = false
+                        local chunkError = false
 
-                            -- Cleanup temp files unconditionally
-                            for _, tf in ipairs(tempFiles) do pcall(function() if tf.exists() then tf.delete() end end) end
-                            pcall(function() ttsExportEngine.shutdown() end)
-
-                            mainHandler.post(luajava.createProxy("java.lang.Runnable", {
-                                run = function()
-                                    exportWavBtn.setEnabled(true)
-                                    exportWavBtn.setText("🎧 استخراج كصوت")
-                                    if concatSuccess then
-                                        service.asyncSpeak("تم الانتهاء بنجاح. تم حفظ الملف الصوتي.")
-                                        showResultWindow("نجاح التصدير 🎉", "تم إنشاء وحفظ الملف الصوتي بنجاح في المسار:\n\n" .. finalWavFile.getAbsolutePath())
-                                    else
-                                        service.asyncSpeak("فشل تجميع الملفات الصوتية.")
-                                        showResultWindow("خطأ استخراج", "حدث خطأ أثناء تجميع الصوت:\n" .. tostring(concatErr))
-                                    end
-                                end
-                            }))
-                        end
-
-                        local function handleExportError(errMsg)
-                            -- Cleanup temp files on error
-                            for _, tf in ipairs(tempFiles) do pcall(function() if tf.exists() then tf.delete() end end) end
-                            pcall(function() ttsExportEngine.shutdown() end)
-
-                            mainHandler.post(luajava.createProxy("java.lang.Runnable", {
-                                run = function()
-                                    exportWavBtn.setEnabled(true)
-                                    exportWavBtn.setText("🎧 استخراج كصوت")
-                                    service.asyncSpeak("فشل استخراج الصوت.")
-                                    showResultWindow("خطأ استخراج", "حدث خطأ أثناء إنشاء الصوت:\n" .. tostring(errMsg))
-                                end
-                            }))
-                        end
-
-                        -- Setup one listener for all queued chunks
+                        -- Listener must just flag completion
                         local progressListener = luajava.createProxy("android.speech.tts.UtteranceProgressListener", {
                             onStart = function(uid) end,
                             onDone = function(uid)
-                                local idxStr = uid:match("export_(%d+)")
-                                if idxStr then
-                                    local idx = tonumber(idxStr)
-                                    if idx % 10 == 0 then
-                                        mainHandler.post(luajava.createProxy("java.lang.Runnable", {
-                                            run = function()
-                                                service.asyncSpeak("تم تحويل " .. idx .. " جملة من " .. #textsToSynthesize)
-                                            end
-                                        }))
-                                    end
-                                    -- Check if this is the very last chunk
-                                    if idx == #textsToSynthesize then
-                                        finalizeExport()
-                                    end
-                                end
+                                isChunkDone = true
                             end,
                             onError = function(uid)
-                                local idxStr = uid:match("export_(%d+)")
-                                handleExportError("خطأ في توليد الصوت في الجملة رقم " .. (idxStr or "غير محدد"))
+                                chunkError = true
                             end
                         })
-
                         ttsExportEngine.setOnUtteranceProgressListener(progressListener)
 
-                        -- Queue all chunks to the Android TTS engine immediately (it handles them sequentially)
+                        -- Completely isolate the processing loop in this background Java thread
+                        -- We wait for each chunk before queueing the next to prevent memory overload or UI freezing
                         for i = 1, #textsToSynthesize do
                             local textChunk = textsToSynthesize[i]
                             local tempFile = File(downloadsDir, baseName .. "_part_" .. i .. ".wav")
@@ -2678,18 +2627,76 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
 
                             local utteranceId = "export_" .. i
                             local bundle = luajava.bindClass("android.os.Bundle")()
-                            -- Use synthesizeToFile for each chunk. The engine handles the queue internally.
+
+                            isChunkDone = false
+                            chunkError = false
+
                             local synthResult = ttsExportEngine.synthesizeToFile(textChunk, bundle, tempFile, utteranceId)
 
                             if synthResult == TextToSpeech.ERROR then
-                                handleExportError("فشل في بدء عملية تحويل الصوت للجملة: " .. i)
-                                return "ERROR"
+                                chunkError = true
+                            end
+
+                            -- Safe background block (Thread.sleep here only blocks the *background* export thread, NOT the UI)
+                            local waitTime = 0
+                            while not isChunkDone and not chunkError and waitTime < 1500 do -- max wait 150 seconds per sentence
+                                Thread.sleep(100)
+                                waitTime = waitTime + 1
+                            end
+
+                            if chunkError then
+                                for _, tf in ipairs(tempFiles) do pcall(function() if tf.exists() then tf.delete() end end) end
+                                pcall(function() ttsExportEngine.shutdown() end)
+                                error("خطأ في توليد الصوت في الجملة رقم " .. i)
+                            end
+
+                            -- Throttle UI updates aggressively (only update UI every 20 sentences)
+                            if i % 20 == 0 or i == #textsToSynthesize then
+                                mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                                    run = function()
+                                        -- Visual update only to prevent voice stuttering
+                                        exportWavBtn.setText(string.format("⏳ جاري التحويل (%d/%d)...", i, #textsToSynthesize))
+                                        if i % 100 == 0 then
+                                            -- Light voice update every 100 sentences
+                                            service.asyncSpeak(string.format("اكتمل %d من %d", i, #textsToSynthesize))
+                                        end
+                                    end
+                                }))
                             end
                         end
 
-                        return "STARTED"
+                        -- All chunks done successfully, time to concatenate entirely in background thread
+                        mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                            run = function()
+                                exportWavBtn.setText("⏳ جاري تجميع الملفات النهائية...")
+                                service.asyncSpeak("تم تحويل النصوص، جاري تجميع الملف الصوتي النهائي.")
+                            end
+                        }))
+
+                        local finalWavFile = File(downloadsDir, baseName .. ".wav")
+                        local concatSuccess, concatErr = _G.appendWavFiles(tempFiles, finalWavFile.getAbsolutePath())
+
+                        -- Cleanup temp files unconditionally
+                        for _, tf in ipairs(tempFiles) do pcall(function() if tf.exists() then tf.delete() end end) end
+                        pcall(function() ttsExportEngine.shutdown() end)
+
+                        if not concatSuccess then
+                            error("فشل تجميع الملفات الصوتية: " .. tostring(concatErr))
+                        end
+
+                        -- Finally update the UI with success
+                        mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                            run = function()
+                                exportWavBtn.setEnabled(true)
+                                exportWavBtn.setText("🎧 استخراج كصوت")
+                                service.asyncSpeak("تم الانتهاء بنجاح. تم حفظ الملف الصوتي.")
+                                showResultWindow("نجاح التصدير 🎉", "تم إنشاء وحفظ الملف الصوتي بنجاح في المسار:\n\n" .. finalWavFile.getAbsolutePath())
+                            end
+                        }))
+                        return true
                     end
 
+                    -- The actual try-catch block wrapping the entire background export process
                     local ok, result = pcall(doExport)
                     if not ok then
                         mainHandler.post(luajava.createProxy("java.lang.Runnable", {
