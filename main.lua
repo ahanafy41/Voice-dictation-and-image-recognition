@@ -2387,7 +2387,7 @@ function exportDocumentToAudio(filePath, sentencesList)
                             end
                         end
 
-                        local progListener = luajava.createProxy("android.speech.tts.UtteranceProgressListener", {
+                        local progListener = UtteranceProgressListener{
                             onStart = function(id) end,
                             onDone = function(id)
                                 currentChunkIndex = currentChunkIndex + 1
@@ -2397,7 +2397,7 @@ function exportDocumentToAudio(filePath, sentencesList)
                                 currentChunkIndex = currentChunkIndex + 1
                                 processNextChunk()
                             end
-                        })
+                        }
                         ttsObj.setOnUtteranceProgressListener(progListener)
 
                         -- Start processing the first chunk
