@@ -2285,7 +2285,7 @@ function exportDocumentToAudio(filePath, sentencesList)
     local title = filePath:match("([^/]+)$") or "Document"
     title = title:gsub("%.%w+$", "")
 
-    service.asyncSpeak("جاري تحويل المستند إلى ملف صوتي، يرجى الانتظار...")
+    service.asyncSpeak("جاري تحويل المستند إلى ملف صوتي، يرجى الانتظار، يمكنك الاستمرار في استخدام التطبيق...")
 
     import "java.lang.Thread"
     import "java.lang.Runnable"
@@ -2295,32 +2295,83 @@ function exportDocumentToAudio(filePath, sentencesList)
     import "android.speech.tts.UtteranceProgressListener"
     import "java.util.HashMap"
 
-    Thread(Runnable{
-        run = function()
-            local cacheDir = service.getCacheDir()
-            local wavFiles = {}
-            local chunks = {}
-            local currentChunk = ""
+    local cacheDir = service.getCacheDir()
+    local wavFiles = {}
+    local chunks = {}
+    local currentChunk = ""
 
-            -- Aggregate small sentences into larger text chunks (~2000 chars) for performance
-            for _, sentence in ipairs(sentencesList) do
-                if #currentChunk + #sentence < 2000 then
-                    currentChunk = currentChunk .. " " .. sentence
-                else
-                    table.insert(chunks, currentChunk)
-                    currentChunk = sentence
+    -- Aggregate small sentences into larger text chunks (~2000 chars) for performance
+    for _, sentence in ipairs(sentencesList) do
+        if #currentChunk + #sentence < 2000 then
+            currentChunk = currentChunk .. " " .. sentence
+        else
+            table.insert(chunks, currentChunk)
+            currentChunk = sentence
+        end
+    end
+    if currentChunk ~= "" then table.insert(chunks, currentChunk) end
+
+    local ttsObj = nil
+    local currentChunkIndex = 1
+
+    local function finishAndConcatenate()
+        Thread(Runnable{
+            run = function()
+                local downDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                local finalFile = File(downDir, title .. "_Audio.wav")
+
+                if _G.appendWavFiles then
+                    _G.appendWavFiles(wavFiles, finalFile.getAbsolutePath())
                 end
+
+                -- Cleanup
+                for _, fPath in ipairs(wavFiles) do
+                    local tf = File(fPath)
+                    if tf.exists() then pcall(function() tf.delete() end) end
+                end
+
+                pcall(function() ttsObj.shutdown() end)
+                isExportingAudio = false
+                service.asyncSpeak("تم حفظ الملف الصوتي بنجاح.")
+
+                mainHandler.post(Runnable{
+                    run = function()
+                        showResultWindow("تم التصدير بنجاح", "تم حفظ الملف الصوتي في مجلد التنزيلات (Downloads):\n" .. finalFile.getAbsolutePath())
+                    end
+                })
             end
-            if currentChunk ~= "" then table.insert(chunks, currentChunk) end
+        }).start()
+    end
 
-            local ttsObj = nil
-            local ttsReady = false
-            local currentUtteranceDone = false
+    local function processNextChunk()
+        if currentChunkIndex > #chunks then
+            finishAndConcatenate()
+            return
+        end
 
+        local tempFile = File(cacheDir, "export_chunk_" .. currentChunkIndex .. ".wav")
+        table.insert(wavFiles, tempFile.getAbsolutePath())
+
+        local params = HashMap()
+        params.put("utteranceId", "chunk_" .. currentChunkIndex)
+
+        local chunkText = chunks[currentChunkIndex]
+        local s, err = pcall(function() ttsObj.synthesizeToFile(chunkText, params, tempFile.getAbsolutePath()) end)
+
+        if not s then
+            -- Fallback or error logging
+            print("Failed to synthesize chunk " .. currentChunkIndex)
+            currentChunkIndex = currentChunkIndex + 1
+            processNextChunk()
+        end
+    end
+
+    -- Must initialize TTS on the main UI thread (Looper) to ensure callbacks fire
+    mainHandler.post(Runnable{
+        run = function()
             local listener = TextToSpeech.OnInitListener{
                 onInit = function(status)
                     if status == TextToSpeech.SUCCESS then
-                        ttsReady = true
                         pcall(function() ttsObj.setSpeechRate(pdfTtsSpeed or 1.0) end)
 
                         -- Set preferred voice if available
@@ -2338,76 +2389,30 @@ function exportDocumentToAudio(filePath, sentencesList)
 
                         local progListener = luajava.createProxy("android.speech.tts.UtteranceProgressListener", {
                             onStart = function(id) end,
-                            onDone = function(id) currentUtteranceDone = true end,
-                            onError = function(id) currentUtteranceDone = true end
+                            onDone = function(id)
+                                currentChunkIndex = currentChunkIndex + 1
+                                processNextChunk()
+                            end,
+                            onError = function(id)
+                                currentChunkIndex = currentChunkIndex + 1
+                                processNextChunk()
+                            end
                         })
                         ttsObj.setOnUtteranceProgressListener(progListener)
+
+                        -- Start processing the first chunk
+                        processNextChunk()
+                    else
+                        isExportingAudio = false
+                        service.asyncSpeak("فشل تشغيل محرك الصوت للتصدير.")
                     end
                 end
             }
 
             if pdfTtsEngine and pdfTtsEngine ~= "" then ttsObj = TextToSpeech(service, listener, tostring(pdfTtsEngine))
             else ttsObj = TextToSpeech(service, listener) end
-
-            -- Wait for TTS to initialize (timeout 5s)
-            local waitTime = 0
-            while not ttsReady and waitTime < 50 do
-                Thread.sleep(100)
-                waitTime = waitTime + 1
-            end
-
-            if not ttsReady then
-                isExportingAudio = false
-                service.asyncSpeak("فشل تشغيل محرك الصوت للتصدير.")
-                pcall(function() ttsObj.shutdown() end)
-                return
-            end
-
-            for i, chunkText in ipairs(chunks) do
-                local tempFile = File(cacheDir, "export_chunk_" .. i .. ".wav")
-                table.insert(wavFiles, tempFile.getAbsolutePath())
-                currentUtteranceDone = false
-
-                local params = HashMap()
-                params.put("utteranceId", "chunk_" .. i)
-
-                local s, err = pcall(function() ttsObj.synthesizeToFile(chunkText, params, tempFile.getAbsolutePath()) end)
-
-                if s then
-                    -- Wait for this chunk to finish synthesizing
-                    while not currentUtteranceDone do
-                        Thread.sleep(50)
-                    end
-                end
-                -- Allow Garbage Collection
-                Thread.sleep(50)
-            end
-
-            pcall(function() ttsObj.shutdown() end)
-
-            local downDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-            local finalFile = File(downDir, title .. "_Audio.wav")
-
-            if _G.appendWavFiles then
-                _G.appendWavFiles(wavFiles, finalFile.getAbsolutePath())
-            end
-
-            -- Cleanup
-            for _, fPath in ipairs(wavFiles) do
-                local tf = File(fPath)
-                if tf.exists() then tf.delete() end
-            end
-
-            isExportingAudio = false
-            service.asyncSpeak("تم حفظ الملف الصوتي بنجاح.")
-
-            mainHandler.post(Runnable{
-                run = function()
-                    showResultWindow("تم التصدير", "تم حفظ الملف الصوتي في التنزيلات:\n" .. finalFile.getAbsolutePath())
-                end
-            })
         end
-    }).start()
+    })
 end
 
 function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, epubSpine, savedProg)
