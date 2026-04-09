@@ -174,7 +174,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 1.2
+local currentAppVersion = 1.3
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -2194,6 +2194,227 @@ end
         end
     end
 
+
+-- Function to append WAV files (concatenates raw PCM data and rebuilds header)
+_G.appendWavFiles = function(wavFilesList, outputFilePath)
+    import "java.io.File"
+    import "java.io.FileInputStream"
+    import "java.io.FileOutputStream"
+    import "java.nio.ByteBuffer"
+    import "java.nio.ByteOrder"
+
+    local s, err = pcall(function()
+        if not wavFilesList or #wavFilesList == 0 then return end
+        local totalAudioLen = 0
+        local totalDataLen = 0
+        local longSampleRate = 0
+        local channels = 0
+        local byteRate = 0
+
+        -- First pass: Calculate total PCM length and extract format info from first file
+        for i, path in ipairs(wavFilesList) do
+            local f = File(path)
+            if f.exists() then
+                local len = f.length()
+                if len > 44 then
+                    totalAudioLen = totalAudioLen + (len - 44)
+                    if i == 1 then
+                        local inStream = FileInputStream(f)
+                        local header = byte[44]
+                        inStream.read(header, 0, 44)
+                        inStream.close()
+                        local bb = ByteBuffer.wrap(header)
+                        bb.order(ByteOrder.LITTLE_ENDIAN)
+                        channels = bb.getShort(22)
+                        longSampleRate = bb.getInt(24)
+                        byteRate = bb.getInt(28)
+                    end
+                end
+            end
+        end
+
+        totalDataLen = totalAudioLen + 36
+        local outStream = FileOutputStream(outputFilePath)
+
+        local function writeHeader()
+            local header = byte[44]
+            header[0] = 82; header[1] = 73; header[2] = 70; header[3] = 70; -- RIFF
+            header[4] = totalDataLen & 0xff; header[5] = (totalDataLen >> 8) & 0xff; header[6] = (totalDataLen >> 16) & 0xff; header[7] = (totalDataLen >> 24) & 0xff;
+            header[8] = 87; header[9] = 65; header[10] = 86; header[11] = 69; -- WAVE
+            header[12] = 102; header[13] = 109; header[14] = 116; header[15] = 32; -- fmt
+            header[16] = 16; header[17] = 0; header[18] = 0; header[19] = 0; -- Subchunk1Size
+            header[20] = 1; header[21] = 0; -- AudioFormat
+            header[22] = channels & 0xff; header[23] = (channels >> 8) & 0xff;
+            header[24] = longSampleRate & 0xff; header[25] = (longSampleRate >> 8) & 0xff; header[26] = (longSampleRate >> 16) & 0xff; header[27] = (longSampleRate >> 24) & 0xff;
+            header[28] = byteRate & 0xff; header[29] = (byteRate >> 8) & 0xff; header[30] = (byteRate >> 16) & 0xff; header[31] = (byteRate >> 24) & 0xff;
+            header[32] = (channels * 16 / 8) & 0xff; header[33] = 0; -- block align
+            header[34] = 16; header[35] = 0; -- bits per sample
+            header[36] = 100; header[37] = 97; header[38] = 116; header[39] = 97; -- data
+            header[40] = totalAudioLen & 0xff; header[41] = (totalAudioLen >> 8) & 0xff; header[42] = (totalAudioLen >> 16) & 0xff; header[43] = (totalAudioLen >> 24) & 0xff;
+            outStream.write(header, 0, 44)
+        end
+        writeHeader()
+
+        -- Second pass: Append PCM data
+        local buffer = byte[8192]
+        for _, path in ipairs(wavFilesList) do
+            local f = File(path)
+            if f.exists() and f.length() > 44 then
+                local inStream = FileInputStream(f)
+                inStream.skip(44) -- Skip header
+                local bytesRead = inStream.read(buffer)
+                while bytesRead ~= -1 do
+                    outStream.write(buffer, 0, bytesRead)
+                    bytesRead = inStream.read(buffer)
+                end
+                inStream.close()
+            end
+        end
+        outStream.close()
+    end)
+    if not s then print("Error appending WAV: " .. tostring(err)) end
+end
+
+function exportDocumentToAudio(filePath, sentencesList)
+    if isExportingAudio then
+        service.asyncSpeak("هناك عملية تصدير جارية بالفعل.")
+        return
+    end
+    isExportingAudio = true
+
+    local title = filePath:match("([^/]+)$") or "Document"
+    title = title:gsub("%.%w+$", "")
+
+    service.asyncSpeak("جاري تحويل المستند إلى ملف صوتي، يرجى الانتظار، يمكنك الاستمرار في استخدام التطبيق...")
+
+    import "java.lang.Thread"
+    import "java.lang.Runnable"
+    import "java.io.File"
+    import "android.os.Environment"
+    import "android.speech.tts.TextToSpeech"
+    import "android.speech.tts.UtteranceProgressListener"
+    import "java.util.HashMap"
+
+    local cacheDir = service.getCacheDir()
+    local wavFiles = {}
+    local chunks = {}
+    local currentChunk = ""
+
+    -- Aggregate small sentences into larger text chunks (~2000 chars) for performance
+    for _, sentence in ipairs(sentencesList) do
+        if #currentChunk + #sentence < 2000 then
+            currentChunk = currentChunk .. " " .. sentence
+        else
+            table.insert(chunks, currentChunk)
+            currentChunk = sentence
+        end
+    end
+    if currentChunk ~= "" then table.insert(chunks, currentChunk) end
+
+    local ttsObj = nil
+    local currentChunkIndex = 1
+
+    local function finishAndConcatenate()
+        Thread(Runnable{
+            run = function()
+                local downDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                local finalFile = File(downDir, title .. "_Audio.wav")
+
+                if _G.appendWavFiles then
+                    _G.appendWavFiles(wavFiles, finalFile.getAbsolutePath())
+                end
+
+                -- Cleanup
+                for _, fPath in ipairs(wavFiles) do
+                    local tf = File(fPath)
+                    if tf.exists() then pcall(function() tf.delete() end) end
+                end
+
+                pcall(function() ttsObj.shutdown() end)
+                isExportingAudio = false
+                service.asyncSpeak("تم حفظ الملف الصوتي بنجاح.")
+
+                mainHandler.post(Runnable{
+                    run = function()
+                        showResultWindow("تم التصدير بنجاح", "تم حفظ الملف الصوتي في مجلد التنزيلات (Downloads):\n" .. finalFile.getAbsolutePath())
+                    end
+                })
+            end
+        }).start()
+    end
+
+    local function processNextChunk()
+        if currentChunkIndex > #chunks then
+            finishAndConcatenate()
+            return
+        end
+
+        local tempFile = File(cacheDir, "export_chunk_" .. currentChunkIndex .. ".wav")
+        table.insert(wavFiles, tempFile.getAbsolutePath())
+
+        local params = HashMap()
+        params.put("utteranceId", "chunk_" .. currentChunkIndex)
+
+        local chunkText = chunks[currentChunkIndex]
+        local s, err = pcall(function() ttsObj.synthesizeToFile(chunkText, params, tempFile.getAbsolutePath()) end)
+
+        if not s then
+            -- Fallback or error logging
+            print("Failed to synthesize chunk " .. currentChunkIndex)
+            currentChunkIndex = currentChunkIndex + 1
+            processNextChunk()
+        end
+    end
+
+    -- Must initialize TTS on the main UI thread (Looper) to ensure callbacks fire
+    mainHandler.post(Runnable{
+        run = function()
+            local listener = TextToSpeech.OnInitListener{
+                onInit = function(status)
+                    if status == TextToSpeech.SUCCESS then
+                        pcall(function() ttsObj.setSpeechRate(pdfTtsSpeed or 1.0) end)
+
+                        -- Set preferred voice if available
+                        if pdfTtsVoiceName and pdfTtsVoiceName ~= "" then
+                            local voices = nil
+                            pcall(function() voices = ttsObj.getVoices() end)
+                            if voices then
+                                local it = voices.iterator()
+                                while it.hasNext() do
+                                    local v = it.next()
+                                    if v and v.getName() == pdfTtsVoiceName then pcall(function() ttsObj.setVoice(v) end) break end
+                                end
+                            end
+                        end
+
+                        local progListener = UtteranceProgressListener{
+                            onStart = function(id) end,
+                            onDone = function(id)
+                                currentChunkIndex = currentChunkIndex + 1
+                                processNextChunk()
+                            end,
+                            onError = function(id)
+                                currentChunkIndex = currentChunkIndex + 1
+                                processNextChunk()
+                            end
+                        }
+                        ttsObj.setOnUtteranceProgressListener(progListener)
+
+                        -- Start processing the first chunk
+                        processNextChunk()
+                    else
+                        isExportingAudio = false
+                        service.asyncSpeak("فشل تشغيل محرك الصوت للتصدير.")
+                    end
+                end
+            }
+
+            if pdfTtsEngine and pdfTtsEngine ~= "" then ttsObj = TextToSpeech(service, listener, tostring(pdfTtsEngine))
+            else ttsObj = TextToSpeech(service, listener) end
+        end
+    })
+end
+
 function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, epubSpine, savedProg)
     globalDocViewerPath = filePath
     isDocumentReaderBackgrounded = false
@@ -2353,12 +2574,14 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
     local footerBtnsL = LinearLayout(service); footerBtnsL.setOrientation(LinearLayout.HORIZONTAL)
     local voiceQBtn = Button(service); voiceQBtn.setText("🎤 سؤال"); styleButton(voiceQBtn, "primary"); voiceQBtn.setContentDescription("سؤال المساعد صوتياً حول محتوى المستند");
     local ttsSetBtn = Button(service); ttsSetBtn.setText("⚙️ إعدادات"); styleButton(ttsSetBtn, "secondary"); ttsSetBtn.setContentDescription("إعدادات صوت القراءة");
+    local exportAudioBtn = Button(service); exportAudioBtn.setText("📥 تحويل لصوت"); styleButton(exportAudioBtn, "secondary"); exportAudioBtn.setContentDescription("تحويل المستند بالكامل لملف صوتي");
     local closeBtn = Button(service); closeBtn.setText("❌ إغلاق"); styleButton(closeBtn, "danger"); closeBtn.setContentDescription("إغلاق تام للعارض");
 
     local lpBtn = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0)
     lpBtn.setMargins(5, 5, 5, 5)
     footerBtnsL.addView(voiceQBtn, lpBtn)
     footerBtnsL.addView(ttsSetBtn, lpBtn)
+    footerBtnsL.addView(exportAudioBtn, lpBtn)
     footerBtnsL.addView(closeBtn, lpBtn)
     footerL.addView(footerBtnsL)
 
@@ -2781,6 +3004,14 @@ function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, e
     minBtn.setOnClickListener(function() if _G.globalHideDocumentViewer then _G.globalHideDocumentViewer() end; service.asyncSpeak("الاستمرار في الخلفية") end)
     fastCloseBtn.setOnClickListener(function() closeAction() end)
     closeBtn.setOnClickListener(function() closeAction() end)
+
+    exportAudioBtn.setOnClickListener(function()
+        if sentencesList and #sentencesList > 0 then
+            exportDocumentToAudio(filePath, sentencesList)
+        else
+            service.asyncSpeak("عذراً، لا يوجد نص متاح للتحويل.")
+        end
+    end)
 
     local winP = WindowManager.LayoutParams(); winP.width=WindowManager.LayoutParams.MATCH_PARENT; winP.height=math.floor(service.getResources().getDisplayMetrics().heightPixels*0.85); winP.type=WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY; winP.flags=WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL; winP.format=PixelFormat.TRANSLUCENT; winP.gravity=Gravity.CENTER; winP.horizontalMargin=0.05; winP.verticalMargin=0.05
     pcall(function() wm.addView(resultWindow, winP) end)

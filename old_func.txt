@@ -1,0 +1,303 @@
+2278:function exportDocumentToAudio(filePath, sentencesList)
+2279-    if isExportingAudio then
+2280-        service.asyncSpeak("هناك عملية تصدير جارية بالفعل.")
+2281-        return
+2282-    end
+2283-    isExportingAudio = true
+2284-
+2285-    local title = filePath:match("([^/]+)$") or "Document"
+2286-    title = title:gsub("%.%w+$", "")
+2287-
+2288-    service.asyncSpeak("جاري تحويل المستند إلى ملف صوتي، يرجى الانتظار...")
+2289-
+2290-    import "java.lang.Thread"
+2291-    import "java.lang.Runnable"
+2292-    import "java.io.File"
+2293-    import "android.os.Environment"
+2294-    import "android.speech.tts.TextToSpeech"
+2295-    import "android.speech.tts.UtteranceProgressListener"
+2296-    import "java.util.HashMap"
+2297-
+2298-    Thread(Runnable{
+2299-        run = function()
+2300-            local cacheDir = service.getCacheDir()
+2301-            local wavFiles = {}
+2302-            local chunks = {}
+2303-            local currentChunk = ""
+2304-
+2305-            -- Aggregate small sentences into larger text chunks (~2000 chars) for performance
+2306-            for _, sentence in ipairs(sentencesList) do
+2307-                if #currentChunk + #sentence < 2000 then
+2308-                    currentChunk = currentChunk .. " " .. sentence
+2309-                else
+2310-                    table.insert(chunks, currentChunk)
+2311-                    currentChunk = sentence
+2312-                end
+2313-            end
+2314-            if currentChunk ~= "" then table.insert(chunks, currentChunk) end
+2315-
+2316-            local ttsObj = nil
+2317-            local ttsReady = false
+2318-            local currentUtteranceDone = false
+2319-
+2320-            local listener = TextToSpeech.OnInitListener{
+2321-                onInit = function(status)
+2322-                    if status == TextToSpeech.SUCCESS then
+2323-                        ttsReady = true
+2324-                        pcall(function() ttsObj.setSpeechRate(pdfTtsSpeed or 1.0) end)
+2325-
+2326-                        -- Set preferred voice if available
+2327-                        if pdfTtsVoiceName and pdfTtsVoiceName ~= "" then
+2328-                            local voices = nil
+2329-                            pcall(function() voices = ttsObj.getVoices() end)
+2330-                            if voices then
+2331-                                local it = voices.iterator()
+2332-                                while it.hasNext() do
+2333-                                    local v = it.next()
+2334-                                    if v and v.getName() == pdfTtsVoiceName then pcall(function() ttsObj.setVoice(v) end) break end
+2335-                                end
+2336-                            end
+2337-                        end
+2338-
+2339-                        local progListener = luajava.createProxy("android.speech.tts.UtteranceProgressListener", {
+2340-                            onStart = function(id) end,
+2341-                            onDone = function(id) currentUtteranceDone = true end,
+2342-                            onError = function(id) currentUtteranceDone = true end
+2343-                        })
+2344-                        ttsObj.setOnUtteranceProgressListener(progListener)
+2345-                    end
+2346-                end
+2347-            }
+2348-
+2349-            if pdfTtsEngine and pdfTtsEngine ~= "" then ttsObj = TextToSpeech(service, listener, tostring(pdfTtsEngine))
+2350-            else ttsObj = TextToSpeech(service, listener) end
+2351-
+2352-            -- Wait for TTS to initialize (timeout 5s)
+2353-            local waitTime = 0
+2354-            while not ttsReady and waitTime < 50 do
+2355-                Thread.sleep(100)
+2356-                waitTime = waitTime + 1
+2357-            end
+2358-
+2359-            if not ttsReady then
+2360-                isExportingAudio = false
+2361-                service.asyncSpeak("فشل تشغيل محرك الصوت للتصدير.")
+2362-                pcall(function() ttsObj.shutdown() end)
+2363-                return
+2364-            end
+2365-
+2366-            for i, chunkText in ipairs(chunks) do
+2367-                local tempFile = File(cacheDir, "export_chunk_" .. i .. ".wav")
+2368-                table.insert(wavFiles, tempFile.getAbsolutePath())
+2369-                currentUtteranceDone = false
+2370-
+2371-                local params = HashMap()
+2372-                params.put("utteranceId", "chunk_" .. i)
+2373-
+2374-                local s, err = pcall(function() ttsObj.synthesizeToFile(chunkText, params, tempFile.getAbsolutePath()) end)
+2375-
+2376-                if s then
+2377-                    -- Wait for this chunk to finish synthesizing
+2378-                    while not currentUtteranceDone do
+2379-                        Thread.sleep(50)
+2380-                    end
+2381-                end
+2382-                -- Allow Garbage Collection
+2383-                Thread.sleep(50)
+2384-            end
+2385-
+2386-            pcall(function() ttsObj.shutdown() end)
+2387-
+2388-            local downDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+2389-            local finalFile = File(downDir, title .. "_Audio.wav")
+2390-
+2391-            if _G.appendWavFiles then
+2392-                _G.appendWavFiles(wavFiles, finalFile.getAbsolutePath())
+2393-            end
+2394-
+2395-            -- Cleanup
+2396-            for _, fPath in ipairs(wavFiles) do
+2397-                local tf = File(fPath)
+2398-                if tf.exists() then tf.delete() end
+2399-            end
+2400-
+2401-            isExportingAudio = false
+2402-            service.asyncSpeak("تم حفظ الملف الصوتي بنجاح.")
+2403-
+2404-            mainHandler.post(Runnable{
+2405-                run = function()
+2406-                    showResultWindow("تم التصدير", "تم حفظ الملف الصوتي في التنزيلات:\n" .. finalFile.getAbsolutePath())
+2407-                end
+2408-            })
+2409-        end
+2410-    }).start()
+2411-end
+2412-
+2413-function showDocumentViewerWindow(filePath, fileUri, isWordLocal, initialText, epubSpine, savedProg)
+2414-    globalDocViewerPath = filePath
+2415-    isDocumentReaderBackgrounded = false
+2416-    if resultWindow then pcall(function() wm.removeView(resultWindow) end); resultWindow = nil end
+2417-    local currentDictLangDetails = getLanguageDetails(selectedLanguage)
+2418-    local isTxt = filePath:lower():match("%.txt$") ~= nil
+2419-    local isEpub = filePath:lower():match("%.epub$") ~= nil
+2420-    local accumulatedQnA = (isTxt and "ملف نصي محمل محلياً.\n\n") or (isWordLocal and "ملف Word محمل محلياً.\n\n") or (isEpub and "ملف EPUB محمل محلياً.\n\n") or "ملف PDF محمل.\n\n"
+2421-
+2422-    resultWindow = LinearLayout(service); resultWindow.setOrientation(LinearLayout.VERTICAL); resultWindow.setBackgroundColor(0xFF121212); resultWindow.setPadding(20,20,20,20)
+2423-
+2424-    local headerL = LinearLayout(service); headerL.setOrientation(LinearLayout.HORIZONTAL); headerL.setGravity(Gravity.CENTER_VERTICAL); headerL.setPadding(0,0,0,10)
+2425-    local titleV = TextView(service);
+2426-    local titleText = "عارض المستند"
+2427-    if isTxt then titleText = "النص (txt)"
+2428-    elseif isWordLocal then titleText = "Word"
+--
+3005:            exportDocumentToAudio(filePath, sentencesList)
+3006-        else
+3007-            service.asyncSpeak("عذراً، لا يوجد نص متاح للتحويل.")
+3008-        end
+3009-    end)
+3010-
+3011-    local winP = WindowManager.LayoutParams(); winP.width=WindowManager.LayoutParams.MATCH_PARENT; winP.height=math.floor(service.getResources().getDisplayMetrics().heightPixels*0.85); winP.type=WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY; winP.flags=WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL; winP.format=PixelFormat.TRANSLUCENT; winP.gravity=Gravity.CENTER; winP.horizontalMargin=0.05; winP.verticalMargin=0.05
+3012-    pcall(function() wm.addView(resultWindow, winP) end)
+3013-
+3014-    if (isWordLocal or isTxt or isEpub) and initialText then
+3015-        pagesCache = {initialText}
+3016-        currentCacheIdx = 1
+3017-        updateDisplayPage()
+3018-    elseif not isWordLocal and not isEpub then
+3019-        local function detectPageCount()
+3020-            local q = "كم عدد الصفحات في هذا الملف؟ أجب بالرقم فقط."
+3021-            local url = "https://generativelanguage.googleapis.com/v1beta/models/" .. selectedGeminiModelId .. ":generateContent?key=" .. geminiApiKey
+3022-            local headers = {["Content-Type"] = "application/json"}
+3023-            local root = JSONObject(); local contentObj = JSONObject(); local partsArray = JSONArray()
+3024-            local filePart = JSONObject(); local fileData = JSONObject()
+3025-            fileData.put("mime_type", "application/pdf"); fileData.put("file_uri", fileUri)
+3026-            filePart.put("file_data", fileData); partsArray.put(filePart)
+3027-            local textPart = JSONObject(); textPart.put("text", q); partsArray.put(textPart)
+3028-            contentObj.put("parts", partsArray); local contentsArray = JSONArray(); contentsArray.put(contentObj); root.put("contents", contentsArray)
+3029-
+3030-            Http.post(url, root.toString(), headers, function(status, response)
+3031-                if status == 200 then
+3032-                    local s, j = pcall(function() return JSONObject(response) end)
+3033-                    if s and j.has("candidates") then
+3034-                        local cands = j.getJSONArray("candidates")
+3035-                        if cands.length() > 0 then
+3036-                            local parts = cands.getJSONObject(0).getJSONObject("content").getJSONArray("parts")
+3037-                            if parts.length() > 0 and parts.getJSONObject(0).has("text") then
+3038-                                local countText = parts.getJSONObject(0).getString("text"):match("%d+")
+3039-                                if countText then
+3040-                                    local msg = "هذا الملف يحتوي على " .. countText .. " صفحة. يمكنك الآن تحديد النطاق والتحميل."
+3041-                                    mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+3042-                                        run = function() service.asyncSpeak(msg) end
+3043-                                    }))
+3044-                                    return
+3045-                                end
+3046-                            end
+3047-                        end
+3048-                    end
+3049-                end
+3050-                service.asyncSpeak("تم تحميل الملف. يرجى إدخال نطاق الصفحات للبدء.")
+3051-            end)
+3052-        end
+3053-        detectPageCount()
+3054-    else
+3055-        service.asyncSpeak("يرجى الضغط على زر تحميل الصفحات للبدء.")
+3056-    end
+3057-end
+3058-
+3059-
+3060-function extractTxtTextLocal(filePath, encoding)
+3061-    import "java.io.File"
+3062-    import "java.io.FileInputStream"
+3063-    import "java.io.InputStreamReader"
+3064-    import "java.io.BufferedReader"
+3065-    import "java.lang.StringBuilder"
+3066-
+3067-    encoding = encoding or "UTF-8"
+3068-    local success, result = pcall(function()
+3069-        local file = File(filePath)
+3070-        local is = FileInputStream(file)
+3071-        local reader = BufferedReader(InputStreamReader(is, encoding))
+3072-        local sb = StringBuilder()
+3073-        local line = reader.readLine()
+3074-        while line ~= nil do
+3075-            sb.append(line)
+3076-            sb.append("\n")
+3077-            line = reader.readLine()
+3078-        end
+3079-        reader.close()
+3080-        return sb.toString()
+3081-    end)
+3082-
+3083-    if success then return result else return nil, tostring(result) end
+3084-end
+3085-
+3086-function extractEpubMetadata(filePath)
+3087-    import "java.util.zip.ZipFile"
+3088-    import "java.io.InputStreamReader"
+3089-    import "java.io.BufferedReader"
+3090-    import "java.lang.StringBuilder"
+3091-
+3092-    local success, result = pcall(function()
+3093-        local zipFile = ZipFile(filePath)
+3094-        local function cleanup() pcall(function() zipFile.close() end) end
+3095-
+3096-        local containerEntry = zipFile.getEntry("META-INF/container.xml")
+3097-        if not containerEntry then
+3098-            cleanup()
+3099-            return nil, "ملف EPUB غير صالح (container.xml مفقود)"
+3100-        end
+3101-
+3102-        local is = zipFile.getInputStream(containerEntry)
+3103-        local reader = BufferedReader(InputStreamReader(is, "UTF-8"))
+3104-        local containerXml = ""
+3105-        local line = reader.readLine()
+3106-        while line ~= nil do containerXml = containerXml .. line; line = reader.readLine() end
+3107-        reader.close()
+3108-
+3109-        local opfPath = containerXml:match("full%-path=\"([^\"]+)\"")
+3110-        if not opfPath then
+3111-            cleanup()
+3112-            return nil, "تعذر العثور على مسار ملف الفهرس (OPF)"
+3113-        end
+3114-
+3115-        local baseDir = ""
+3116-        if opfPath:find("/") then
+3117-            baseDir = opfPath:match("(.+)/[^/]+$") .. "/"
+3118-        end
+3119-
+3120-        local opfEntry = zipFile.getEntry(opfPath)
+3121-        is = zipFile.getInputStream(opfEntry)
+3122-        reader = BufferedReader(InputStreamReader(is, "UTF-8"))
+3123-        local opfXml = ""
+3124-        line = reader.readLine()
+3125-        while line ~= nil do opfXml = opfXml .. line; line = reader.readLine() end
+3126-        reader.close()
+3127-
+3128-        local manifest = {}
+3129-        for item in opfXml:gmatch("<item%s+([^>]+)>") do
+3130-            local id = item:match("id=\"([^\"]+)\"")
+3131-            local href = item:match("href=\"([^\"]+)\"")
+3132-            if id and href then
+3133-                manifest[id] = baseDir .. href
+3134-            end
+3135-        end
+3136-
+3137-        local spine = {}
+3138-        for itemref in opfXml:gmatch("<itemref%s+([^>]+)>") do
+3139-            local idref = itemref:match("idref=\"([^\"]+)\"")
+3140-            if idref and manifest[idref] then
+3141-                table.insert(spine, { id = idref, path = manifest[idref] })
+3142-            end
+3143-        end
+3144-
+3145-        for i, item in ipairs(spine) do
+3146-            local filename = item.path:match("([^/]+)$") or item.path
+3147-            item.title = "الفصل " .. i .. " (" .. filename .. ")"
+3148-        end
+3149-
+3150-        cleanup()
+3151-        return spine
+3152-    end)
+3153-
+3154-    if success then return result else return nil, tostring(result) end
+3155-end

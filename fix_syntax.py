@@ -1,30 +1,15 @@
 import re
 
-with open('main.lua', 'r') as f:
+with open("main.lua", "r", encoding="utf-8") as f:
     content = f.read()
 
-# Fix the malformed replace block
-bad_code = """    local closeAction = function()
-        saveCurrentProgress()
-        stopReading()
-        if docTts then pcall(function() docTts.shutdown() end) end
-        if resultWindow then pcall(function() wm.removeView(resultWindow) end); resultWindow = nil end
-        service.asyncSpeak("تم إغلاق المستند.")
-    end
-) end
-        if resultWindow then pcall(function() wm.removeView(resultWindow) end); resultWindow = nil end
-        service.asyncSpeak("تم إغلاق المستند.")
-    end"""
+content = content.replace(
+    'showResultWindow("تم التصدير", "تم حفظ الملف الصوتي في التنزيلات (Downloads):\\n" .. finalFile.getAbsolutePath())',
+    'showResultWindow("تم التصدير", "تم حفظ الملف الصوتي في التنزيلات:\\n" .. finalFile.getAbsolutePath())'
+)
 
-good_code = """    local closeAction = function()
-        saveCurrentProgress()
-        stopReading()
-        if docTts then pcall(function() docTts.shutdown() end) end
-        if resultWindow then pcall(function() wm.removeView(resultWindow) end); resultWindow = nil end
-        service.asyncSpeak("تم إغلاق المستند.")
-    end"""
+# Fix multiline string issue if present
+content = re.sub(r'showResultWindow\("تم التصدير", "تم حفظ الملف الصوتي في التنزيلات \(Downloads\):\n', 'showResultWindow("تم التصدير", "تم حفظ الملف الصوتي في التنزيلات:\\n', content)
 
-content = content.replace(bad_code, good_code)
-
-with open('main.lua', 'w') as f:
+with open("main.lua", "w", encoding="utf-8") as f:
     f.write(content)
