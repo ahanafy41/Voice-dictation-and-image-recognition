@@ -5511,6 +5511,11 @@ function showGeminiLiveWindow()
                      searchResult += "\n\n" + data.results.map(r => r.content).join("\n");
                 }
 
+                // Prevent WebSocket 413 Payload Too Large error by truncating results
+                if (searchResult.length > 1000) {
+                    searchResult = searchResult.substring(0, 1000) + "...(تم قص النص لزيادة الطول)";
+                }
+
                 log("✅ تم جلب نتائج البحث", "sys");
                 sendFunctionResponse(functionName, callId, { result: searchResult });
 
