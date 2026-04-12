@@ -1,0 +1,17 @@
+.class public Lbsh/BSHFormalComment;
+.super Lbsh/SimpleNode;
+.source ""
+
+
+# instance fields
+.field public text:Ljava/lang/String;
+
+
+# direct methods
+.method public constructor <init>(I)V
+    .locals 0
+
+    invoke-direct {p0, p1}, Lbsh/SimpleNode;-><init>(I)V
+
+    return-void
+.end method
