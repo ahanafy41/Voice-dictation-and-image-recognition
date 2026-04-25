@@ -174,7 +174,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 1.3
+local currentAppVersion = 1.4
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -3931,7 +3931,6 @@ function openMainWindow()
             btn.setOnClickListener(function()
                 hideMainWindow()
                 if isDocumentReaderBackgrounded and resultWindow then
-                    -- Just re-add the existing view to window manager
                     local winP = WindowManager.LayoutParams(); winP.width=WindowManager.LayoutParams.MATCH_PARENT; winP.height=math.floor(service.getResources().getDisplayMetrics().heightPixels*0.85); winP.type=WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY; winP.flags=WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL; winP.format=PixelFormat.TRANSLUCENT; winP.gravity=Gravity.CENTER; winP.horizontalMargin=0.05; winP.verticalMargin=0.05
                     pcall(function() wm.addView(resultWindow, winP) end)
                     isDocumentReaderBackgrounded = false
@@ -3983,8 +3982,6 @@ function openMainWindow()
         end
     }
 
-
-    -- Refresh from prefs in case it was modified
     local orderStr = prefs.getString("dashboardOrder", "dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings")
     if orderStr:match("reader") and not orderStr:match("doc_reader") then orderStr = orderStr:gsub("reader", "doc_reader") end
     if orderStr:match("library") and not orderStr:match("doc_reader") then orderStr = orderStr:gsub("library", "doc_reader") end
@@ -3999,20 +3996,33 @@ function openMainWindow()
         end
     end
 
+    local orderedKeys = {}
     for k in orderStr:gmatch("([^,]+)") do
         local key = k:gsub("^%s+", ""):gsub("%s+$", "")
-        if buttons[key] then
-            local b = buttons[key]()
-            local lp = LinearLayout.LayoutParams(-1, -2)
-            lp.topMargin = 20
-            contentL.addView(b, lp)
-        end
+        if buttons[key] then table.insert(orderedKeys, key) end
     end
 
-    local closeBtn = Button(service); closeBtn.setText("❌ إغلاق"); styleButton(closeBtn, "danger"); closeBtn.setContentDescription("إغلاق نافذة عارض المستندات");
-    closeBtn.setOnClickListener(hideMainWindow)
-    local closeParams = LinearLayout.LayoutParams(-1, -2); closeParams.topMargin = 40
-    contentL.addView(closeBtn, closeParams)
+    local function addButtonsSequentially(index)
+        if index > #orderedKeys then
+            local closeBtn = Button(service); closeBtn.setText("❌ إغلاق"); styleButton(closeBtn, "danger"); closeBtn.setContentDescription("إغلاق نافذة لوحة التحكم");
+            closeBtn.setOnClickListener(hideMainWindow)
+            local closeParams = LinearLayout.LayoutParams(-1, -2); closeParams.topMargin = 40
+            contentL.addView(closeBtn, closeParams)
+            return
+        end
+
+        local key = orderedKeys[index]
+        local b = buttons[key]()
+        local lp = LinearLayout.LayoutParams(-1, -2)
+        lp.topMargin = 20
+        contentL.addView(b, lp)
+
+        mainHandler.postDelayed(luajava.createProxy("java.lang.Runnable", {
+            run = function() addButtonsSequentially(index + 1) end
+        }), 50)
+    end
+
+    addButtonsSequentially(1)
 
     scrollV.addView(contentL); mainWindowDialog.addView(scrollV)
     local p = WindowManager.LayoutParams(-1, -2, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
@@ -4035,15 +4045,8 @@ function openAiSettingsWindow()
     local contentL = LinearLayout(service)
     contentL.setOrientation(LinearLayout.VERTICAL)
     contentL.setPadding(10, 10, 10, 10)
-
-    local titleTxt = TextView(service)
-    titleTxt.setText("إعدادات الإملاء والذكاء الاصطناعي 🧠")
-    titleTxt.setTextSize(22)
-    titleTxt.setTypeface(nil, Typeface.BOLD)
-    titleTxt.setTextColor(0xFFFFFFFF)
-    titleTxt.setGravity(Gravity.CENTER_HORIZONTAL)
-    titleTxt.setPadding(0, 0, 0, 40)
-    contentL.addView(titleTxt)
+    scrollV.addView(contentL)
+    aiSettingsDialog.addView(scrollV)
 
     local function addSectionHeader(text, parent)
         local header = TextView(service)
@@ -4064,121 +4067,111 @@ function openAiSettingsWindow()
         return lbl
     end
 
-    local dictationCard = createCard(contentL)
-    addSectionHeader("مميزات الإملاء ⚡", dictationCard)
+    -- Initial variables for switches that need to be accessed in save logic
+    local swCorr, swTash, swCont, swSpace, swPunc, swDot, swComma, swLine, swProf, swNum, swSpc
+    local dmSpinner, dmIds
+    local emSpinner, emIds
+    local crSpinner, crIds
 
-    local swCorr = Switch(service); swCorr.setChecked(geminiCorrectionEnabled); swCorr.setOnCheckedChangeListener(function(_, c) geminiCorrectionEnabled=c end)
-    createSettingRow("التصحيح الإملائي التلقائي", swCorr, dictationCard)
+    local sections = {
+        function() -- 1. Header
+            local titleTxt = TextView(service)
+            titleTxt.setText("إعدادات الإملاء والذكاء الاصطناعي 🧠")
+            titleTxt.setTextSize(22)
+            titleTxt.setTypeface(nil, Typeface.BOLD)
+            titleTxt.setTextColor(0xFFFFFFFF)
+            titleTxt.setGravity(Gravity.CENTER_HORIZONTAL)
+            titleTxt.setPadding(0, 0, 0, 40)
+            contentL.addView(titleTxt)
+        end,
+        function() -- 2. Dictation Features 1
+            local dictationCard = createCard(contentL)
+            addSectionHeader("مميزات الإملاء ⚡", dictationCard)
+            swCorr = Switch(service); swCorr.setChecked(geminiCorrectionEnabled); swCorr.setOnCheckedChangeListener(function(_, c) geminiCorrectionEnabled=c end); createSettingRow("التصحيح الإملائي التلقائي", swCorr, dictationCard)
+            swTash = Switch(service); swTash.setChecked(tashkeelEnabled); swTash.setOnCheckedChangeListener(function(_, c) tashkeelEnabled=c end); createSettingRow("التشكيل بالحركات", swTash, dictationCard)
+            swCont = Switch(service); swCont.setChecked(continuousDictationEnabled); swCont.setOnCheckedChangeListener(function(_, c) continuousDictationEnabled=c end); createSettingRow("الإملاء المستمر", swCont, dictationCard)
+            swSpace = Switch(service); swSpace.setChecked(autoSpaceEnabled); swSpace.setOnCheckedChangeListener(function(_, c) autoSpaceEnabled=c end); createSettingRow("إضافة مسافة تلقائية", swSpace, dictationCard)
+        end,
+        function() -- 3. Dictation Features 2
+            local dictationCard = contentL.getChildAt(contentL.getChildCount()-1)
+            swPunc = Switch(service); swPunc.setChecked(autoPunctuationEnabled); swPunc.setOnCheckedChangeListener(function(_, c) autoPunctuationEnabled=c end); createSettingRow("علامات الترقيم الذكية", swPunc, dictationCard)
+            swDot = Switch(service); swDot.setChecked(forceDotAtEndEnabled); swDot.setOnCheckedChangeListener(function(_, c) forceDotAtEndEnabled=c end); createSettingRow("وضع نقطة (.) حتماً", swDot, dictationCard)
+            swComma = Switch(service); swComma.setChecked(autoCommaEnabled); swComma.setOnCheckedChangeListener(function(_, c) autoCommaEnabled=c end); createSettingRow("وضع فاصلة (،)", swComma, dictationCard)
+            swLine = Switch(service); swLine.setChecked(newLinePerSentenceEnabled); swLine.setOnCheckedChangeListener(function(_, c) newLinePerSentenceEnabled=c end); createSettingRow("سطر جديد لكل جملة", swLine, dictationCard)
+        end,
+        function() -- 4. Dictation Features 3
+            local dictationCard = contentL.getChildAt(contentL.getChildCount()-1)
+            swProf = Switch(service); swProf.setChecked(profanityFilterEnabled); swProf.setOnCheckedChangeListener(function(_, c) profanityFilterEnabled=c end); createSettingRow("حجب الكلمات البذيئة (***)", swProf, dictationCard)
+            swNum = Switch(service); swNum.setChecked(convertNumbersEnabled); swNum.setOnCheckedChangeListener(function(_, c) convertNumbersEnabled=c end); createSettingRow("تحويل الأرقام لحروف", swNum, dictationCard)
+            swSpc = Switch(service); swSpc.setChecked(cleanExtraSpacesEnabled); swSpc.setOnCheckedChangeListener(function(_, c) cleanExtraSpacesEnabled=c end); createSettingRow("تنظيف المسافات الزائدة", swSpc, dictationCard)
+            dictationCard.addView(createLabel("وضع معالجة النص 🎭:"))
+            local dmNames = ArrayList(); dmIds = {}
+            for _, m in ipairs(dictationModes) do dmNames.add(m.name); table.insert(dmIds, m.id) end
+            local dmAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, dmNames); dmAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+            dmSpinner = Spinner(service); dmSpinner.setAdapter(dmAdapter)
+            local currDmIdx = 0; for i, id in ipairs(dmIds) do if id == selectedDictationMode then currDmIdx = i-1 break end end
+            dmSpinner.setSelection(currDmIdx); dmSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener { onItemSelected = function(p, v, pos, id) selectedDictationMode = dmIds[pos + 1] end }); dictationCard.addView(dmSpinner)
+        end,
+        function() -- 5. AI Creativity & Emojis
+            local aiCard = createCard(contentL)
+            addSectionHeader("إعدادات الذكاء المتقدمة 🤖", aiCard)
+            aiCard.addView(createLabel("تخصيص وضع الإيموجي 🤩:"))
+            local emNames = ArrayList(); emIds = {"none", "smart", "end", "per_word", "encrypt"}
+            emNames.add("بدون إيموجي"); emNames.add("ذكي في السياق"); emNames.add("في آخر النص فقط"); emNames.add("بجوار كل كلمة"); emNames.add("تحويل الكلام لرموز (تشفير)")
+            local emAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, emNames); emAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+            emSpinner = Spinner(service); emSpinner.setAdapter(emAdapter)
+            local currEmIdx = 0; for i, id in ipairs(emIds) do if id == emojiMode then currEmIdx = i-1 break end end
+            emSpinner.setSelection(currEmIdx); emSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener { onItemSelected = function(p, v, pos, id) emojiMode = emIds[pos + 1] end }); aiCard.addView(emSpinner)
 
-    local swTash = Switch(service); swTash.setChecked(tashkeelEnabled); swTash.setOnCheckedChangeListener(function(_, c) tashkeelEnabled=c end)
-    createSettingRow("التشكيل بالحركات", swTash, dictationCard)
+            aiCard.addView(createLabel("درجة إبداع الذكاء الاصطناعي ✨:"))
+            local crNames = ArrayList(); crIds = {0, 1, 2}
+            crNames.add("صارم جداً (ملتزم بالنص)"); crNames.add("طبيعي (متوازن)"); crNames.add("إبداعي (خيال واسع)")
+            local crAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, crNames); crAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+            crSpinner = Spinner(service); crSpinner.setAdapter(crAdapter); crSpinner.setSelection(aiCreativityLevel or 1)
+            crSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener { onItemSelected = function(p, v, pos, id) aiCreativityLevel = crIds[pos + 1] end }); aiCard.addView(crSpinner)
+        end,
+        function() -- 6. Save Buttons
+            local btnL = LinearLayout(service); btnL.setOrientation(LinearLayout.VERTICAL); btnL.setGravity(Gravity.CENTER); btnL.setPadding(0, 40, 0, 10)
+            local saveBtn = Button(service); saveBtn.setText("💾 حفظ التغييرات"); styleButton(saveBtn, "primary")
+            saveBtn.setOnClickListener(function()
+                if dmSpinner and dmIds then selectedDictationMode = dmIds[dmSpinner.getSelectedItemPosition() + 1] end
+                if swTash then tashkeelEnabled = swTash.isChecked() end
+                if swProf then profanityFilterEnabled = swProf.isChecked() end
+                if swLine then newLinePerSentenceEnabled = swLine.isChecked() end
+                if swNum then convertNumbersEnabled = swNum.isChecked() end
+                if swSpc then cleanExtraSpacesEnabled = swSpc.isChecked() end
+                if swDot then forceDotAtEndEnabled = swDot.isChecked() end
+                if swComma then autoCommaEnabled = swComma.isChecked() end
+                if swCorr then geminiCorrectionEnabled = swCorr.isChecked() end
+                if swCont then continuousDictationEnabled = swCont.isChecked() end
+                if swSpace then autoSpaceEnabled = swSpace.isChecked() end
+                saveSettings()
+                if aiSettingsDialog then pcall(function() wm.removeView(aiSettingsDialog) end); aiSettingsDialog = nil end
+                service.asyncSpeak("تم حفظ إعدادات الإملاء والذكاء الاصطناعي بنجاح.")
+            end)
+            btnL.addView(saveBtn)
+            local closeBtn = Button(service); closeBtn.setText("❌ إلغاء"); styleButton(closeBtn, "danger")
+            closeBtn.setOnClickListener(function() if aiSettingsDialog then pcall(function() wm.removeView(aiSettingsDialog) end); aiSettingsDialog = nil end end)
+            local lpClose = LinearLayout.LayoutParams(-1, -2); lpClose.topMargin = 20; btnL.addView(closeBtn, lpClose); contentL.addView(btnL)
+        end
+    }
 
+    local function addSectionsSequentially(index)
+        if index > #sections then return end
+        sections[index]()
+        mainHandler.postDelayed(luajava.createProxy("java.lang.Runnable", {
+            run = function() addSectionsSequentially(index + 1) end
+        }), 50)
+    end
 
-    local swCont = Switch(service); swCont.setChecked(continuousDictationEnabled); swCont.setOnCheckedChangeListener(function(_, c) continuousDictationEnabled=c end)
-    createSettingRow("الإملاء المستمر", swCont, dictationCard)
+    addSectionsSequentially(1)
 
-    local swSpace = Switch(service); swSpace.setChecked(autoSpaceEnabled); swSpace.setOnCheckedChangeListener(function(_, c) autoSpaceEnabled=c end)
-    createSettingRow("إضافة مسافة تلقائية", swSpace, dictationCard)
-
-    local swPunc = Switch(service); swPunc.setChecked(autoPunctuationEnabled); swPunc.setOnCheckedChangeListener(function(_, c) autoPunctuationEnabled=c end)
-    createSettingRow("علامات الترقيم الذكية", swPunc, dictationCard)
-
-    local swDot = Switch(service); swDot.setChecked(forceDotAtEndEnabled); swDot.setOnCheckedChangeListener(function(_, c) forceDotAtEndEnabled=c end)
-    createSettingRow("وضع نقطة (.) حتماً", swDot, dictationCard)
-
-    local swComma = Switch(service); swComma.setChecked(autoCommaEnabled); swComma.setOnCheckedChangeListener(function(_, c) autoCommaEnabled=c end)
-    createSettingRow("وضع فاصلة (،)", swComma, dictationCard)
-
-    local swLine = Switch(service); swLine.setChecked(newLinePerSentenceEnabled); swLine.setOnCheckedChangeListener(function(_, c) newLinePerSentenceEnabled=c end)
-    createSettingRow("سطر جديد لكل جملة", swLine, dictationCard)
-
-    local swProf = Switch(service); swProf.setChecked(profanityFilterEnabled); swProf.setOnCheckedChangeListener(function(_, c) profanityFilterEnabled=c end)
-    createSettingRow("حجب الكلمات البذيئة (***)", swProf, dictationCard)
-
-    local swNum = Switch(service); swNum.setChecked(convertNumbersEnabled); swNum.setOnCheckedChangeListener(function(_, c) convertNumbersEnabled=c end)
-    createSettingRow("تحويل الأرقام لحروف", swNum, dictationCard)
-
-    local swSpc = Switch(service); swSpc.setChecked(cleanExtraSpacesEnabled); swSpc.setOnCheckedChangeListener(function(_, c) cleanExtraSpacesEnabled=c end)
-    createSettingRow("تنظيف المسافات الزائدة", swSpc, dictationCard)
-
-    dictationCard.addView(createLabel("وضع معالجة النص (مثل المصري أو الفصحى) 🎭:"))
-    local dmNames = ArrayList(); local dmIds = {}
-    for _, m in ipairs(dictationModes) do dmNames.add(m.name); table.insert(dmIds, m.id) end
-    local dmAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, dmNames)
-    dmAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-    local dmSpinner = Spinner(service); dmSpinner.setAdapter(dmAdapter)
-    local currDmIdx = 0; for i, id in ipairs(dmIds) do if id == selectedDictationMode then currDmIdx = i-1 break end end
-    dmSpinner.setSelection(currDmIdx)
-    dmSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener { onItemSelected = function(parent, view, position, id) selectedDictationMode = dmIds[position + 1] end })
-    dictationCard.addView(dmSpinner)
-
-    local aiCard = createCard(contentL)
-    addSectionHeader("إعدادات الذكاء المتقدمة 🤖", aiCard)
-
-    aiCard.addView(createLabel("تخصيص وضع الإيموجي 🤩:"))
-    local emNames = ArrayList(); local emIds = {"none", "smart", "end", "per_word", "encrypt"}
-    emNames.add("بدون إيموجي"); emNames.add("ذكي في السياق"); emNames.add("في آخر النص فقط"); emNames.add("بجوار كل كلمة"); emNames.add("تحويل الكلام لرموز (تشفير)")
-
-    local emAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, emNames)
-    emAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-    local emSpinner = Spinner(service); emSpinner.setAdapter(emAdapter)
-    local currEmIdx = 0; for i, id in ipairs(emIds) do if id == emojiMode then currEmIdx = i-1 break end end
-    emSpinner.setSelection(currEmIdx)
-    emSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener { onItemSelected = function(parent, view, position, id) emojiMode = emIds[position + 1] end })
-    aiCard.addView(emSpinner)
-
-    aiCard.addView(createLabel("درجة إبداع الذكاء الاصطناعي ✨:"))
-    local crNames = ArrayList(); local crIds = {0, 1, 2}
-    crNames.add("صارم جداً (ملتزم بالنص)"); crNames.add("طبيعي (متوازن)"); crNames.add("إبداعي (خيال واسع)")
-
-    local crAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, crNames)
-    crAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-    local crSpinner = Spinner(service); crSpinner.setAdapter(crAdapter)
-    crSpinner.setSelection(aiCreativityLevel or 1)
-    crSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener { onItemSelected = function(parent, view, position, id) aiCreativityLevel = crIds[position + 1] end })
-    aiCard.addView(crSpinner)
-
-    local btnL = LinearLayout(service); btnL.setOrientation(LinearLayout.VERTICAL); btnL.setGravity(Gravity.CENTER); btnL.setPadding(0, 40, 0, 10)
-    local saveBtn = Button(service); saveBtn.setText("💾 حفظ التغييرات"); styleButton(saveBtn, "primary")
-    saveBtn.setOnClickListener(function()
-        selectedDictationMode = dmIds[dmSpinner.getSelectedItemPosition() + 1]
-        tashkeelEnabled = swTash.isChecked()
-        profanityFilterEnabled = swProf.isChecked()
-        newLinePerSentenceEnabled = swLine.isChecked()
-        convertNumbersEnabled = swNum.isChecked()
-        cleanExtraSpacesEnabled = swSpc.isChecked()
-        forceDotAtEndEnabled = swDot.isChecked()
-        autoCommaEnabled = swComma.isChecked()
-        geminiCorrectionEnabled = swCorr.isChecked()
-        continuousDictationEnabled = swCont.isChecked()
-        autoSpaceEnabled = swSpace.isChecked()
-        saveSettings()
-        if aiSettingsDialog then pcall(function() wm.removeView(aiSettingsDialog) end); aiSettingsDialog = nil end
-        service.asyncSpeak("تم حفظ إعدادات الإملاء والذكاء الاصطناعي بنجاح.")
-    end)
-    btnL.addView(saveBtn)
-
-    local closeBtn = Button(service); closeBtn.setText("❌ إلغاء"); styleButton(closeBtn, "danger")
-    closeBtn.setOnClickListener(function()
-        if aiSettingsDialog then pcall(function() wm.removeView(aiSettingsDialog) end); aiSettingsDialog = nil end
-    end)
-    local lpClose = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT); lpClose.topMargin = 20
-    btnL.addView(closeBtn, lpClose)
-    contentL.addView(btnL)
-
-    scrollV.addView(contentL)
-    aiSettingsDialog.addView(scrollV)
-
-    local p = WindowManager.LayoutParams()
-    p.width = WindowManager.LayoutParams.MATCH_PARENT
-    p.height = WindowManager.LayoutParams.MATCH_PARENT
-    p.type = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
-    p.flags = WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-    p.format = PixelFormat.TRANSLUCENT
+    local p = WindowManager.LayoutParams(-1, -1, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY, WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN, PixelFormat.TRANSLUCENT)
     p.gravity = Gravity.CENTER
-
     pcall(function() wm.addView(aiSettingsDialog, p) end)
 end
+
+
 -- ### OTA Update Functions ###
 function downloadUpdateAndApply()
     service.asyncSpeak("جاري تنزيل التحديث...")
@@ -4307,7 +4300,6 @@ function checkForUpdates(silent)
     end)
 end
 
-
 function openSettings()
     if settingsDialog then return end
     settingsDialog = LinearLayout(service)
@@ -4319,34 +4311,8 @@ function openSettings()
     local contentL = LinearLayout(service)
     contentL.setOrientation(LinearLayout.VERTICAL)
     contentL.setPadding(10,10,10,10)
-
-    local titleTxt = TextView(service)
-    titleTxt.setText("الإعدادات المتقدمة ⚙️")
-    titleTxt.setTextSize(24)
-    titleTxt.setTypeface(nil, Typeface.BOLD)
-    local mainAiBtn = Button(service); mainAiBtn.setText("🧠 إعدادات الإملاء والذكاء الاصطناعي"); styleButton(mainAiBtn, "primary")
-    mainAiBtn.setOnClickListener(function() openAiSettingsWindow() end)
-    contentL.addView(mainAiBtn, LinearLayout.LayoutParams(-1, -2))
-    titleTxt.setTextColor(0xFFFFFFFF)
-    titleTxt.setGravity(Gravity.CENTER_HORIZONTAL)
-    titleTxt.setPadding(0,0,0,40)
-    contentL.addView(titleTxt)
-
-    local function testModelConnection(modelIdToTest)
-        local prompt = "Test connection. Say OK."
-        service.asyncSpeak("جاري اختبار الموديل...")
-        makeAiRequest(prompt, nil, nil, modelIdToTest, function(result)
-            local msg = ""
-            if result:match("AI Request Failed") then
-                if result:match("404") then msg = "خطأ 404: الموديل غير موجود."
-                elseif result:match("429") then msg = "خطأ 429: تجاوزت حد الاستخدام."
-                elseif result:match("401") then msg = "خطأ 401: مفتاح غير صالح."
-                else msg = "فشل الاتصال: " .. result end
-            else msg = "✅ الموديل يعمل بنجاح!" end
-            service.asyncSpeak(msg)
-            showResultWindow("اختبار الموديل", msg .. "\n\n" .. result)
-        end)
-    end
+    scrollV.addView(contentL)
+    settingsDialog.addView(scrollV)
 
     local function addSectionHeader(text, parent)
         local header = TextView(service)
@@ -4367,359 +4333,240 @@ function openSettings()
         return lbl
     end
 
-    -- SECTION: API Keys
-    local apiCard = createCard(contentL)
-    addSectionHeader("مفاتيح الربط (API Keys)", apiCard)
+    -- Initial variables for save logic
+    local groqApiKeyIn, gemApiKeyIn, witApiKeyIn, tavilyApiKeyIn
 
-    apiCard.addView(createLabel("مفتاح Groq API:"))
-    local groqApiKeyIn = EditText(service)
-    groqApiKeyIn.setText(groqApiKey or "")
-    styleEditText(groqApiKeyIn)
-    groqApiKeyIn.addTextChangedListener{onTextChanged=function(s) groqApiKey=s and s.toString() or "" end}
-    groqApiKeyIn.setOnTouchListener(View.OnTouchListener{ onTouch = function(v, event) if event.getAction() == MotionEvent.ACTION_UP then v.requestFocus(); local imm = service.getSystemService(Context.INPUT_METHOD_SERVICE); if imm then imm.showSoftInput(v, 1) end end return false end })
-    apiCard.addView(groqApiKeyIn)
+    local sections = {
+        function() -- 1. Header
+            local titleTxt = TextView(service)
+            titleTxt.setText("الإعدادات المتقدمة ⚙️")
+            titleTxt.setTextSize(24)
+            titleTxt.setTypeface(nil, Typeface.BOLD)
+            titleTxt.setTextColor(0xFFFFFFFF)
+            titleTxt.setGravity(Gravity.CENTER_HORIZONTAL)
+            titleTxt.setPadding(0,0,0,40)
+            contentL.addView(titleTxt)
 
-    apiCard.addView(createLabel("مفتاح Gemini API:"))
-    local gemApiKeyIn = EditText(service)
-    gemApiKeyIn.setText(geminiApiKey or "")
-    styleEditText(gemApiKeyIn)
-    gemApiKeyIn.addTextChangedListener{onTextChanged=function(s) geminiApiKey=s and s.toString() or "" end}
-    gemApiKeyIn.setOnTouchListener(View.OnTouchListener{ onTouch = function(v, event) if event.getAction() == MotionEvent.ACTION_UP then v.requestFocus(); local imm = service.getSystemService(Context.INPUT_METHOD_SERVICE); if imm then imm.showSoftInput(v, 1) end end return false end })
-    apiCard.addView(gemApiKeyIn)
+            local mainAiBtn = Button(service); mainAiBtn.setText("🧠 إعدادات الإملاء والذكاء الاصطناعي"); styleButton(mainAiBtn, "primary")
+            mainAiBtn.setOnClickListener(function() openAiSettingsWindow() end)
+            contentL.addView(mainAiBtn, LinearLayout.LayoutParams(-1, -2))
+        end,
+        function() -- 2. API Keys
+            local apiCard = createCard(contentL)
+            addSectionHeader("مفاتيح الربط (API Keys)", apiCard)
 
-    apiCard.addView(createLabel("مفتاح Wit.ai (Facebook) API:"))
-    local witApiKeyIn = EditText(service)
-    witApiKeyIn.setText(witApiKey or "")
-    styleEditText(witApiKeyIn)
-    witApiKeyIn.addTextChangedListener{onTextChanged=function(s) witApiKey=s and s.toString() or "" end}
-    witApiKeyIn.setOnTouchListener(View.OnTouchListener{ onTouch = function(v, event) if event.getAction() == MotionEvent.ACTION_UP then v.requestFocus(); local imm = service.getSystemService(Context.INPUT_METHOD_SERVICE); if imm then imm.showSoftInput(v, 1) end end return false end })
-    apiCard.addView(witApiKeyIn)
+            apiCard.addView(createLabel("مفتاح Groq API:"))
+            groqApiKeyIn = EditText(service); groqApiKeyIn.setText(groqApiKey or ""); styleEditText(groqApiKeyIn)
+            groqApiKeyIn.addTextChangedListener{onTextChanged=function(s) groqApiKey=s and s.toString() or "" end}
+            groqApiKeyIn.setOnTouchListener(View.OnTouchListener{ onTouch = function(v, event) if event.getAction() == MotionEvent.ACTION_UP then v.requestFocus(); local imm = service.getSystemService(Context.INPUT_METHOD_SERVICE); if imm then imm.showSoftInput(v, 1) end end return false end })
+            apiCard.addView(groqApiKeyIn)
 
-    apiCard.addView(createLabel("مفتاح Tavily Search API:"))
-    local tavilyApiKeyIn = EditText(service)
-    tavilyApiKeyIn.setText(tavilyApiKey or "")
-    styleEditText(tavilyApiKeyIn)
-    tavilyApiKeyIn.addTextChangedListener{onTextChanged=function(s) tavilyApiKey=s and s.toString() or "" end}
-    tavilyApiKeyIn.setOnTouchListener(View.OnTouchListener{ onTouch = function(v, event) if event.getAction() == MotionEvent.ACTION_UP then v.requestFocus(); local imm = service.getSystemService(Context.INPUT_METHOD_SERVICE); if imm then imm.showSoftInput(v, 1) end end return false end })
-    apiCard.addView(tavilyApiKeyIn)
+            apiCard.addView(createLabel("مفتاح Gemini API:"))
+            gemApiKeyIn = EditText(service); gemApiKeyIn.setText(geminiApiKey or ""); styleEditText(gemApiKeyIn)
+            gemApiKeyIn.addTextChangedListener{onTextChanged=function(s) geminiApiKey=s and s.toString() or "" end}
+            gemApiKeyIn.setOnTouchListener(View.OnTouchListener{ onTouch = function(v, event) if event.getAction() == MotionEvent.ACTION_UP then v.requestFocus(); local imm = service.getSystemService(Context.INPUT_METHOD_SERVICE); if imm then imm.showSoftInput(v, 1) end end return false end })
+            apiCard.addView(gemApiKeyIn)
 
-    -- SECTION: Model Selection
-    local modelCard = createCard(contentL)
-    addSectionHeader("اختيار النماذج (Models)", modelCard)
+            apiCard.addView(createLabel("مفتاح Wit.ai (Facebook) API:"))
+            witApiKeyIn = EditText(service); witApiKeyIn.setText(witApiKey or ""); styleEditText(witApiKeyIn)
+            witApiKeyIn.addTextChangedListener{onTextChanged=function(s) witApiKey=s and s.toString() or "" end}
+            witApiKeyIn.setOnTouchListener(View.OnTouchListener{ onTouch = function(v, event) if event.getAction() == MotionEvent.ACTION_UP then v.requestFocus(); local imm = service.getSystemService(Context.INPUT_METHOD_SERVICE); if imm then imm.showSoftInput(v, 1) end end return false end })
+            apiCard.addView(witApiKeyIn)
 
-    modelCard.addView(createLabel("اختر موديل تفريغ الصوت (Transcription):"))
-    local audNames = ArrayList(); local audIds = {}
-    for _, m in ipairs(audioModels) do audNames.add(m.name); table.insert(audIds, m.id) end
-    local audAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, audNames); audAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-    local audSpinner = Spinner(service); audSpinner.setAdapter(audAdapter)
-    local currAudIdx = -1; for i, id in ipairs(audIds) do if id == selectedAudioModelId then currAudIdx = i-1 break end end
-    if currAudIdx ~= -1 then audSpinner.setSelection(currAudIdx) end
-    audSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener { onItemSelected = function(parent, view, position, id) selectedAudioModelId = audIds[position + 1] end })
-    modelCard.addView(audSpinner)
+            apiCard.addView(createLabel("مفتاح Tavily Search API:"))
+            tavilyApiKeyIn = EditText(service); tavilyApiKeyIn.setText(tavilyApiKey or ""); styleEditText(tavilyApiKeyIn)
+            tavilyApiKeyIn.addTextChangedListener{onTextChanged=function(s) tavilyApiKey=s and s.toString() or "" end}
+            tavilyApiKeyIn.setOnTouchListener(View.OnTouchListener{ onTouch = function(v, event) if event.getAction() == MotionEvent.ACTION_UP then v.requestFocus(); local imm = service.getSystemService(Context.INPUT_METHOD_SERVICE); if imm then imm.showSoftInput(v, 1) end end return false end })
+            apiCard.addView(tavilyApiKeyIn)
+        end,
+        function() -- 3. Models
+            local modelCard = createCard(contentL)
+            addSectionHeader("اختيار النماذج (Models)", modelCard)
 
-    modelCard.addView(createLabel("اختر موديل Groq (Text AI):"))
-    local grNames = ArrayList(); local grIds = {}
-    local foundGr = false; for _, m in ipairs(groqModels) do if m.id == selectedGroqModelId then foundGr = true break end end
-    if not foundGr and selectedGroqModelId ~= "" then grNames.add(selectedGroqModelId); table.insert(grIds, selectedGroqModelId) end
-    for _, m in ipairs(groqModels) do grNames.add(m.name); table.insert(grIds, m.id) end
-    local grAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, grNames); grAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-    local grSpinner = Spinner(service); grSpinner.setAdapter(grAdapter)
-    local currGrIdx = -1; for i, id in ipairs(grIds) do if id == selectedGroqModelId then currGrIdx = i-1 break end end
-    if currGrIdx ~= -1 then grSpinner.setSelection(currGrIdx) end
-    grSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener { onItemSelected = function(parent, view, position, id) selectedGroqModelId = grIds[position + 1] end })
-    modelCard.addView(grSpinner)
+            modelCard.addView(createLabel("اختر موديل تفريغ الصوت (Transcription):"))
+            local audNames = ArrayList(); local audIds = {}
+            for _, m in ipairs(audioModels) do audNames.add(m.name); table.insert(audIds, m.id) end
+            local audAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, audNames); audAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+            local audSpinner = Spinner(service); audSpinner.setAdapter(audAdapter)
+            local currAudIdx = -1; for i, id in ipairs(audIds) do if id == selectedAudioModelId then currAudIdx = i-1 break end end
+            if currAudIdx ~= -1 then audSpinner.setSelection(currAudIdx) end
+            audSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener { onItemSelected = function(parent, view, position, id) selectedAudioModelId = audIds[position + 1] end })
+            modelCard.addView(audSpinner)
 
-    local grFetchBtn = Button(service); grFetchBtn.setText("🔄 تحديث قائمة Groq"); styleButton(grFetchBtn, "secondary"); grFetchBtn.setContentDescription("تحديث قائمة موديلات Groq من الإنترنت");
-    grFetchBtn.setOnClickListener(function() fetchGroqModels(function() hideSettings(); openMainWindow() end) end)
-    modelCard.addView(grFetchBtn)
+            modelCard.addView(createLabel("اختر موديل Groq (Text AI):"))
+            local grNames = ArrayList(); local grIds = {}
+            local foundGr = false; for _, m in ipairs(groqModels) do if m.id == selectedGroqModelId then foundGr = true break end end
+            if not foundGr and selectedGroqModelId ~= "" then grNames.add(selectedGroqModelId); table.insert(grIds, selectedGroqModelId) end
+            for _, m in ipairs(groqModels) do grNames.add(m.name); table.insert(grIds, m.id) end
+            local grAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, grNames); grAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+            local grSpinner = Spinner(service); grSpinner.setAdapter(grAdapter)
+            local currGrIdx = -1; for i, id in ipairs(grIds) do if id == selectedGroqModelId then currGrIdx = i-1 break end end
+            if currGrIdx ~= -1 then grSpinner.setSelection(currGrIdx) end
+            grSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener { onItemSelected = function(parent, view, position, id) selectedGroqModelId = grIds[position + 1] end })
+            modelCard.addView(grSpinner)
 
-    modelCard.addView(createLabel("اختر موديل Gemini (Vision/PDF):"))
-    local gemNames = ArrayList(); local gemIds = {}
-    for _, m in ipairs(geminiModels) do gemNames.add(m.name); table.insert(gemIds, m.id) end
-    local gemAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, gemNames); gemAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-    local gemSpinner = Spinner(service); gemSpinner.setAdapter(gemAdapter)
-    local currGemIdx = -1; for i, id in ipairs(gemIds) do if id == selectedGeminiModelId then currGemIdx = i-1 break end end
-    if currGemIdx ~= -1 then gemSpinner.setSelection(currGemIdx) end
-    gemSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener { onItemSelected = function(parent, view, position, id) selectedGeminiModelId = gemIds[position + 1] end })
-    modelCard.addView(gemSpinner)
+            local grFetchBtn = Button(service); grFetchBtn.setText("🔄 تحديث قائمة Groq"); styleButton(grFetchBtn, "secondary"); grFetchBtn.setContentDescription("تحديث قائمة موديلات Groq من الإنترنت");
+            grFetchBtn.setOnClickListener(function() fetchGroqModels(function() hideSettings(); openMainWindow() end) end)
+            modelCard.addView(grFetchBtn)
 
-    modelCard.addView(createLabel("اختر محرك البحث (AI Search Model):"))
-    -- SECTION: Gemini Live Settings
-    local liveCard = createCard(contentL)
-    addSectionHeader("إعدادات البث المباشر (Gemini Live) 🎙️", liveCard)
+            modelCard.addView(createLabel("اختر موديل Gemini (Vision/PDF):"))
+            local gemNames = ArrayList(); local gemIds = {}
+            for _, m in ipairs(geminiModels) do gemNames.add(m.name); table.insert(gemIds, m.id) end
+            local gemAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, gemNames); gemAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+            local gemSpinner = Spinner(service); gemSpinner.setAdapter(gemAdapter)
+            local currGemIdx = -1; for i, id in ipairs(gemIds) do if id == selectedGeminiModelId then currGemIdx = i-1 break end end
+            if currGemIdx ~= -1 then gemSpinner.setSelection(currGemIdx) end
+            gemSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener { onItemSelected = function(parent, view, position, id) selectedGeminiModelId = gemIds[position + 1] end })
+            modelCard.addView(gemSpinner)
+        end,
+        function() -- 4. Gemini Live
+            local liveCard = createCard(contentL)
+            addSectionHeader("إعدادات البث المباشر (Gemini Live) 🎙️", liveCard)
 
-    liveCard.addView(createLabel("التعليمات المخصصة للبث (System Instruction):"))
-    local liveSysIn = EditText(service)
-    liveSysIn.setText(geminiLiveSystemInstruction or "")
-    styleEditText(liveSysIn)
-    liveSysIn.addTextChangedListener{onTextChanged=function(s) geminiLiveSystemInstruction=s and s.toString() or "" end}
-    liveSysIn.setOnTouchListener(View.OnTouchListener{ onTouch = function(v, event) if event.getAction() == MotionEvent.ACTION_UP then v.requestFocus(); local imm = service.getSystemService(Context.INPUT_METHOD_SERVICE); if imm then imm.showSoftInput(v, 1) end end return false end })
-    liveCard.addView(liveSysIn)
+            liveCard.addView(createLabel("التعليمات المخصصة للبث (System Instruction):"))
+            local liveSysIn = EditText(service); liveSysIn.setText(geminiLiveSystemInstruction or ""); styleEditText(liveSysIn)
+            liveSysIn.addTextChangedListener{onTextChanged=function(s) geminiLiveSystemInstruction=s and s.toString() or "" end}
+            liveSysIn.setOnTouchListener(View.OnTouchListener{ onTouch = function(v, event) if event.getAction() == MotionEvent.ACTION_UP then v.requestFocus(); local imm = service.getSystemService(Context.INPUT_METHOD_SERVICE); if imm then imm.showSoftInput(v, 1) end end return false end })
+            liveCard.addView(liveSysIn)
 
-    liveCard.addView(createLabel("صوت المساعد (Voice):"))
-    local glvNames = ArrayList(); local glvIds = {}
-    for _, v in ipairs(geminiLiveVoices) do glvNames.add(v.name); table.insert(glvIds, v.id) end
-    local glvAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, glvNames); glvAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-    local glvSpinner = Spinner(service); glvSpinner.setAdapter(glvAdapter)
-    local currGlvIdx = -1; for i, id in ipairs(glvIds) do if id == geminiLiveVoiceName then currGlvIdx = i-1 break end end
-    if currGlvIdx ~= -1 then glvSpinner.setSelection(currGlvIdx) else glvSpinner.setSelection(0) end
-    glvSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener { onItemSelected = function(parent, view, position, id) geminiLiveVoiceName = glvIds[position + 1] end })
-    liveCard.addView(glvSpinner)
+            liveCard.addView(createLabel("صوت المساعد (Voice):"))
+            local glvNames = ArrayList(); local glvIds = {}
+            for _, v in ipairs(geminiLiveVoices) do glvNames.add(v.name); table.insert(glvIds, v.id) end
+            local glvAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, glvNames); glvAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+            local glvSpinner = Spinner(service); glvSpinner.setAdapter(glvAdapter)
+            local currGlvIdx = -1; for i, id in ipairs(glvIds) do if id == geminiLiveVoiceName then currGlvIdx = i-1 break end end
+            if currGlvIdx ~= -1 then glvSpinner.setSelection(currGlvIdx) else glvSpinner.setSelection(0) end
+            glvSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener { onItemSelected = function(parent, view, position, id) geminiLiveVoiceName = glvIds[position + 1] end })
+            liveCard.addView(glvSpinner)
+        end,
+        function() -- 5. Search & Sort
+            local modelCard = contentL.getChildAt(contentL.getChildCount()-2) -- Hacky, but works if structure is stable
+            -- Add search spinner to existing model card
+            modelCard.addView(createLabel("اختر محرك البحث (AI Search Model):"))
+            local searchNames = ArrayList(); local searchIds = {}
+            for _, m in ipairs(groqModels) do if m.id:match("compound") then searchNames.add(m.name); table.insert(searchIds, m.id) end end
+            local searchAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, searchNames); searchAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+            local searchSpinner = Spinner(service); searchSpinner.setAdapter(searchAdapter)
+            local currSearchIdx = -1; for i, id in ipairs(searchIds) do if id == selectedSearchModelId then currSearchIdx = i-1 break end end
+            if currSearchIdx ~= -1 then searchSpinner.setSelection(currSearchIdx) end
+            searchSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener { onItemSelected = function(parent, view, position, id) selectedSearchModelId = searchIds[position + 1] end })
+            modelCard.addView(searchSpinner)
 
-
-    local searchNames = ArrayList(); local searchIds = {}
-    -- Only show compound models for search
-    for _, m in ipairs(groqModels) do
-        if m.id:match("compound") then
-            searchNames.add(m.name); table.insert(searchIds, m.id)
-        end
-    end
-    local searchAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, searchNames); searchAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-    local searchSpinner = Spinner(service); searchSpinner.setAdapter(searchAdapter)
-    local currSearchIdx = -1; for i, id in ipairs(searchIds) do if id == selectedSearchModelId then currSearchIdx = i-1 break end end
-    if currSearchIdx ~= -1 then searchSpinner.setSelection(currSearchIdx) end
-    searchSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener { onItemSelected = function(parent, view, position, id) selectedSearchModelId = searchIds[position + 1] end })
-    modelCard.addView(searchSpinner)
-
-        local sortCard = createCard(contentL)
-    addSectionHeader("ترتيب اللوحة السريعة", sortCard)
-
-    local openSortDialogBtn = Button(service)
-    openSortDialogBtn.setText("تعديل ترتيب أزرار الواجهة الرئيسية")
-    styleButton(openSortDialogBtn, "primary")
-    openSortDialogBtn.setOnClickListener(function()
-        local builder = AlertDialog.Builder(service)
-        builder.setTitle("ترتيب اللوحة السريعة")
-
-        local scrollView = ScrollView(service)
-        local sortContainer = LinearLayout(service)
-        sortContainer.setOrientation(LinearLayout.VERTICAL)
-        sortContainer.setPadding(30, 30, 30, 30)
-        scrollView.addView(sortContainer)
-        builder.setView(scrollView)
-
-        local sortDialog = nil
-
-        local keyNames = {
-            dictation = "الإملاء والترجمة",
-            doc_reader = "المكتبة والقارئ", video_analyzer = "محلل الفيديو",
-            image = "وصف الصور",
-            transcription = "تفريغ الصوت",
-            settings = "الإعدادات", geminiLive = "البث المباشر (Gemini Live)"
-        }
-
-        dashboardOrder = prefs.getString("dashboardOrder", "dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings")
-        if dashboardOrder:match("reader") and not dashboardOrder:match("doc_reader") then dashboardOrder = dashboardOrder:gsub("reader", "doc_reader") end
-        if dashboardOrder:match("library") and not dashboardOrder:match("doc_reader") then dashboardOrder = dashboardOrder:gsub("library", "doc_reader") end
-        if dashboardOrder:match("assistant,") then dashboardOrder = dashboardOrder:gsub("assistant,", "") end
-        if dashboardOrder:match(",assistant") then dashboardOrder = dashboardOrder:gsub(",assistant", "") end
-        if dashboardOrder == "assistant" then dashboardOrder = "dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings" end
-
-        local defaultBtns = {"dictation", "geminiLive", "doc_reader", "video_analyzer", "image", "transcription", "settings"}
-        for _, btn in ipairs(defaultBtns) do
-            if not dashboardOrder:match("^" .. btn .. "$") and not dashboardOrder:match("^" .. btn .. ",") and not dashboardOrder:match("," .. btn .. "$") and not dashboardOrder:match("," .. btn .. ",") then
-                dashboardOrder = dashboardOrder .. "," .. btn
-            end
-        end
-
-        local function refreshSortUI()
-            sortContainer.removeAllViews()
-
-            local keys = {}
-
-            for k in dashboardOrder:gmatch("([^,]+)") do
-                local cleanKey = k:gsub("^%%s+", ""):gsub("%%s+$", "")
-                if keyNames[cleanKey] then
-                    keys[#keys + 1] = cleanKey
+            local sortCard = createCard(contentL)
+            addSectionHeader("ترتيب اللوحة السريعة", sortCard)
+            local openSortDialogBtn = Button(service); openSortDialogBtn.setText("تعديل ترتيب أزرار الواجهة الرئيسية"); styleButton(openSortDialogBtn, "primary")
+            openSortDialogBtn.setOnClickListener(function()
+                local builder = AlertDialog.Builder(service); builder.setTitle("ترتيب اللوحة السريعة")
+                local scrollView = ScrollView(service); local sortContainer = LinearLayout(service); sortContainer.setOrientation(LinearLayout.VERTICAL); sortContainer.setPadding(30, 30, 30, 30); scrollView.addView(sortContainer); builder.setView(scrollView)
+                local sortDialog = nil; local keyNames = { dictation = "الإملاء والترجمة", doc_reader = "المكتبة والقارئ", video_analyzer = "محلل الفيديو", image = "وصف الصور", transcription = "تفريغ الصوت", settings = "الإعدادات", geminiLive = "البث المباشر (Gemini Live)" }
+                local function refreshSortUI()
+                    sortContainer.removeAllViews(); local keys = {}
+                    for k in dashboardOrder:gmatch("([^,]+)") do local cleanKey = k:gsub("^%s+", ""):gsub("%s+$", ""); if keyNames[cleanKey] then table.insert(keys, cleanKey) end end
+                    for i, k in ipairs(keys) do
+                        local row = LinearLayout(service); row.setGravity(Gravity.CENTER_VERTICAL); row.setPadding(0, 15, 0, 15)
+                        local nameTv = TextView(service); nameTv.setText(keyNames[k] or k); nameTv.setTextColor(0xFF000000); nameTv.setTextSize(17); row.addView(nameTv, LinearLayout.LayoutParams(0, -2, 1.0))
+                        if i > 1 then
+                            local upBtn = Button(service); upBtn.setText("🔼"); styleButton(upBtn, "secondary"); upBtn.setPadding(10,10,10,10)
+                            upBtn.setOnClickListener(function() table.remove(keys, i); table.insert(keys, i-1, k); dashboardOrder = table.concat(keys, ","); refreshSortUI() end); row.addView(upBtn)
+                        end
+                        if i < #keys then
+                            local downBtn = Button(service); downBtn.setText("🔽"); styleButton(downBtn, "secondary"); downBtn.setPadding(10,10,10,10)
+                            downBtn.setOnClickListener(function() table.remove(keys, i); table.insert(keys, i+1, k); dashboardOrder = table.concat(keys, ","); refreshSortUI() end); local dlp = LinearLayout.LayoutParams(-2, -2); dlp.leftMargin = 15; row.addView(downBtn, dlp)
+                        end
+                        sortContainer.addView(row)
+                    end
                 end
-            end
+                refreshSortUI()
+                builder.setPositiveButton("حفظ وإغلاق", function() local editor = prefs.edit(); editor.putString("dashboardOrder", dashboardOrder); editor.apply(); if sortDialog then sortDialog.dismiss() end end)
+                sortDialog = builder.create(); sortDialog.getWindow().setType(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY); sortDialog.show()
+            end)
+            sortCard.addView(openSortDialogBtn)
+        end,
+        function() -- 6. Voice & Tools
+            local voiceCard = createCard(contentL)
+            addSectionHeader("إعدادات الصوت والإملاء", voiceCard)
+            voiceCard.addView(createLabel("لغة الإملاء الأساسية:"))
+            local langNames = ArrayList(); local langIds = {}
+            for _, l in ipairs(supportedLanguages) do langNames.add(l.name); table.insert(langIds, l.code) end
+            local langAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, langNames); langAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+            local langSpinner = Spinner(service); langSpinner.setAdapter(langAdapter)
+            local currLangIdx = 0; for i, id in ipairs(langIds) do if id == selectedLanguage then currLangIdx = i-1 break end end
+            langSpinner.setSelection(currLangIdx); langSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener { onItemSelected = function(parent, view, position, id) selectedLanguage = langIds[position + 1] end }); voiceCard.addView(langSpinner)
 
-            for i, k in ipairs(keys) do
-                local row = LinearLayout(service)
-                row.setGravity(Gravity.CENTER_VERTICAL)
-                row.setPadding(0, 15, 0, 15)
+            local voiceDesc = TextView(service)
+            voiceDesc.setText("جميع خيارات الإملاء المتطورة (مثل الوضع المصري، الفصحى، التشكيل، والإملاء المستمر) تم نقلها إلى نافذة إعدادات الذكاء الاصطناعي.")
+            voiceDesc.setTextSize(14); voiceDesc.setTextColor(0xFFB0B0B0); voiceDesc.setPadding(10, 0, 10, 20)
+            voiceCard.addView(voiceDesc)
 
-                local nameTv = TextView(service)
-                nameTv.setText(keyNames[k] or k)
-                nameTv.setTextColor(0xFF000000) -- Black text for dialog
-                nameTv.setTextSize(17)
-                local lp = LinearLayout.LayoutParams(0, -2, 1.0)
-                row.addView(nameTv, lp)
+            local goToAiBtn = Button(service); goToAiBtn.setText("⚙️ فتح إعدادات الإملاء والذكاء"); styleButton(goToAiBtn, "secondary")
+            goToAiBtn.setContentDescription("فتح نافذة إعدادات الذكاء الاصطناعي والإملاء المتطورة")
+            goToAiBtn.setOnClickListener(function() openAiSettingsWindow() end); voiceCard.addView(goToAiBtn)
 
-                if i > 1 then
-                    local upBtn = Button(service); upBtn.setText("🔼"); styleButton(upBtn, "secondary")
-                    upBtn.setContentDescription("نقل " .. (keyNames[k] or k) .. " للأعلى")
-                    upBtn.setPadding(10, 10, 10, 10)
-                    upBtn.setOnClickListener(function()
-                        keys[i], keys[i-1] = keys[i-1], keys[i]
-                        dashboardOrder = table.concat(keys, ",")
-                        service.asyncSpeak("تم نقل " .. (keyNames[k] or k) .. " للأعلى")
-                        refreshSortUI()
-                    end)
-                    row.addView(upBtn)
-                end
+            local aiCard = createCard(contentL)
+            addSectionHeader("الأدوات والذكاء الاصطناعي 🛠️", aiCard)
+            local swTrans = Switch(service); swTrans.setChecked(newTranslationFeatureEnabled); swTrans.setOnCheckedChangeListener(function(_, c) newTranslationFeatureEnabled=c end)
+            createSettingRow("الترجمة التلقائية والشاملة", swTrans, aiCard)
+            aiCard.addView(createLabel("اللغة المترجم إليها (الهدف):"))
+            local trLangNames = ArrayList(); local trLangIds = {}
+            for _, l in ipairs(supportedLanguages) do trLangNames.add(l.name); table.insert(trLangIds, l.code) end
+            local trLangAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, trLangNames); trLangAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+            local trLangSpinner = Spinner(service); trLangSpinner.setAdapter(trLangAdapter)
+            local currTrLangIdx = 0; for i, id in ipairs(trLangIds) do if id == translateToLanguage then currTrLangIdx = i-1 break end end
+            trLangSpinner.setSelection(currTrLangIdx); trLangSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener { onItemSelected = function(parent, view, position, id) translateToLanguage = trLangIds[position + 1] end }); aiCard.addView(trLangSpinner)
+            local swSum = Switch(service); swSum.setChecked(summarizeEnabled); swSum.setOnCheckedChangeListener(function(_, c) summarizeEnabled=c end); createSettingRow("تلخيص النصوص التلقائي", swSum, aiCard)
+            local switchImg = Switch(service); switchImg.setChecked(imageDescriptionEnabled); createSettingRow("وصف الصور والشاشة", switchImg, aiCard)
+            local screenModeContainer = LinearLayout(service); screenModeContainer.setOrientation(LinearLayout.VERTICAL); screenModeContainer.setPadding(60, 0, 40, 20)
+            local smNames = ArrayList(); smNames.add("كامل الشاشة"); smNames.add("العنصر المحدد")
+            local smAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, smNames); smAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+            local smSpinner = Spinner(service); smSpinner.setAdapter(smAdapter); smSpinner.setSelection(screenshotMode == "focus" and 1 or 0)
+            smSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener { onItemSelected = function(p, v, pos, id) screenshotMode = (pos == 1 and "focus" or "full") end }); screenModeContainer.addView(smSpinner); aiCard.addView(screenModeContainer)
+            local function updateVisionVisibility(enabled) screenModeContainer.setVisibility(enabled and View.VISIBLE or View.GONE) end
+            updateVisionVisibility(imageDescriptionEnabled); switchImg.setOnCheckedChangeListener(function(_, c) imageDescriptionEnabled = c; updateVisionVisibility(c) end)
+        end,
+        function() -- 7. UI & Save
+            local uiCard = createCard(contentL)
+            addSectionHeader("الواجهة والتحديثات", uiCard)
+            local switchStart = Switch(service); switchStart.setChecked(startWithDictation); switchStart.setOnCheckedChangeListener(function(_, c) startWithDictation=c end); createSettingRow("بدء التطبيق بالإملاء", switchStart, uiCard)
+            local switchFloat = Switch(service); switchFloat.setChecked(showFloatingSettingsButtonEnabled); switchFloat.setOnCheckedChangeListener(function(_, c) showFloatingSettingsButtonEnabled=c end); createSettingRow("الزر العائم", switchFloat, uiCard)
+            local checkUpdateBtn = Button(service); checkUpdateBtn.setText("🔄 التحقق من وجود تحديثات"); styleButton(checkUpdateBtn, "secondary")
+            checkUpdateBtn.setOnClickListener(function() checkForUpdates(false) end); uiCard.addView(checkUpdateBtn, LinearLayout.LayoutParams(-1, -2))
+            local versionTv = TextView(service); versionTv.setText("الإصدار الحالي: " .. currentAppVersion); versionTv.setTextColor(0xFF888888); versionTv.setGravity(Gravity.CENTER); uiCard.addView(versionTv)
 
-                if i < #keys then
-                    local downBtn = Button(service); downBtn.setText("🔽"); styleButton(downBtn, "secondary")
-                    downBtn.setContentDescription("نقل " .. (keyNames[k] or k) .. " للأسفل")
-                    downBtn.setPadding(10, 10, 10, 10)
-                    downBtn.setOnClickListener(function()
-                        keys[i], keys[i+1] = keys[i+1], keys[i]
-                        dashboardOrder = table.concat(keys, ",")
-                        service.asyncSpeak("تم نقل " .. (keyNames[k] or k) .. " للأسفل")
-                        refreshSortUI()
-                    end)
-                    local dlp = LinearLayout.LayoutParams(-2, -2)
-                    dlp.leftMargin = 15
-                    row.addView(downBtn, dlp)
-                end
-                sortContainer.addView(row)
-            end
+            local btnL = LinearLayout(service); btnL.setOrientation(LinearLayout.VERTICAL); btnL.setGravity(Gravity.CENTER); btnL.setPadding(0,40,0,10)
+            local saveBtn = Button(service); saveBtn.setText("💾 حفظ وإغلاق"); styleButton(saveBtn, "primary")
+            saveBtn.setContentDescription("حفظ جميع الإعدادات الحالية والعودة")
+            saveBtn.setOnClickListener(function()
+                if groqApiKeyIn then groqApiKey = groqApiKeyIn.getText().toString() end
+                if gemApiKeyIn then geminiApiKey = gemApiKeyIn.getText().toString() end
+                if witApiKeyIn then witApiKey = witApiKeyIn.getText().toString() end
+                if tavilyApiKeyIn then tavilyApiKey = tavilyApiKeyIn.getText().toString() end
+                saveSettings()
+            end)
+            btnL.addView(saveBtn)
+            local closeBtn = Button(service); closeBtn.setText("❌ إلغاء"); styleButton(closeBtn, "danger")
+            closeBtn.setContentDescription("إلغاء التغييرات وإغلاق الإعدادات")
+            closeBtn.setOnClickListener(hideSettings); local lpClose = LinearLayout.LayoutParams(-1, -2); lpClose.topMargin=20; btnL.addView(closeBtn, lpClose)
+            local backBtn = Button(service); backBtn.setText("⬅️ العودة للوحة التحكم"); styleButton(backBtn, "secondary")
+            backBtn.setContentDescription("العودة إلى لوحة التحكم الرئيسية")
+            backBtn.setOnClickListener(function() hideSettings(); openMainWindow() end); local lpBack = LinearLayout.LayoutParams(-1, -2); lpBack.topMargin=20; btnL.addView(backBtn, lpBack)
+            contentL.addView(btnL)
         end
-        refreshSortUI()
+    }
 
-        builder.setPositiveButton("حفظ وإغلاق", function()
-            local editor = prefs.edit()
-            editor.putString("dashboardOrder", dashboardOrder)
-            editor.apply()
-            service.asyncSpeak("تم حفظ ترتيب الأزرار")
-            if sortDialog then sortDialog.dismiss() end
-        end)
-
-        sortDialog = builder.create()
-        -- Must show before accessing window properties
-        sortDialog.getWindow().setType(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY)
-        sortDialog.show()
-    end)
-    sortCard.addView(openSortDialogBtn)
-
-    -- SECTION: Voice & Language
-    local voiceCard = createCard(contentL)
-    addSectionHeader("إعدادات الصوت والإملاء", voiceCard)
-    voiceCard.addView(createLabel("لغة الإملاء الأساسية:"))
-    local langNames = ArrayList(); local langIds = {}
-    for _, l in ipairs(supportedLanguages) do langNames.add(l.name); table.insert(langIds, l.code) end
-    local langAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, langNames); langAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-    local langSpinner = Spinner(service); langSpinner.setAdapter(langAdapter)
-    local currLangIdx = 0; for i, id in ipairs(langIds) do if id == selectedLanguage then currLangIdx = i-1 break end end
-    langSpinner.setSelection(currLangIdx)
-    langSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener { onItemSelected = function(parent, view, position, id) selectedLanguage = langIds[position + 1] end })
-    voiceCard.addView(langSpinner)
-
-    local voiceDesc = TextView(service)
-    voiceDesc.setText("جميع خيارات الإملاء المتطورة (مثل الوضع المصري، الفصحى، التشكيل، والإملاء المستمر) تم نقلها إلى نافذة إعدادات الذكاء الاصطناعي.")
-    voiceDesc.setTextSize(14)
-    voiceDesc.setTextColor(0xFFB0B0B0)
-    voiceDesc.setPadding(10, 0, 10, 20)
-    voiceCard.addView(voiceDesc)
-
-    local goToAiBtn = Button(service); goToAiBtn.setText("⚙️ فتح إعدادات الإملاء والذكاء"); styleButton(goToAiBtn, "secondary")
-    goToAiBtn.setOnClickListener(function() openAiSettingsWindow() end)
-    voiceCard.addView(goToAiBtn)
-    local aiCard = createCard(contentL)
-    addSectionHeader("الأدوات والذكاء الاصطناعي 🛠️", aiCard)
-
-    local swTrans = Switch(service); swTrans.setChecked(newTranslationFeatureEnabled); swTrans.setOnCheckedChangeListener(function(_, c) newTranslationFeatureEnabled=c end)
-    createSettingRow("الترجمة التلقائية والشاملة", swTrans, aiCard)
-    aiCard.addView(createLabel("اللغة المترجم إليها (الهدف):"))
-    local trLangNames = ArrayList(); local trLangIds = {}
-    for _, l in ipairs(supportedLanguages) do trLangNames.add(l.name); table.insert(trLangIds, l.code) end
-    local trLangAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, trLangNames); trLangAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-    local trLangSpinner = Spinner(service); trLangSpinner.setAdapter(trLangAdapter)
-    local currTrLangIdx = 0; for i, id in ipairs(trLangIds) do if id == translateToLanguage then currTrLangIdx = i-1 break end end
-    trLangSpinner.setSelection(currTrLangIdx)
-    trLangSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener { onItemSelected = function(parent, view, position, id) translateToLanguage = trLangIds[position + 1] end })
-    aiCard.addView(trLangSpinner)
-
-    local swSum = Switch(service); swSum.setChecked(summarizeEnabled); swSum.setOnCheckedChangeListener(function(_, c) summarizeEnabled=c end)
-    createSettingRow("تلخيص النصوص التلقائي", swSum, aiCard)
-
-    local switchImg = Switch(service); switchImg.setChecked(imageDescriptionEnabled)
-    createSettingRow("وصف الصور والشاشة", switchImg, aiCard)
-
-    local smNames = ArrayList(); local smIds = {"full", "focus"}
-    local screenModeContainer = LinearLayout(service)
-    screenModeContainer.setOrientation(LinearLayout.VERTICAL)
-    screenModeContainer.setPadding(60, 0, 40, 20)
-    smNames.add("كامل الشاشة"); smNames.add("العنصر المحدد")
-
-    local smAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, smNames)
-    smAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-    local smSpinner = Spinner(service)
-    smSpinner.setAdapter(smAdapter)
-
-    local currSmIdx = 0
-    if screenshotMode == "focus" then currSmIdx = 1 end
-    smSpinner.setSelection(currSmIdx)
-
-    smSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener {
-        onItemSelected = function(parent, view, position, id)
-            screenshotMode = smIds[position + 1]
-        end
-    })
-    screenModeContainer.addView(smSpinner)
-    aiCard.addView(screenModeContainer)
-    local function updateVisionVisibility(enabled)
-        if enabled then
-            screenModeContainer.setVisibility(View.VISIBLE)
-        else
-            screenModeContainer.setVisibility(View.GONE)
-        end
+    local function addSectionsSequentially(index)
+        if index > #sections then return end
+        sections[index]()
+        mainHandler.postDelayed(luajava.createProxy("java.lang.Runnable", {
+            run = function() addSectionsSequentially(index + 1) end
+        }), 50)
     end
 
-    updateVisionVisibility(imageDescriptionEnabled)
+    addSectionsSequentially(1)
 
-    switchImg.setOnCheckedChangeListener(function(_, c)
-        imageDescriptionEnabled = c
-        updateVisionVisibility(c)
-    end)
-
-    local uiCard = createCard(contentL)
-    addSectionHeader("الواجهة والتحديثات", uiCard)
-    local switchStart = Switch(service); switchStart.setChecked(startWithDictation); switchStart.setOnCheckedChangeListener(function(_, c) startWithDictation=c end)
-    createSettingRow("بدء التطبيق بالإملاء", switchStart, uiCard)
-
-
-    local switchFloat = Switch(service); switchFloat.setChecked(showFloatingSettingsButtonEnabled); switchFloat.setOnCheckedChangeListener(function(_, c) showFloatingSettingsButtonEnabled=c end)
-    createSettingRow("الزر العائم", switchFloat, uiCard)
-
-    -- Update Button
-    local checkUpdateBtn = Button(service); checkUpdateBtn.setText("🔄 التحقق من وجود تحديثات"); styleButton(checkUpdateBtn, "secondary")
-    checkUpdateBtn.setOnClickListener(function()
-        checkForUpdates(false)
-    end)
-    local updateLp = LinearLayout.LayoutParams(-1, -2)
-    updateLp.topMargin = 20
-    uiCard.addView(checkUpdateBtn, updateLp)
-
-    local versionTv = TextView(service)
-    versionTv.setText("الإصدار الحالي: " .. currentAppVersion)
-    versionTv.setTextColor(0xFF888888)
-    versionTv.setGravity(Gravity.CENTER)
-    versionTv.setPadding(0, 10, 0, 0)
-    uiCard.addView(versionTv)
-
-    local btnL = LinearLayout(service); btnL.setOrientation(LinearLayout.VERTICAL); btnL.setGravity(Gravity.CENTER); btnL.setPadding(0,40,0,10)
-    local saveBtn = Button(service); saveBtn.setText("💾 حفظ وإغلاق"); styleButton(saveBtn, "primary"); saveBtn.setContentDescription("حفظ التغييرات وإغلاق الإعدادات");
-    saveBtn.setOnClickListener(function()
-        groqApiKey = groqApiKeyIn.getText().toString()
-        geminiApiKey = gemApiKeyIn.getText().toString()
-        witApiKey = witApiKeyIn.getText().toString()
-        tavilyApiKey = tavilyApiKeyIn.getText().toString()
-        saveSettings()
-    end)
-    btnL.addView(saveBtn)
-    local closeBtn = Button(service); closeBtn.setText("❌ إلغاء"); styleButton(closeBtn, "danger"); closeBtn.setContentDescription("إلغاء التغييرات والعودة"); closeBtn.setOnClickListener(hideSettings); local lpClose = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT); lpClose.topMargin=20; btnL.addView(closeBtn, lpClose)
-    contentL.addView(btnL)
-    local backBtn = Button(service); backBtn.setText("⬅️ العودة للوحة التحكم"); styleButton(backBtn, "secondary"); backBtn.setContentDescription("العودة إلى لوحة التحكم الرئيسية");
-    backBtn.setOnClickListener(function() hideSettings(); openMainWindow() end);
-    local lpBack = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT); lpBack.topMargin=20; btnL.addView(backBtn, lpBack)
-
-
-    scrollV.addView(contentL); settingsDialog.addView(scrollV)
     local p=WindowManager.LayoutParams(); p.width=WindowManager.LayoutParams.MATCH_PARENT; p.height=WindowManager.LayoutParams.WRAP_CONTENT; p.type=WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY; p.flags=WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN; p.format=PixelFormat.TRANSLUCENT; p.gravity=Gravity.CENTER
     pcall(function() wm.addView(settingsDialog,p) end)
 end
+
 
 -- ### Main Voice Recognition Function
 function startVoiceRecognition(fromDashboard)
