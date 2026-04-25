@@ -174,7 +174,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 1.5
+local currentAppVersion = 1.6
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -4157,19 +4157,28 @@ function openAiSettingsWindow()
     }
 
     local function addSectionsSequentially(index)
-        if index > #sections then return end
-        sections[index]()
+        if index > #sections then
+            collectgarbage("collect")
+            return
+        end
+        local success, err = pcall(sections[index])
+        if not success then print("Error in AI section " .. index .. ": " .. tostring(err)) end
+
         mainHandler.postDelayed(luajava.createProxy("java.lang.Runnable", {
             run = function() addSectionsSequentially(index + 1) end
-        }), 250)
+        }), 300)
     end
 
     addSectionsSequentially(1)
 
-    local p = WindowManager.LayoutParams(-1, -1, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY, WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN, PixelFormat.TRANSLUCENT)
+    local p = WindowManager.LayoutParams()
     p.width = WindowManager.LayoutParams.MATCH_PARENT
     p.height = WindowManager.LayoutParams.MATCH_PARENT
+    p.type = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
+    p.flags = WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+    p.format = PixelFormat.TRANSLUCENT
     p.gravity = Gravity.CENTER
+
     pcall(function() wm.addView(aiSettingsDialog, p) end)
 end
 
@@ -4566,17 +4575,29 @@ function openSettings()
     }
 
     local function addSectionsSequentially(index)
-        if index > #sections then return end
-        sections[index]()
+        if index > #sections then
+            collectgarbage("collect")
+            return
+        end
+        local success, err = pcall(sections[index])
+        if not success then print("Error in section " .. index .. ": " .. tostring(err)) end
+
         mainHandler.postDelayed(luajava.createProxy("java.lang.Runnable", {
             run = function() addSectionsSequentially(index + 1) end
-        }), 250)
+        }), 300)
     end
 
     addSectionsSequentially(1)
 
-    local p=WindowManager.LayoutParams(); p.width=WindowManager.LayoutParams.MATCH_PARENT; p.height=WindowManager.LayoutParams.MATCH_PARENT; p.type=WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY; p.flags=WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN; p.format=PixelFormat.TRANSLUCENT; p.gravity=Gravity.CENTER
-    pcall(function() wm.addView(settingsDialog,p) end)
+    local p = WindowManager.LayoutParams()
+    p.width = WindowManager.LayoutParams.MATCH_PARENT
+    p.height = WindowManager.LayoutParams.MATCH_PARENT
+    p.type = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
+    p.flags = WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+    p.format = PixelFormat.TRANSLUCENT
+    p.gravity = Gravity.CENTER
+
+    pcall(function() wm.addView(settingsDialog, p) end)
 end
 
 
