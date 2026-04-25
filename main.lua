@@ -174,7 +174,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 1.6
+local currentAppVersion = 1.7
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -4036,16 +4036,27 @@ local aiSettingsDialog = nil
 function openAiSettingsWindow()
     if aiSettingsDialog then return end
     collectgarbage("collect")
+    service.asyncSpeak("جاري تحميل إعدادات الذكاء الاصطناعي، يرجى الانتظار قليلاً...")
+
     aiSettingsDialog = LinearLayout(service)
     aiSettingsDialog.setOrientation(LinearLayout.VERTICAL)
     aiSettingsDialog.setBackgroundColor(0xFF121212)
     aiSettingsDialog.setPadding(35, 35, 35, 35)
 
+    -- Shield to prevent touches during loading to avoid crashes
+    local loadingShield = Button(service)
+    loadingShield.setText("جاري التحميل... ⏳")
+    loadingShield.setBackgroundColor(0xCC000000)
+    loadingShield.setTextColor(0xFFFFFFFF)
+    loadingShield.setLayoutParams(LinearLayout.LayoutParams(-1, -1))
+
     local scrollV = ScrollView(service)
+    scrollV.setVisibility(View.GONE)
     local contentL = LinearLayout(service)
     contentL.setOrientation(LinearLayout.VERTICAL)
     contentL.setPadding(10, 10, 10, 10)
     scrollV.addView(contentL)
+    aiSettingsDialog.addView(loadingShield)
     aiSettingsDialog.addView(scrollV)
 
     local function addSectionHeader(text, parent)
@@ -4158,15 +4169,22 @@ function openAiSettingsWindow()
 
     local function addSectionsSequentially(index)
         if index > #sections then
+            pcall(function() aiSettingsDialog.removeView(loadingShield) end)
+            scrollV.setVisibility(View.VISIBLE)
+            service.asyncSpeak("تم تحميل الإعدادات بنجاح.")
             collectgarbage("collect")
             return
         end
+
+        -- Periodic memory cleanup
+        if index % 2 == 0 then collectgarbage("collect") end
+
         local success, err = pcall(sections[index])
         if not success then print("Error in AI section " .. index .. ": " .. tostring(err)) end
 
         mainHandler.postDelayed(luajava.createProxy("java.lang.Runnable", {
             run = function() addSectionsSequentially(index + 1) end
-        }), 300)
+        }), 650) -- Increased delay for Jieshuo compatibility
     end
 
     addSectionsSequentially(1)
@@ -4175,7 +4193,7 @@ function openAiSettingsWindow()
     p.width = WindowManager.LayoutParams.MATCH_PARENT
     p.height = WindowManager.LayoutParams.MATCH_PARENT
     p.type = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
-    p.flags = WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+    p.flags = WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
     p.format = PixelFormat.TRANSLUCENT
     p.gravity = Gravity.CENTER
 
@@ -4314,16 +4332,27 @@ end
 function openSettings()
     if settingsDialog then return end
     collectgarbage("collect")
+    service.asyncSpeak("جاري فتح الإعدادات المتقدمة، يرجى عدم لمس الشاشة...")
+
     settingsDialog = LinearLayout(service)
     settingsDialog.setOrientation(LinearLayout.VERTICAL)
     settingsDialog.setBackgroundColor(0xFF121212)
     settingsDialog.setPadding(35,35,35,35)
 
+    -- Shield to prevent interaction during heavy UI build
+    local loadingShield = Button(service)
+    loadingShield.setText("جاري تهيئة الإعدادات... ⏳")
+    loadingShield.setBackgroundColor(0xEE121212)
+    loadingShield.setTextColor(0xFF64B5F6)
+    loadingShield.setLayoutParams(LinearLayout.LayoutParams(-1, -1))
+
     local scrollV = ScrollView(service)
+    scrollV.setVisibility(View.GONE)
     local contentL = LinearLayout(service)
     contentL.setOrientation(LinearLayout.VERTICAL)
     contentL.setPadding(10,10,10,10)
     scrollV.addView(contentL)
+    settingsDialog.addView(loadingShield)
     settingsDialog.addView(scrollV)
 
     local function addSectionHeader(text, parent)
@@ -4576,15 +4605,22 @@ function openSettings()
 
     local function addSectionsSequentially(index)
         if index > #sections then
+            pcall(function() settingsDialog.removeView(loadingShield) end)
+            scrollV.setVisibility(View.VISIBLE)
+            service.asyncSpeak("جاهز.")
             collectgarbage("collect")
             return
         end
+
+        -- Enhanced memory stability
+        collectgarbage("collect")
+
         local success, err = pcall(sections[index])
         if not success then print("Error in section " .. index .. ": " .. tostring(err)) end
 
         mainHandler.postDelayed(luajava.createProxy("java.lang.Runnable", {
             run = function() addSectionsSequentially(index + 1) end
-        }), 300)
+        }), 700) -- Significant delay for low-end device stability
     end
 
     addSectionsSequentially(1)
@@ -4593,7 +4629,7 @@ function openSettings()
     p.width = WindowManager.LayoutParams.MATCH_PARENT
     p.height = WindowManager.LayoutParams.MATCH_PARENT
     p.type = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
-    p.flags = WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+    p.flags = WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
     p.format = PixelFormat.TRANSLUCENT
     p.gravity = Gravity.CENTER
 
