@@ -174,7 +174,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 1.4
+local currentAppVersion = 1.5
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -4035,7 +4035,7 @@ local aiSettingsDialog = nil
 
 function openAiSettingsWindow()
     if aiSettingsDialog then return end
-
+    collectgarbage("collect")
     aiSettingsDialog = LinearLayout(service)
     aiSettingsDialog.setOrientation(LinearLayout.VERTICAL)
     aiSettingsDialog.setBackgroundColor(0xFF121212)
@@ -4161,12 +4161,14 @@ function openAiSettingsWindow()
         sections[index]()
         mainHandler.postDelayed(luajava.createProxy("java.lang.Runnable", {
             run = function() addSectionsSequentially(index + 1) end
-        }), 50)
+        }), 250)
     end
 
     addSectionsSequentially(1)
 
     local p = WindowManager.LayoutParams(-1, -1, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY, WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN, PixelFormat.TRANSLUCENT)
+    p.width = WindowManager.LayoutParams.MATCH_PARENT
+    p.height = WindowManager.LayoutParams.MATCH_PARENT
     p.gravity = Gravity.CENTER
     pcall(function() wm.addView(aiSettingsDialog, p) end)
 end
@@ -4302,6 +4304,7 @@ end
 
 function openSettings()
     if settingsDialog then return end
+    collectgarbage("collect")
     settingsDialog = LinearLayout(service)
     settingsDialog.setOrientation(LinearLayout.VERTICAL)
     settingsDialog.setBackgroundColor(0xFF121212)
@@ -4381,6 +4384,7 @@ function openSettings()
         end,
         function() -- 3. Models
             local modelCard = createCard(contentL)
+            modelCard.setTag("models_section")
             addSectionHeader("اختيار النماذج (Models)", modelCard)
 
             modelCard.addView(createLabel("اختر موديل تفريغ الصوت (Transcription):"))
@@ -4440,7 +4444,14 @@ function openSettings()
             liveCard.addView(glvSpinner)
         end,
         function() -- 5. Search & Sort
-            local modelCard = contentL.getChildAt(contentL.getChildCount()-2) -- Hacky, but works if structure is stable
+            -- Find the model card robustly
+            local modelCard
+            for i=0, contentL.getChildCount()-1 do
+                local child = contentL.getChildAt(i)
+                if child.getTag() == "models_section" then modelCard = child break end
+            end
+            if not modelCard then modelCard = contentL.getChildAt(contentL.getChildCount()-1) end
+
             -- Add search spinner to existing model card
             modelCard.addView(createLabel("اختر محرك البحث (AI Search Model):"))
             local searchNames = ArrayList(); local searchIds = {}
@@ -4482,7 +4493,7 @@ function openSettings()
             end)
             sortCard.addView(openSortDialogBtn)
         end,
-        function() -- 6. Voice & Tools
+        function() -- 6. Voice
             local voiceCard = createCard(contentL)
             addSectionHeader("إعدادات الصوت والإملاء", voiceCard)
             voiceCard.addView(createLabel("لغة الإملاء الأساسية:"))
@@ -4501,7 +4512,8 @@ function openSettings()
             local goToAiBtn = Button(service); goToAiBtn.setText("⚙️ فتح إعدادات الإملاء والذكاء"); styleButton(goToAiBtn, "secondary")
             goToAiBtn.setContentDescription("فتح نافذة إعدادات الذكاء الاصطناعي والإملاء المتطورة")
             goToAiBtn.setOnClickListener(function() openAiSettingsWindow() end); voiceCard.addView(goToAiBtn)
-
+        end,
+        function() -- 7. Tools & AI
             local aiCard = createCard(contentL)
             addSectionHeader("الأدوات والذكاء الاصطناعي 🛠️", aiCard)
             local swTrans = Switch(service); swTrans.setChecked(newTranslationFeatureEnabled); swTrans.setOnCheckedChangeListener(function(_, c) newTranslationFeatureEnabled=c end)
@@ -4523,7 +4535,7 @@ function openSettings()
             local function updateVisionVisibility(enabled) screenModeContainer.setVisibility(enabled and View.VISIBLE or View.GONE) end
             updateVisionVisibility(imageDescriptionEnabled); switchImg.setOnCheckedChangeListener(function(_, c) imageDescriptionEnabled = c; updateVisionVisibility(c) end)
         end,
-        function() -- 7. UI & Save
+        function() -- 8. UI & Save
             local uiCard = createCard(contentL)
             addSectionHeader("الواجهة والتحديثات", uiCard)
             local switchStart = Switch(service); switchStart.setChecked(startWithDictation); switchStart.setOnCheckedChangeListener(function(_, c) startWithDictation=c end); createSettingRow("بدء التطبيق بالإملاء", switchStart, uiCard)
@@ -4558,12 +4570,12 @@ function openSettings()
         sections[index]()
         mainHandler.postDelayed(luajava.createProxy("java.lang.Runnable", {
             run = function() addSectionsSequentially(index + 1) end
-        }), 50)
+        }), 250)
     end
 
     addSectionsSequentially(1)
 
-    local p=WindowManager.LayoutParams(); p.width=WindowManager.LayoutParams.MATCH_PARENT; p.height=WindowManager.LayoutParams.WRAP_CONTENT; p.type=WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY; p.flags=WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN; p.format=PixelFormat.TRANSLUCENT; p.gravity=Gravity.CENTER
+    local p=WindowManager.LayoutParams(); p.width=WindowManager.LayoutParams.MATCH_PARENT; p.height=WindowManager.LayoutParams.MATCH_PARENT; p.type=WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY; p.flags=WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN; p.format=PixelFormat.TRANSLUCENT; p.gravity=Gravity.CENTER
     pcall(function() wm.addView(settingsDialog,p) end)
 end
 
