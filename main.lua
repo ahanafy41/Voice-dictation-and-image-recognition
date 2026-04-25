@@ -174,7 +174,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 2.0
+local currentAppVersion = 2.1
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -1055,7 +1055,8 @@ function makeAiRequest(prompt, systemInstruction, imageBase64, modelIdOverride, 
         root.put("model", model)
         root.put("messages", jsonMessages)
         root.put("temperature", 0.3)
-        root.put("max_tokens", 1024)
+        -- Reduced max_tokens for Groq to stay within usage limits
+        root.put("max_tokens", 512)
         requestBody = root.toString()
 
     else
@@ -4396,10 +4397,26 @@ function openConnectionSettings()
 
     local apiCard = createCard(contentL); local header = TextView(service); header.setText("مفاتيح الربط 🔑"); header.setTextSize(18); header.setTypeface(nil, Typeface.BOLD); header.setTextColor(0xFF64B5F6); header.setPadding(0, 10, 0, 25); apiCard.addView(header)
 
-    apiCard.addView(createLabel("مفتاح Groq API:")); local gIn = EditText(service); gIn.setText(groqApiKey or ""); styleEditText(gIn); apiCard.addView(gIn)
-    apiCard.addView(createLabel("مفتاح Gemini API:")); local mIn = EditText(service); mIn.setText(geminiApiKey or ""); styleEditText(mIn); apiCard.addView(mIn)
-    apiCard.addView(createLabel("مفتاح Wit.ai API:")); local wIn = EditText(service); wIn.setText(witApiKey or ""); styleEditText(wIn); apiCard.addView(wIn)
-    apiCard.addView(createLabel("مفتاح Tavily API:")); local tIn = EditText(service); tIn.setText(tavilyApiKey or ""); styleEditText(tIn); apiCard.addView(tIn)
+    local function createApiKeyRow(label, currentVal, url)
+        apiCard.addView(createLabel(label))
+        local row = LinearLayout(service); row.setOrientation(LinearLayout.HORIZONTAL); row.setGravity(Gravity.CENTER_VERTICAL)
+        local edit = EditText(service); edit.setText(currentVal or ""); styleEditText(edit)
+        local elp = LinearLayout.LayoutParams(0, -2, 1); row.addView(edit, elp)
+        local btn = Button(service); btn.setText("جلب 🔑"); styleButton(btn, "primary"); btn.setTextSize(12)
+        local blp = LinearLayout.LayoutParams(-2, -2); blp.leftMargin = 10; row.addView(btn, blp)
+        btn.setOnClickListener(function()
+            local intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)); intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            service.startActivity(intent); service.asyncSpeak("فتح رابط " .. label)
+        end)
+        btn.setContentDescription("جلب " .. label)
+        apiCard.addView(row)
+        return edit
+    end
+
+    local gIn = createApiKeyRow("مفتاح Groq API:", groqApiKey, "https://console.groq.com/keys")
+    local mIn = createApiKeyRow("مفتاح Gemini API:", geminiApiKey, "https://aistudio.google.com/app/apikey")
+    local wIn = createApiKeyRow("مفتاح Wit.ai API:", witApiKey, "https://wit.ai/apps")
+    local tIn = createApiKeyRow("مفتاح Tavily API:", tavilyApiKey, "https://app.tavily.com/")
 
     local modelCard = createCard(contentL); local h2 = TextView(service); h2.setText("اختيار النماذج 🤖"); h2.setTextSize(18); h2.setTypeface(nil, Typeface.BOLD); h2.setTextColor(0xFF64B5F6); h2.setPadding(0, 10, 0, 25); modelCard.addView(h2)
 
