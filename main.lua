@@ -138,8 +138,7 @@ local groqModels = {
     { name = "Llama 4 Maverick 17B (ذكاء فائق)", id = "meta-llama/llama-4-maverick-17b-128e-instruct" },
     { name = "Qwen 3 32B (قوة في التفكير)", id = "qwen/qwen3-32b" },
     { name = "Llama 3.1 8B (سريع جداً)", id = "llama-3.1-8b-instant" },
-    { name = "Gemma 2 9B IT", id = "gemma2-9b-it" },
-    { name = "Groq Search (العملاق)", id = "compound-beta" }
+    { name = "Gemma 2 9B IT", id = "gemma2-9b-it" }
 }
 
 local dictationModes = {
@@ -174,7 +173,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 2.1
+local currentAppVersion = 2.2
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -227,7 +226,6 @@ end
 selectedGeminiModelId = isValidModel and loadedModelId or defaultGeminiModelId
 
 selectedGroqModelId = prefs.getString("groqModelId", defaultGroqModelId)
-selectedSearchModelId = prefs.getString("searchModelId", "compound-beta")
 dashboardOrder = prefs.getString("dashboardOrder", "dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings")
 -- Remove assistant from legacy orders
 if dashboardOrder:match("assistant,") then dashboardOrder = dashboardOrder:gsub("assistant,", "") end
@@ -1017,9 +1015,6 @@ function makeAiRequest(prompt, systemInstruction, imageBase64, modelIdOverride, 
 
     local fastSystemInstruction = "Return ONLY the direct result. No explanations, no markdown."
     local combinedSystemInstruction = systemInstruction or fastSystemInstruction
-    if modelIdOverride and modelIdOverride:match("compound") then
-        combinedSystemInstruction = systemInstruction or "You are a helpful AI assistant with search capabilities."
-    end
 
     -- Truncate massive text prompts to prevent HTTP 413 (Payload Too Large) errors in Personal Assistant
     local maxPromptLength = 6000
@@ -3622,7 +3617,6 @@ function saveSettings()
     editor.putString("geminiModelId", selectedGeminiModelId or defaultGeminiModelId)
     editor.putString("groqModelId", selectedGroqModelId or defaultGroqModelId)
     editor.putString("audioModelId", selectedAudioModelId or defaultAudioModelId)
-    editor.putString("searchModelId", selectedSearchModelId or "compound-beta")
     editor.putString("dashboardOrder", dashboardOrder or "dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings")
     editor.putString("selectedDictationMode", selectedDictationMode or defaultDictationMode)
 
@@ -4389,58 +4383,134 @@ function openConnectionSettings()
     collectgarbage("collect")
     service.asyncSpeak("تحميل إعدادات الاتصال...")
 
-    settingsDialog = LinearLayout(service); settingsDialog.setOrientation(LinearLayout.VERTICAL); settingsDialog.setBackgroundColor(0xFF121212); settingsDialog.setPadding(35,35,35,35)
-    local scrollV = ScrollView(service); local contentL = LinearLayout(service); contentL.setOrientation(LinearLayout.VERTICAL); scrollV.addView(contentL)
+    settingsDialog = LinearLayout(service)
+    settingsDialog.setOrientation(LinearLayout.VERTICAL)
+    settingsDialog.setBackgroundColor(0xFF121212)
+    settingsDialog.setPadding(35, 35, 35, 35)
+
+    local loadingShield = Button(service)
+    loadingShield.setText("جاري التحميل... ⏳")
+    loadingShield.setBackgroundColor(0xCC000000)
+    loadingShield.setTextColor(0xFFFFFFFF)
+    loadingShield.setLayoutParams(LinearLayout.LayoutParams(-1, -1))
+
+    local scrollV = ScrollView(service)
+    scrollV.setVisibility(View.GONE)
+    local contentL = LinearLayout(service)
+    contentL.setOrientation(LinearLayout.VERTICAL)
+    contentL.setPadding(10, 10, 10, 10)
+    scrollV.addView(contentL)
+    settingsDialog.addView(loadingShield)
     settingsDialog.addView(scrollV)
 
-    local function createLabel(t) local lbl = TextView(service); lbl.setText(t); lbl.setTextSize(15); lbl.setTextColor(0xFFB0B0B0); lbl.setPadding(0, 15, 0, 10); return lbl end
-
-    local apiCard = createCard(contentL); local header = TextView(service); header.setText("مفاتيح الربط 🔑"); header.setTextSize(18); header.setTypeface(nil, Typeface.BOLD); header.setTextColor(0xFF64B5F6); header.setPadding(0, 10, 0, 25); apiCard.addView(header)
-
-    local function createApiKeyRow(label, currentVal, url)
-        apiCard.addView(createLabel(label))
-        local row = LinearLayout(service); row.setOrientation(LinearLayout.HORIZONTAL); row.setGravity(Gravity.CENTER_VERTICAL)
-        local edit = EditText(service); edit.setText(currentVal or ""); styleEditText(edit)
-        local elp = LinearLayout.LayoutParams(0, -2, 1); row.addView(edit, elp)
-        local btn = Button(service); btn.setText("جلب 🔑"); styleButton(btn, "primary"); btn.setTextSize(12)
-        local blp = LinearLayout.LayoutParams(-2, -2); blp.leftMargin = 10; row.addView(btn, blp)
-        btn.setOnClickListener(function()
-            local intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)); intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            service.startActivity(intent); service.asyncSpeak("فتح رابط " .. label)
-        end)
-        btn.setContentDescription("جلب " .. label)
-        apiCard.addView(row)
-        return edit
+    local function createLabel(text)
+        local lbl = TextView(service)
+        lbl.setText(text)
+        lbl.setTextSize(15)
+        lbl.setTextColor(0xFFB0B0B0)
+        lbl.setPadding(0, 15, 0, 10)
+        return lbl
     end
 
-    local gIn = createApiKeyRow("مفتاح Groq API:", groqApiKey, "https://console.groq.com/keys")
-    local mIn = createApiKeyRow("مفتاح Gemini API:", geminiApiKey, "https://aistudio.google.com/app/apikey")
-    local wIn = createApiKeyRow("مفتاح Wit.ai API:", witApiKey, "https://wit.ai/apps")
-    local tIn = createApiKeyRow("مفتاح Tavily API:", tavilyApiKey, "https://app.tavily.com/")
+    local gIn, mIn, wIn, tIn
+    local audSpinner, audIds
+    local grSpinner, grIds
+    local gemSpinner, gemIds
 
-    local modelCard = createCard(contentL); local h2 = TextView(service); h2.setText("اختيار النماذج 🤖"); h2.setTextSize(18); h2.setTypeface(nil, Typeface.BOLD); h2.setTextColor(0xFF64B5F6); h2.setPadding(0, 10, 0, 25); modelCard.addView(h2)
+    local sections = {
+        function() -- Header
+            local header = TextView(service)
+            header.setText("إعدادات الاتصال والربط 🔑")
+            header.setTextSize(22)
+            header.setTypeface(nil, Typeface.BOLD)
+            header.setTextColor(0xFFFFFFFF)
+            header.setGravity(Gravity.CENTER_HORIZONTAL)
+            header.setPadding(0, 0, 0, 40)
+            contentL.addView(header)
+        end,
+        function() -- API Keys Card
+            local apiCard = createCard(contentL)
+            local h = TextView(service); h.setText("مفاتيح الربط 🔑"); h.setTextSize(18); h.setTypeface(nil, Typeface.BOLD); h.setTextColor(0xFF64B5F6); h.setPadding(0, 10, 0, 25); apiCard.addView(h)
 
-    modelCard.addView(createLabel("موديل تفريغ الصوت:")); local audNames = ArrayList(); local audIds = {}
-    for _, m in ipairs(audioModels) do audNames.add(m.name); table.insert(audIds, m.id) end
-    local audSpinner = Spinner(service); audSpinner.setAdapter(ArrayAdapter(service, android.R.layout.simple_spinner_item, audNames))
-    local currAudIdx = 0; for i, id in ipairs(audIds) do if id == selectedAudioModelId then currAudIdx = i-1 break end end
-    audSpinner.setSelection(currAudIdx); modelCard.addView(audSpinner)
+            local function createApiKeyRow(label, currentVal, url)
+                apiCard.addView(createLabel(label))
+                local row = LinearLayout(service); row.setOrientation(LinearLayout.HORIZONTAL); row.setGravity(Gravity.CENTER_VERTICAL)
+                local edit = EditText(service); edit.setText(currentVal or ""); styleEditText(edit)
+                local elp = LinearLayout.LayoutParams(0, -2, 1); row.addView(edit, elp)
+                local btn = Button(service); btn.setText("جلب 🔑"); styleButton(btn, "primary"); btn.setTextSize(12)
+                local blp = LinearLayout.LayoutParams(-2, -2); blp.leftMargin = 10; row.addView(btn, blp)
+                btn.setOnClickListener(function()
+                    local intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)); intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    service.startActivity(intent); service.asyncSpeak("فتح رابط " .. label)
+                end)
+                btn.setContentDescription("جلب " .. label)
+                apiCard.addView(row)
+                return edit
+            end
 
-    modelCard.addView(createLabel("موديل النص (Groq):")); local grNames = ArrayList(); local grIds = {}
-    for _, m in ipairs(groqModels) do grNames.add(m.name); table.insert(grIds, m.id) end
-    local grSpinner = Spinner(service); grSpinner.setAdapter(ArrayAdapter(service, android.R.layout.simple_spinner_item, grNames))
-    local currGrIdx = 0; for i, id in ipairs(grIds) do if id == selectedGroqModelId then currGrIdx = i-1 break end end
-    grSpinner.setSelection(currGrIdx); modelCard.addView(grSpinner)
+            gIn = createApiKeyRow("مفتاح Groq API:", groqApiKey, "https://console.groq.com/keys")
+            mIn = createApiKeyRow("مفتاح Gemini API:", geminiApiKey, "https://aistudio.google.com/app/apikey")
+            wIn = createApiKeyRow("مفتاح Wit.ai API:", witApiKey, "https://wit.ai/apps")
+            tIn = createApiKeyRow("مفتاح Tavily API:", tavilyApiKey, "https://app.tavily.com/")
+        end,
+        function() -- Models Card
+            local modelCard = createCard(contentL)
+            local h2 = TextView(service); h2.setText("اختيار النماذج 🤖"); h2.setTextSize(18); h2.setTypeface(nil, Typeface.BOLD); h2.setTextColor(0xFF64B5F6); h2.setPadding(0, 10, 0, 25); modelCard.addView(h2)
 
-    local saveBtn = Button(service); saveBtn.setText("💾 حفظ"); styleButton(saveBtn, "primary")
-    saveBtn.setOnClickListener(function()
-        groqApiKey = gIn.getText().toString(); geminiApiKey = mIn.getText().toString(); witApiKey = wIn.getText().toString(); tavilyApiKey = tIn.getText().toString()
-        selectedAudioModelId = audIds[audSpinner.getSelectedItemPosition() + 1]
-        selectedGroqModelId = grIds[grSpinner.getSelectedItemPosition() + 1]
-        saveSettings()
-    end)
-    contentL.addView(saveBtn)
-    local backBtn = Button(service); backBtn.setText("⬅️ رجوع"); styleButton(backBtn, "danger"); backBtn.setOnClickListener(function() hideSettings(); openSettings() end); local lp = LinearLayout.LayoutParams(-1, -2); lp.topMargin = 20; contentL.addView(backBtn, lp)
+            modelCard.addView(createLabel("موديل تفريغ الصوت:"))
+            local audNames = ArrayList(); audIds = {}
+            for _, m in ipairs(audioModels) do audNames.add(m.name); table.insert(audIds, m.id) end
+            audSpinner = Spinner(service); audSpinner.setAdapter(ArrayAdapter(service, android.R.layout.simple_spinner_item, audNames))
+            local currAudIdx = 0; for i, id in ipairs(audIds) do if id == selectedAudioModelId then currAudIdx = i-1 break end end
+            audSpinner.setSelection(currAudIdx); modelCard.addView(audSpinner)
+
+            modelCard.addView(createLabel("موديل النص (Groq):"))
+            local grNames = ArrayList(); grIds = {}
+            for _, m in ipairs(groqModels) do grNames.add(m.name); table.insert(grIds, m.id) end
+            grSpinner = Spinner(service); grSpinner.setAdapter(ArrayAdapter(service, android.R.layout.simple_spinner_item, grNames))
+            local currGrIdx = 0; for i, id in ipairs(grIds) do if id == selectedGroqModelId then currGrIdx = i-1 break end end
+            grSpinner.setSelection(currGrIdx); modelCard.addView(grSpinner)
+
+            local grFetchBtn = Button(service); grFetchBtn.setText("🔄 تحديث قائمة Groq"); styleButton(grFetchBtn, "secondary")
+            grFetchBtn.setOnClickListener(function() fetchGroqModels(function() hideSettings(); openSettings() end) end)
+            modelCard.addView(grFetchBtn)
+
+            modelCard.addView(createLabel("موديل Gemini (الرؤية و PDF):"))
+            local gemNames = ArrayList(); gemIds = {}
+            for _, m in ipairs(geminiModels) do gemNames.add(m.name); table.insert(gemIds, m.id) end
+            gemSpinner = Spinner(service); gemSpinner.setAdapter(ArrayAdapter(service, android.R.layout.simple_spinner_item, gemNames))
+            local currGemIdx = 0; for i, id in ipairs(gemIds) do if id == selectedGeminiModelId then currGemIdx = i-1 break end end
+            gemSpinner.setSelection(currGemIdx); modelCard.addView(gemSpinner)
+        end,
+        function() -- Actions
+            local btnL = LinearLayout(service); btnL.setOrientation(LinearLayout.VERTICAL); btnL.setGravity(Gravity.CENTER); btnL.setPadding(0, 40, 0, 10)
+            local saveBtn = Button(service); saveBtn.setText("💾 حفظ"); styleButton(saveBtn, "primary")
+            saveBtn.setOnClickListener(function()
+                groqApiKey = gIn.getText().toString(); geminiApiKey = mIn.getText().toString(); witApiKey = wIn.getText().toString(); tavilyApiKey = tIn.getText().toString()
+                selectedAudioModelId = audIds[audSpinner.getSelectedItemPosition() + 1]
+                selectedGroqModelId = grIds[grSpinner.getSelectedItemPosition() + 1]
+                selectedGeminiModelId = gemIds[gemSpinner.getSelectedItemPosition() + 1]
+                saveSettings()
+                if settingsDialog then pcall(function() wm.removeView(settingsDialog) end); settingsDialog = nil end
+            end)
+            btnL.addView(saveBtn)
+            local backBtn = Button(service); backBtn.setText("⬅️ رجوع"); styleButton(backBtn, "danger"); backBtn.setOnClickListener(function() hideSettings(); openSettings() end); local lp = LinearLayout.LayoutParams(-1, -2); lp.topMargin = 20; btnL.addView(backBtn, lp)
+            contentL.addView(btnL)
+        end
+    }
+
+    local function addSectionsSequentially(index)
+        if index > #sections then
+            pcall(function() settingsDialog.removeView(loadingShield) end)
+            scrollV.setVisibility(View.VISIBLE)
+            collectgarbage("collect")
+            return
+        end
+        if index % 2 == 0 then collectgarbage("collect") end
+        pcall(sections[index])
+        mainHandler.postDelayed(luajava.createProxy("java.lang.Runnable", { run = function() addSectionsSequentially(index + 1) end }), 600)
+    end
+    addSectionsSequentially(1)
 
     pcall(function() wm.addView(settingsDialog, WindowManager.LayoutParams(-1, -1, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY, 0, -3)) end)
 end
@@ -4451,27 +4521,118 @@ function openFeaturesSettings()
     collectgarbage("collect")
     service.asyncSpeak("تحميل المميزات...")
 
-    settingsDialog = LinearLayout(service); settingsDialog.setOrientation(LinearLayout.VERTICAL); settingsDialog.setBackgroundColor(0xFF121212); settingsDialog.setPadding(35,35,35,35)
-    local scrollV = ScrollView(service); local contentL = LinearLayout(service); contentL.setOrientation(LinearLayout.VERTICAL); scrollV.addView(contentL)
+    settingsDialog = LinearLayout(service)
+    settingsDialog.setOrientation(LinearLayout.VERTICAL)
+    settingsDialog.setBackgroundColor(0xFF121212)
+    settingsDialog.setPadding(35, 35, 35, 35)
+
+    local loadingShield = Button(service)
+    loadingShield.setText("جاري التحميل... ⏳")
+    loadingShield.setBackgroundColor(0xCC000000)
+    loadingShield.setTextColor(0xFFFFFFFF)
+    loadingShield.setLayoutParams(LinearLayout.LayoutParams(-1, -1))
+
+    local scrollV = ScrollView(service)
+    scrollV.setVisibility(View.GONE)
+    local contentL = LinearLayout(service)
+    contentL.setOrientation(LinearLayout.VERTICAL)
+    contentL.setPadding(10, 10, 10, 10)
+    scrollV.addView(contentL)
+    settingsDialog.addView(loadingShield)
     settingsDialog.addView(scrollV)
 
-    local featCard = createCard(contentL)
-    local swTrans = Switch(service); swTrans.setChecked(newTranslationFeatureEnabled); createSettingRow("الترجمة التلقائية", swTrans, featCard)
-    local swSum = Switch(service); swSum.setChecked(summarizeEnabled); createSettingRow("تلخيص النصوص", swSum, featCard)
-    local swImg = Switch(service); swImg.setChecked(imageDescriptionEnabled); createSettingRow("وصف الصور", swImg, featCard)
+    local function createLabel(text)
+        local lbl = TextView(service)
+        lbl.setText(text)
+        lbl.setTextSize(15)
+        lbl.setTextColor(0xFFB0B0B0)
+        lbl.setPadding(0, 15, 0, 10)
+        return lbl
+    end
 
-    local liveCard = createCard(contentL)
-    local lbl = TextView(service); lbl.setText("تعليمات البث (Gemini Live):"); lbl.setTextColor(0xFFB0B0B0); liveCard.addView(lbl)
-    local liveSysIn = EditText(service); liveSysIn.setText(geminiLiveSystemInstruction or ""); styleEditText(liveSysIn); liveCard.addView(liveSysIn)
+    local swTrans, swSum, swImg
+    local trLangSpinner, trLangIds
+    local smSpinner, smIds
+    local liveSysIn, liveVoiceSpinner, liveVoiceIds
 
-    local saveBtn = Button(service); saveBtn.setText("💾 حفظ"); styleButton(saveBtn, "primary")
-    saveBtn.setOnClickListener(function()
-        newTranslationFeatureEnabled = swTrans.isChecked(); summarizeEnabled = swSum.isChecked(); imageDescriptionEnabled = swImg.isChecked()
-        geminiLiveSystemInstruction = liveSysIn.getText().toString()
-        saveSettings()
-    end)
-    contentL.addView(saveBtn)
-    local backBtn = Button(service); backBtn.setText("⬅️ رجوع"); styleButton(backBtn, "danger"); backBtn.setOnClickListener(function() hideSettings(); openSettings() end); local lp = LinearLayout.LayoutParams(-1, -2); lp.topMargin = 20; contentL.addView(backBtn, lp)
+    local sections = {
+        function() -- Header
+            local titleTxt = TextView(service)
+            titleTxt.setText("المميزات والأدوات الذكية 🛠️")
+            titleTxt.setTextSize(22)
+            titleTxt.setTypeface(nil, Typeface.BOLD)
+            titleTxt.setTextColor(0xFFFFFFFF)
+            titleTxt.setGravity(Gravity.CENTER_HORIZONTAL)
+            titleTxt.setPadding(0, 0, 0, 40)
+            contentL.addView(titleTxt)
+        end,
+        function() -- Features Switches
+            local featCard = createCard(contentL)
+            swTrans = Switch(service); swTrans.setChecked(newTranslationFeatureEnabled); createSettingRow("الترجمة التلقائية", swTrans, featCard)
+
+            featCard.addView(createLabel("ترجمة إلى لغة:"))
+            local trNames = ArrayList(); trLangIds = {}
+            for _, l in ipairs(supportedLanguages) do trNames.add(l.name); table.insert(trLangIds, l.code) end
+            trLangSpinner = Spinner(service); trLangSpinner.setAdapter(ArrayAdapter(service, android.R.layout.simple_spinner_item, trNames))
+            local currTrIdx = 0; for i, id in ipairs(trLangIds) do if id == translateToLanguage then currTrIdx = i-1 break end end
+            trLangSpinner.setSelection(currTrIdx); featCard.addView(trLangSpinner)
+
+            swSum = Switch(service); swSum.setChecked(summarizeEnabled); createSettingRow("تلخيص النصوص", swSum, featCard)
+            swImg = Switch(service); swImg.setChecked(imageDescriptionEnabled); createSettingRow("وصف الصور", swImg, featCard)
+
+            featCard.addView(createLabel("نطاق التقاط الصور:"))
+            local smNames = ArrayList(); smIds = {"full", "focus"}
+            smNames.add("كامل الشاشة"); smNames.add("العنصر المحدد")
+            smSpinner = Spinner(service); smSpinner.setAdapter(ArrayAdapter(service, android.R.layout.simple_spinner_item, smNames))
+            local currSmIdx = 0; if screenshotMode == "focus" then currSmIdx = 1 end
+            smSpinner.setSelection(currSmIdx); featCard.addView(smSpinner)
+        end,
+        function() -- Gemini Live Card
+            local liveCard = createCard(contentL)
+            local h = TextView(service); h.setText("إعدادات Gemini Live 🎙️"); h.setTextSize(18); h.setTypeface(nil, Typeface.BOLD); h.setTextColor(0xFF64B5F6); h.setPadding(0, 10, 0, 25); liveCard.addView(h)
+
+            liveCard.addView(createLabel("تعليمات البث (System Instruction):"))
+            liveSysIn = EditText(service); liveSysIn.setText(geminiLiveSystemInstruction or ""); styleEditText(liveSysIn); liveCard.addView(liveSysIn)
+
+            liveCard.addView(createLabel("صوت المساعد:"))
+            local vNames = ArrayList(); liveVoiceIds = {}
+            for _, v in ipairs(geminiLiveVoices) do vNames.add(v.name); table.insert(liveVoiceIds, v.id) end
+            liveVoiceSpinner = Spinner(service); liveVoiceSpinner.setAdapter(ArrayAdapter(service, android.R.layout.simple_spinner_item, vNames))
+            local currVIdx = 0; for i, id in ipairs(liveVoiceIds) do if id == geminiLiveVoiceName then currVIdx = i-1 break end end
+            liveVoiceSpinner.setSelection(currVIdx); liveCard.addView(liveVoiceSpinner)
+        end,
+        function() -- Actions
+            local btnL = LinearLayout(service); btnL.setOrientation(LinearLayout.VERTICAL); btnL.setGravity(Gravity.CENTER); btnL.setPadding(0, 40, 0, 10)
+            local saveBtn = Button(service); saveBtn.setText("💾 حفظ"); styleButton(saveBtn, "primary")
+            saveBtn.setOnClickListener(function()
+                newTranslationFeatureEnabled = swTrans.isChecked()
+                translateToLanguage = trLangIds[trLangSpinner.getSelectedItemPosition() + 1]
+                summarizeEnabled = swSum.isChecked()
+                imageDescriptionEnabled = swImg.isChecked()
+                screenshotMode = smIds[smSpinner.getSelectedItemPosition() + 1]
+                geminiLiveSystemInstruction = liveSysIn.getText().toString()
+                geminiLiveVoiceName = liveVoiceIds[liveVoiceSpinner.getSelectedItemPosition() + 1]
+                saveSettings()
+                if settingsDialog then pcall(function() wm.removeView(settingsDialog) end); settingsDialog = nil end
+            end)
+            btnL.addView(saveBtn)
+            local backBtn = Button(service); backBtn.setText("⬅️ رجوع"); styleButton(backBtn, "danger"); backBtn.setOnClickListener(function() hideSettings(); openSettings() end); local lp = LinearLayout.LayoutParams(-1, -2); lp.topMargin = 20; btnL.addView(backBtn, lp)
+            contentL.addView(btnL)
+        end
+    }
+
+    local function addSectionsSequentially(index)
+        if index > #sections then
+            pcall(function() settingsDialog.removeView(loadingShield) end)
+            scrollV.setVisibility(View.VISIBLE)
+            collectgarbage("collect")
+            return
+        end
+        if index % 2 == 0 then collectgarbage("collect") end
+        pcall(sections[index])
+        mainHandler.postDelayed(luajava.createProxy("java.lang.Runnable", { run = function() addSectionsSequentially(index + 1) end }), 600)
+    end
+    addSectionsSequentially(1)
 
     pcall(function() wm.addView(settingsDialog, WindowManager.LayoutParams(-1, -1, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY, 0, -3)) end)
 end
@@ -4493,16 +4654,48 @@ function openInterfaceSettings()
     local upBtn = Button(service); upBtn.setText("🔄 التحديثات"); styleButton(upBtn, "secondary"); upBtn.setOnClickListener(function() checkForUpdates(false) end); uiCard.addView(upBtn)
 
     local sortBtn = Button(service); sortBtn.setText("🔢 ترتيب اللوحة"); styleButton(sortBtn, "secondary"); sortBtn.setOnClickListener(function()
-        -- Re-use existing sort logic but ensure it's safe
-        local keyNames = { dictation = "الإملاء والترجمة", doc_reader = "المكتبة والقارئ", video_analyzer = "محلل الفيديو", image = "وصف الصور", transcription = "تفريغ الصوت", settings = "الإعدادات", geminiLive = "البث المباشر (Gemini Live)" }
-        local keys = {}
-        for k in dashboardOrder:gmatch("([^,]+)") do local cleanKey = k:gsub("^%s+", ""):gsub("%s+$", ""); if keyNames[cleanKey] then table.insert(keys, cleanKey) end end
+        if settingsDialog then pcall(function() wm.removeView(settingsDialog) end); settingsDialog = nil end
+        collectgarbage("collect")
 
-        local builder = AlertDialog.Builder(service); builder.setTitle("ترتيب اللوحة")
-        local names = {}
-        for i, k in ipairs(keys) do names[i] = keyNames[k] or k end
-        builder.setItems(names, nil) -- Just show for now, full sort logic is heavy
-        local d = builder.create(); d.getWindow().setType(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY); d.show()
+        settingsDialog = LinearLayout(service); settingsDialog.setOrientation(LinearLayout.VERTICAL); settingsDialog.setBackgroundColor(0xFF121212); settingsDialog.setPadding(30, 30, 30, 30)
+
+        local h = TextView(service); h.setText("ترتيب عناصر اللوحة 🔢"); h.setTextSize(20); h.setTypeface(nil, Typeface.BOLD); h.setTextColor(0xFF64B5F6); h.setGravity(Gravity.CENTER); h.setPadding(0, 0, 0, 30); settingsDialog.addView(h)
+
+        local scrollV = ScrollView(service); local listL = LinearLayout(service); listL.setOrientation(LinearLayout.VERTICAL); scrollV.addView(listL); settingsDialog.addView(scrollV, LinearLayout.LayoutParams(-1, 0, 1.0))
+
+        local keyNames = { dictation = "🎙️ الإملاء والترجمة", geminiLive = "🗣️ البث المباشر", doc_reader = "📚 المكتبة والقارئ", video_analyzer = "🎬 وصف الفيديوهات", image = "🖼️ وصف الصور", transcription = "📁 تحويل الصوت", settings = "⚙️ الإعدادات" }
+
+        local function refreshUI()
+            listL.removeAllViews()
+            local keys = {}
+            for k in dashboardOrder:gmatch("([^,]+)") do local ck = k:gsub("^%s+", ""):gsub("%s+$", ""); if keyNames[ck] then table.insert(keys, ck) end end
+
+            for i, k in ipairs(keys) do
+                local row = createCard(listL)
+                local content = LinearLayout(service); content.setOrientation(LinearLayout.HORIZONTAL); content.setGravity(Gravity.CENTER_VERTICAL); row.addView(content)
+
+                local nameTv = TextView(service); nameTv.setText(keyNames[k]); nameTv.setTextColor(0xFFFFFFFF); nameTv.setTextSize(16); content.addView(nameTv, LinearLayout.LayoutParams(0, -2, 1.0))
+
+                if i > 1 then
+                    local up = Button(service); up.setText("🔼"); styleButton(up, "secondary"); up.setPadding(10, 10, 10, 10); up.setOnClickListener(function()
+                        keys[i], keys[i-1] = keys[i-1], keys[i]; dashboardOrder = table.concat(keys, ","); refreshUI(); service.asyncSpeak("تم النقل للأعلى")
+                    end); content.addView(up)
+                end
+
+                if i < #keys then
+                    local down = Button(service); down.setText("🔽"); styleButton(down, "secondary"); down.setPadding(10, 10, 10, 10); down.setOnClickListener(function()
+                        keys[i], keys[i+1] = keys[i+1], keys[i]; dashboardOrder = table.concat(keys, ","); refreshUI(); service.asyncSpeak("تم النقل للأسفل")
+                    end); local lp = LinearLayout.LayoutParams(-2, -2); lp.leftMargin = 15; content.addView(down, lp)
+                end
+            end
+        end
+        refreshUI()
+
+        local saveBtn = Button(service); saveBtn.setText("💾 حفظ الترتيب"); styleButton(saveBtn, "primary")
+        saveBtn.setOnClickListener(function() saveSettings(); if settingsDialog then pcall(function() wm.removeView(settingsDialog) end); settingsDialog = nil end end)
+        local slp = LinearLayout.LayoutParams(-1, -2); slp.topMargin = 20; settingsDialog.addView(saveBtn, slp)
+
+        pcall(function() wm.addView(settingsDialog, WindowManager.LayoutParams(-1, -1, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY, 0, -3)) end)
     end)
     uiCard.addView(sortBtn, LinearLayout.LayoutParams(-1,-2))
 
