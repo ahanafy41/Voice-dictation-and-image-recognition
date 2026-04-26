@@ -173,7 +173,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 2.2
+local currentAppVersion = 2.3
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -254,6 +254,7 @@ screenshotMode = prefs.getString("screenshotMode", "full") -- "full" or "focus"
 showFloatingSettingsButtonEnabled = prefs.getBoolean("showFloatingSettingsButton", false)
 newTranslationFeatureEnabled = prefs.getBoolean("newTranslationFeatureEnabled", false)
 translateToLanguage = prefs.getString("translateToLanguage", defaultTranslateTo)
+floatingButtonQuickTranslateTapEnabled = prefs.getBoolean("floatingButtonQuickTranslateTapEnabled", true)
 autoPunctuationEnabled = prefs.getBoolean("autoPunctuation", true)
 geminiLiveSystemInstruction = prefs.getString("geminiLiveSystemInstruction", "أنت مساعد صوتي ذكي. مهمتك الرد المباشر بصوتك فقط.")
 geminiLiveVoiceName = prefs.getString("geminiLiveVoiceName", "Puck")
@@ -733,15 +734,38 @@ function createAndShowFloatingButton()
          return
     end
     floatingSettingsBtn = Button(service)
-    floatingSettingsBtn.setText("⚙️")
-    floatingSettingsBtn.setContentDescription(getFeedbackString("command_settings", selectedLanguage))
+    floatingSettingsBtn.setText(floatingButtonQuickTranslateTapEnabled and "🎙️" or "⚙️")
+    if floatingButtonQuickTranslateTapEnabled then
+        floatingSettingsBtn.setContentDescription("نقرة واحدة لبدء الإملاء والترجمة بسرعة، ونقرة مطولة لفتح الإعدادات.")
+    else
+        floatingSettingsBtn.setContentDescription(getFeedbackString("command_settings", selectedLanguage))
+    end
     local bg = GradientDrawable()
     bg.setCornerRadius(100)
     bg.setColor(0xFF1E1E1E)
     bg.setStroke(3, 0xFF64B5F6)
     floatingSettingsBtn.setBackgroundDrawable(bg)
     floatingSettingsBtn.setPadding(25, 25, 25, 25)
-    floatingSettingsBtn.setOnClickListener(function() openMainWindow() end)
+    floatingSettingsBtn.setOnClickListener(function()
+        if floatingButtonQuickTranslateTapEnabled then
+            if not newTranslationFeatureEnabled then
+                newTranslationFeatureEnabled = true
+                local editor = prefs.edit()
+                editor.putBoolean("newTranslationFeatureEnabled", true)
+                editor.apply()
+            end
+            hideMainWindow()
+            startVoiceRecognition(true)
+        else
+            openMainWindow()
+        end
+    end)
+    floatingSettingsBtn.setOnLongClickListener(View.OnLongClickListener{
+        onLongClick = function(v)
+            openMainWindow()
+            return true
+        end
+    })
     local params = WindowManager.LayoutParams()
     params.width = WindowManager.LayoutParams.WRAP_CONTENT; params.height = WindowManager.LayoutParams.WRAP_CONTENT
     params.type = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
@@ -3603,6 +3627,7 @@ function saveSettings()
     summarizeEnabled = summarizeEnabled or false
     imageDescriptionEnabled = imageDescriptionEnabled or false
     newTranslationFeatureEnabled = newTranslationFeatureEnabled or false
+    floatingButtonQuickTranslateTapEnabled = floatingButtonQuickTranslateTapEnabled or false
 
     local editor = prefs.edit()
     editor.putString("language", selectedLanguage or defaultSelectedLanguage)
@@ -3627,6 +3652,7 @@ function saveSettings()
     editor.putBoolean("showFloatingSettingsButton", showFloatingSettingsButtonEnabled)
     editor.putBoolean("newTranslationFeatureEnabled", newTranslationFeatureEnabled)
     editor.putString("translateToLanguage", translateToLanguage or defaultTranslateTo)
+    editor.putBoolean("floatingButtonQuickTranslateTapEnabled", floatingButtonQuickTranslateTapEnabled)
     editor.putBoolean("startWithDictation", startWithDictation)
     editor.putBoolean("tashkeelEnabled", tashkeelEnabled or false)
     editor.putBoolean("profanityFilterEnabled", profanityFilterEnabled or false)
@@ -3645,8 +3671,14 @@ function saveSettings()
     local currentDictLangDetails = getLanguageDetails(selectedLanguage)
     service.asyncSpeak(getFeedbackString("settings_saved", currentDictLangDetails.code))
 
-    if showFloatingSettingsButtonEnabled and not floatingSettingsBtn then createAndShowFloatingButton()
-    elseif not showFloatingSettingsButtonEnabled and floatingSettingsBtn then removeFloatingButton() end
+    if showFloatingSettingsButtonEnabled and not floatingSettingsBtn then
+        createAndShowFloatingButton()
+    elseif not showFloatingSettingsButtonEnabled and floatingSettingsBtn then
+        removeFloatingButton()
+    elseif showFloatingSettingsButtonEnabled and floatingSettingsBtn then
+        removeFloatingButton()
+        createAndShowFloatingButton()
+    end
 
     hideSettings()
 end
@@ -4550,7 +4582,7 @@ function openFeaturesSettings()
         return lbl
     end
 
-    local swTrans, swSum, swImg
+    local swTrans, swQuickTap, swSum, swImg
     local trLangSpinner, trLangIds
     local smSpinner, smIds
     local liveSysIn, liveVoiceSpinner, liveVoiceIds
@@ -4569,6 +4601,7 @@ function openFeaturesSettings()
         function() -- Features Switches
             local featCard = createCard(contentL)
             swTrans = Switch(service); swTrans.setChecked(newTranslationFeatureEnabled); createSettingRow("الترجمة التلقائية", swTrans, featCard)
+            swQuickTap = Switch(service); swQuickTap.setChecked(floatingButtonQuickTranslateTapEnabled); createSettingRow("النقرة السريعة للترجمة من الزر العائم", swQuickTap, featCard)
 
             featCard.addView(createLabel("ترجمة إلى لغة:"))
             local trNames = ArrayList(); trLangIds = {}
@@ -4606,6 +4639,7 @@ function openFeaturesSettings()
             local saveBtn = Button(service); saveBtn.setText("💾 حفظ"); styleButton(saveBtn, "primary")
             saveBtn.setOnClickListener(function()
                 newTranslationFeatureEnabled = swTrans.isChecked()
+                floatingButtonQuickTranslateTapEnabled = swQuickTap.isChecked()
                 translateToLanguage = trLangIds[trLangSpinner.getSelectedItemPosition() + 1]
                 summarizeEnabled = swSum.isChecked()
                 imageDescriptionEnabled = swImg.isChecked()
