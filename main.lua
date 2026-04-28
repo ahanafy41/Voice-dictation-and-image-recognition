@@ -5275,7 +5275,8 @@ function showGeminiLiveWindow()
     #videoPreview { width: 100%; height: 100%; object-fit: cover; display: none; transform: scaleX(-1); } /* Mirror for front camera */
     #videoPreview.rear { transform: scaleX(1); }
     .controls { padding: 15px; display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; background: #000; }
-    button { padding: 12px 20px; font-size: 16px; border-radius: 25px; border: none; font-weight: bold; cursor: pointer; transition: 0.3s; }
+    button { padding: 12px 20px; font-size: 16px; border-radius: 25px; border: none; font-weight: bold; cursor: pointer; transition: 0.3s; outline: 2px solid transparent; }
+    button:focus { outline: 2px solid #00ffcc; }
     #startBtn { background: #00ffcc; color: #000; box-shadow: 0 0 15px rgba(0, 255, 204, 0.4); }
     #stopBtn { background: #ff4444; color: #fff; display: none; }
     #toggleCamBtn { background: #444; color: #fff; display: none; }
@@ -5283,20 +5284,23 @@ function showGeminiLiveWindow()
     #log { font-size: 10px; color: #aaa; text-align: left; height: 80px; overflow-y: auto; background: #0a0a0a; padding: 10px; border-top: 1px solid #222; direction: ltr; font-family: monospace; }
     .sys { color: #00ffcc; } .err { color: #ff4444; }
     #canvasHelper { display: none; }
+    /* Screen reader only class to hide visually but keep readable */
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); border: 0; }
 </style></head><body>
-    <div id="status">جاهز للبث 🚀</div>
-    <div class="camera-container">
+    <div id="status" aria-live="polite" role="status">جاهز للبث 🚀</div>
+    <div class="camera-container" aria-hidden="true">
         <video id="videoPreview" autoplay playsinline></video>
         <canvas id="canvasHelper"></canvas>
     </div>
-    <div class="controls">
-        <button id="startBtn">ابدأ المحادثة الآن</button>
-        <button id="toggleCamBtn">📷 فتح الكاميرا</button>
-        <button id="switchCamBtn">🔄 تبديل الكاميرا</button>
-        <button id="flashBtn" style="display: none; background: #FFD700; color: #000;">🔦 الفلاش</button>
-        <button id="stopBtn">إنهاء المكالمة 🛑</button>
+    <div class="controls" role="group" aria-label="أزرار التحكم في المحادثة">
+        <button id="startBtn" role="button" aria-label="ابدأ المحادثة الصوتية الآن">ابدأ المحادثة الآن</button>
+        <button id="toggleCamBtn" role="button" aria-label="فتح وإغلاق الكاميرا">📷 فتح الكاميرا</button>
+        <button id="switchCamBtn" role="button" aria-label="تبديل بين الكاميرا الأمامية والخلفية">🔄 تبديل الكاميرا</button>
+        <button id="flashBtn" role="button" aria-label="تشغيل وإيقاف الفلاش" style="display: none; background: #FFD700; color: #000;">🔦 الفلاش</button>
+        <button id="stopBtn" role="button" aria-label="إنهاء المكالمة الصوتية وإغلاق الاتصال">إنهاء المكالمة 🛑</button>
     </div>
-    <div id="log">Logs:</div>
+    <!-- Hide the noisy logs from screen readers completely -->
+    <div id="log" aria-hidden="true">Logs:</div>
     <script>
 
         const video = document.getElementById('videoPreview');
@@ -5304,6 +5308,11 @@ function showGeminiLiveWindow()
         const toggleCamBtn = document.getElementById('toggleCamBtn');
         const switchCamBtn = document.getElementById('switchCamBtn');
         const flashBtn = document.getElementById('flashBtn');
+        const statusText = document.getElementById('status');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const logBox = document.getElementById('log');
+
         let camStream = null, currentFacingMode = 'environment', videoInterval = null;
         let isFlashActive = false;
         let isFlashTransitioning = false;
@@ -5420,10 +5429,7 @@ function showGeminiLiveWindow()
 
         toggleCamBtn.onclick = toggleCamera;
         switchCamBtn.onclick = switchCamera;
-        const statusText = document.getElementById('status');
-        const startBtn = document.getElementById('startBtn');
-        const stopBtn = document.getElementById('stopBtn');
-        const logBox = document.getElementById('log');
+
         let audioCtx, nextStart = 0, ws = null, micStream = null;
         let activeSources = [];
 
@@ -5532,7 +5538,10 @@ function showGeminiLiveWindow()
                 const data = await response.json();
                 let searchResult = data.answer || "";
                 if (data.results && data.results.length > 0) {
-                     searchResult += "\n\n" + data.results.map(r => r.content).join("\n");
+                     searchResult += "
+
+" + data.results.map(r => r.content).join("
+");
                 }
 
                 log("✅ تم جلب نتائج البحث", "sys");
@@ -5569,10 +5578,19 @@ function showGeminiLiveWindow()
             ws.onopen = () => {
                 log("تم الاتصال بالسيرفر ✅", "sys");
                 const tools = ]] .. toolsConfig .. [[;
+
+                // Inject Dynamic Current Time and Date Context
+                const currentDateObj = new Date();
+                const currentDateString = currentDateObj.toLocaleString('ar-EG', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+                const baseSysInstr = "]] .. sysInstr .. [[";
+                const enhancedSysInstr = baseSysInstr + "
+
+[معلومات النظام الهامة جداً: أنت تتحدث الآن في الزمن الحقيقي. التاريخ والوقت الحالي هو: " + currentDateString + ". عامنا الحالي هو 2026. ضع هذه المعلومة في اعتبارك دائماً عند البحث أو الإجابة.]";
+
                 const setupMsg = {
                     setup: {
                         model: "models/gemini-3.1-flash-live-preview",
-                        systemInstruction: { parts: [{ text: "]] .. sysInstr .. [[" }] },
+                        systemInstruction: { parts: [{ text: enhancedSysInstr }] },
                         generationConfig: {
                             responseModalities: ["AUDIO"],
                             speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "]] .. (geminiLiveVoiceName or "Puck") .. [[" } } }
@@ -5597,6 +5615,8 @@ function showGeminiLiveWindow()
                         switchCamBtn.style.display = "inline-block";
                         startBtn.style.display = "none";
                         stopBtn.style.display = "inline-block";
+                        // Focus on stop button for screen reader convenience
+                        stopBtn.focus();
                         startMic();
                     }
 
@@ -5632,6 +5652,7 @@ function showGeminiLiveWindow()
                 startBtn.disabled = false;
                 stopBtn.style.display = "none";
                 startBtn.style.display = "inline-block";
+                startBtn.focus();
                 if (micStream) micStream.getTracks().forEach(t => t.stop());
                 stopAllAudio();
             };
