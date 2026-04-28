@@ -46,6 +46,12 @@ if __name__ == "__main__":
         if not check_syntax(f):
             success = False
 
+    # Run the JS syntax tester
+    print("\n🔍 Running JS Syntax Check...")
+    js_result = subprocess.run([sys.executable, 'lua_js_tester.py'])
+    if js_result.returncode != 0:
+        success = False
+
     if not success:
         print("\n🚨 Please fix the errors above before proceeding.")
         sys.exit(1)
