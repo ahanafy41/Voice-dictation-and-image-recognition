@@ -173,7 +173,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 2.5
+local currentAppVersion = 2.6
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -5538,10 +5538,7 @@ function showGeminiLiveWindow()
                 const data = await response.json();
                 let searchResult = data.answer || "";
                 if (data.results && data.results.length > 0) {
-                     searchResult += "
-
-" + data.results.map(r => r.content).join("
-");
+                     searchResult += "\n\n" + data.results.map(r => r.content).join("\n");
                 }
 
                 log("✅ تم جلب نتائج البحث", "sys");
