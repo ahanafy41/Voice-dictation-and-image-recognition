@@ -173,7 +173,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 2.4
+local currentAppVersion = 2.5
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -5583,9 +5583,7 @@ function showGeminiLiveWindow()
                 const currentDateObj = new Date();
                 const currentDateString = currentDateObj.toLocaleString('ar-EG', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
                 const baseSysInstr = "]] .. sysInstr .. [[";
-                const enhancedSysInstr = baseSysInstr + "
-
-[معلومات النظام الهامة جداً: أنت تتحدث الآن في الزمن الحقيقي. التاريخ والوقت الحالي هو: " + currentDateString + ". عامنا الحالي هو 2026. ضع هذه المعلومة في اعتبارك دائماً عند البحث أو الإجابة.]";
+                const enhancedSysInstr = baseSysInstr + " \n\n [معلومات النظام الهامة جداً: أنت تتحدث الآن في الزمن الحقيقي. التاريخ والوقت الحالي هو: " + currentDateString + ". عامنا الحالي هو 2026. ضع هذه المعلومة في اعتبارك دائماً عند البحث أو الإجابة.]";
 
                 const setupMsg = {
                     setup: {
