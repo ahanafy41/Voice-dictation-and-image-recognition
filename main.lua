@@ -173,7 +173,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 2.8
+local currentAppVersion = 2.9
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -4927,17 +4927,59 @@ function startVoiceRecognition(fromDashboard)
                              service.asyncSpeak(getFeedbackString(feedbackKey, currentDictLangDetails.code, finalTextToInsert))
                         end
 
-                        local editTextNode = service.getEditText()
-                        if editTextNode then
-                            local currentContent = editTextNode.getText() or ""
-                            local textToActuallyInsert = finalTextToInsert
+                        local textToActuallyInsert = finalTextToInsert
+                        local insertedSuccessfully = false
+
+                        -- First attempt: service.getEditText()
+                        local targetNode = service.getEditText()
+                        -- Second attempt: service.getFocusView() if getEditText fails
+                        if not targetNode then
+                            targetNode = service.getFocusView()
+                            -- ensure it's actually an editable node or at least a node we can try
+                            if targetNode and not targetNode.isEditable() then
+                                targetNode = nil
+                            end
+                        end
+
+                        if targetNode then
+                            local currentContent = targetNode.getText() or ""
                             if autoSpaceEnabled and #tostring(currentContent) > 0 and not tostring(currentContent):match("%s$") and not tostring(currentContent):match("[\"\'“‘]$") then
                                 textToActuallyInsert = " " .. textToActuallyInsert
                             end
-                            service.insertText(editTextNode, textToActuallyInsert)
-                            lastInsertedDictationTextLength = #tostring(textToActuallyInsert)
-                            pcall(editTextNode.recycle, editTextNode)
+
+                            local success = pcall(function() service.insertText(targetNode, textToActuallyInsert) end)
+                            if success then
+                                insertedSuccessfully = true
+                                lastInsertedDictationTextLength = #tostring(textToActuallyInsert)
+                            end
+                            pcall(targetNode.recycle, targetNode)
                         end
+
+                        -- Third attempt: Fallback to commitText (very strong for browsers/webviews)
+                        if not insertedSuccessfully then
+                            local success = pcall(function() return service.commitText(textToActuallyInsert) end)
+                            -- Jieshuo commitText might not return a boolean, so we assume success if no error was thrown, but wait, commitText is usually void.
+                            if success then
+                                insertedSuccessfully = true
+                                lastInsertedDictationTextLength = #tostring(textToActuallyInsert)
+                            end
+                        end
+
+                        -- Fourth attempt: Fallback to Jieshuo paste or copy
+                        if not insertedSuccessfully then
+                            -- Let's try service.paste()
+                            local success = pcall(function() service.paste(textToActuallyInsert) end)
+                            if success then
+                                insertedSuccessfully = true
+                                lastInsertedDictationTextLength = #tostring(textToActuallyInsert)
+                            else
+                                -- Absolute fallback: copy to clipboard so the user doesn't lose data
+                                pcall(function() service.copy(textToActuallyInsert) end)
+                                service.asyncSpeak("لم يتم العثور على مربع كتابة، تم نسخ النص للحافظة")
+                                lastInsertedDictationTextLength = 0
+                            end
+                        end
+
                         if shouldContinue then startListening() elseif not continuousDictationEnabled then cleanupResources() end
                     end
 
