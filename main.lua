@@ -173,7 +173,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 2.7
+local currentAppVersion = 2.8
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -746,6 +746,8 @@ function createAndShowFloatingButton()
     bg.setStroke(3, 0xFF64B5F6)
     floatingSettingsBtn.setBackgroundDrawable(bg)
     floatingSettingsBtn.setPadding(25, 25, 25, 25)
+    floatingSettingsBtn.setFocusable(false)
+    floatingSettingsBtn.setFocusableInTouchMode(false)
     floatingSettingsBtn.setOnClickListener(function()
         if floatingButtonQuickTranslateTapEnabled then
             if not newTranslationFeatureEnabled then
@@ -4925,7 +4927,7 @@ function startVoiceRecognition(fromDashboard)
                              service.asyncSpeak(getFeedbackString(feedbackKey, currentDictLangDetails.code, finalTextToInsert))
                         end
 
-                        local editTextNode = targetEditText
+                        local editTextNode = service.getEditText()
                         if editTextNode then
                             local currentContent = editTextNode.getText() or ""
                             local textToActuallyInsert = finalTextToInsert
