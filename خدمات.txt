@@ -1,0 +1,1361 @@
+welcome to syntax
+Now i provided some facility for you directly copy any  syntax from tool and paste  and create
+service.setAsyncTtsScale( give  value two adjust secondary tts ret acceleration)
+service.reLoad()
+ this sintex refresh  Gesture scheme
+service.tool(" right tool name to open")
+service.setText(" write text to pest alternative of paste service")
+service.installApp(" write application name to install from play store")
+service.startApp(" write application name to open")
+require "import"
+web=LuaWebView(activity)
+activity.setContentView(web)
+web.loadUrl(" pest link to open")
+service.setTtsScale( give value to adjust tts rate acceleration)
+service.postSpeak(  give  value in milliseconds to wait, " right text to read")
+service.postasyncSpeak( give value in milliseconds  to wait, " write text to read secondary tts")
+local numPlays = value for repeat
+local totalTime = time in meli seconds
+local delayBetweenPlays = totalTime / numPlays
+for i = 1, numPlays do
+    write any play sound syntax
+    if i < numPlays then
+        local startTime = os.clock()
+        while os.clock() - startTime < delayBetweenPlays do
+        end
+    end
+end
+service.setTTSSpeed( number value for adjust speed)
+service.setTtsPitch( give value for adjust speech)
+service.loadSound()
+ this sintex work switch to default sound theme
+service.callPhone(" right number to call")
+service.deleteApp(" pest app name to delete")
+require "import"
+import "android.media.MediaPlayer"
+local mediaPlayer = MediaPlayer()
+mediaPlayer.reset()
+mediaPlayer.setDataSource(" give path 2 play audio file for example/storage/emulated/0/Notifications/Om namah shivay (Sms Tone).mp3")
+mediaPlayer.prepare()
+mediaPlayer.start()
+message this sintex read time date
+require "import"
+import "java.text.SimpleDateFormat"
+import "java.util.Date"
+import "android.content.Context"
+import "android.content.Intent"
+import "android.content.IntentFilter"
+import "android.os.BatteryManager"
+
+function getGreeting()
+    local hour = tonumber(os.date("%H"))
+    if hour < 12 then
+        return "Good morning"
+    elseif hour < 18 then
+        return "Good afternoon"
+    else
+        return "Good evening"
+    end
+end
+
+function speakDateTime(context)
+    local currentDate = os.date("%A, %B %d, %Y")
+    local currentTime = os.time()
+    local currentTimeInMillis = currentTime * 1000 -- Convert seconds to milliseconds
+    local formattedTime = SimpleDateFormat("hh:mm:ss.SSS a").format(Date(currentTimeInMillis))
+
+    local batteryIntent = context.registerReceiver(nil, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+    local level = batteryIntent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+    local scale = batteryIntent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+    local batteryPercent = math.floor((level / scale) * 100)
+
+    -- Get greeting based on the time of day
+    local greeting = getGreeting()
+
+    -- Speak the message
+    local message = greeting .. "! Today is " .. currentDate .. ". The time is " .. formattedTime .. ". The battery level is " .. batteryPercent .. " percent."
+    context.speak(message)
+end
+
+speakDateTime(this)
+
+return true
+service.speak("  write text to read  ")
+service.speakAllText()
+Made from this syntax. extension. Reads all your screens..
+service.asyncSpeak("  write text to read secondary tts ")
+service.paste("  write text to paste ")
+service.shareFile("right file path to share fileà¥¤   example pathà¥¤ /storage/emulated/0/Notifications/Om namah shivay (Sms Tone).mp3")
+service.postClick(give value in milliseconds to waità¥¤ , {"right option to clickà¥¤ ",
+continue with same process})
+service.copy(" right text to copy ")
+service.appendCopy(" write text to append ")
+service.openUrl("  pest link to open in jieshuo  web browser")
+print(" right  text to display")
+service.playSoundTick()
+  this  syntax give you tick sound
+service.playSoundGestureBegin()
+ this sintex give you multi   part  gesture part 1 sound
+service.playSoundGestureEnd()
+ this sintex give you multi part gesture  part 2 sound
+service.playSoundClock()
+  this cintex give you csr clock sound
+require "import" 
+  import "android.widget.*" 
+  import "com.androlua.*" 
+layout={ 
+    GridView, 
+    id="grid", 
+    numColumns=4, 
+    layout_width="fill", 
+    layout_height="fill" 
+  }
+
+items={" right option name to show"}
+dlg=LuaDialog(this)
+dlg.View=loadlayout(layout)
+grid.adapter=SingleLineAdapter(service, String(items))
+dlg.setTitle(" right title to view")
+dlg.setMessage(" write message to view")
+dlg.setButton(" right button name to view for example clothes and cancel this  button work go back or  close", nil)
+dlg.show()
+grid.onItemClick=function(l,v)
+dlg.dismiss()
+task(500, function()
+if v.text == "Enter the name you gave above for the button to display above. Any button.." then Set what the button should do after pressing it..
+elseif v.text == "Enter the name you gave above for the button to display above. Any button. continue with same process" then Set what the button should do after pressing it continue with same process
+return true
+end
+end)
+end
+service.playSoundScroll()
+ this sintex give you change navigation tile sound
+service.beep()
+this sintex give you reaching last element soundà¥¤
+A value is given between both the left parenthesis and the right parenthesis The value is the number of times the sound is played  and this work in play sound all syntax The value is given in digits
+service.setLongClickTime(give durationà¥¤ to set while long press)
+require "import"
+import "android.content.Intent"
+import "android.content.pm.PackageManager"
+import "android.net.Uri"
+import "java.io.File"
+function openDownloadFolder()
+    local folderPath = "right path to open folder example pathà¥¤ /storage/emulated/0/Download"
+    local folderUri = Uri.parse(folderPath)
+-- Create an attempt to open the directory.
+    local intent = Intent(Intent.ACTION_VIEW)
+    intent.setDataAndType(folderUri, "resource/folder")
+    intent.setFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    if intent.resolveActivity(service.getPackageManager()) then
+        service.startActivity(intent)
+    else
+service.asyncSpeak("No application found to open the folder.")
+    end
+end
+openDownloadFolder()
+return true
+require "import"
+
+import "android.speech.RecognizerIntent"
+
+import "android.speech.SpeechRecognizer"
+
+import "android.speech.RecognitionListener"
+
+import "android.content.Intent"
+
+import "android.net.Uri"
+
+
+
+if not service.getEditText() then
+
+    service.asyncSpeak("Text Box Not Found!")
+
+    return false
+
+end
+
+
+
+local spokenLanguageBysurya = "hi-IN"
+
+local translatedLanguageBysurya = "en"
+
+local autoPunctuationBysurya = ". 
+"
+local recordIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+
+recordIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+
+recordIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, spokenLanguageBysurya)
+
+local speechRecord = SpeechRecognizer.createSpeechRecognizer(service)
+
+speechRecord.setRecognitionListener{
+
+    onResults = function(results)
+
+        local spokenText = results.getParcelableArrayList(SpeechRecognizer.RESULTS_RECOGNITION).get(0)
+
+
+
+        Http.get("https://translate.google.com/m?sl=auto&hl=" .. translatedLanguageBysurya .. "&q=" .. Uri.encode(spokenText), function(status, result)
+
+            if status == 200 then
+
+                local translatedText = result:match('<div class="result%-container">([^<]+)</div>')
+
+                service.insertText(service.getEditText(), translatedText .. autoPunctuationBysurya)
+
+                service.speak(translatedText)
+
+            end
+
+        end)
+
+        speechRecord.destroy()
+
+    end,
+
+    onError = function()
+
+        speechRecord.destroy()
+
+        service.asyncSpeak("I Did Not Understand Your Message!")
+
+    end
+
+}
+
+
+
+speechRecord.startListening(recordIntent)
+require "import"
+
+import "android.speech.RecognizerIntent"
+
+import "android.speech.SpeechRecognizer"
+
+import "android.speech.RecognitionListener"
+
+import "android.content.Intent"
+
+
+
+if not service.getEditText() then
+
+service.asyncSpeak("Text Box Not Found!")
+
+return false
+
+end
+
+
+
+local typingLanguageBysurya = "en-US"
+
+local autoPunctuationBysurya = ".
+ "
+local recordIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+
+recordIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+
+recordIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, languageBysurya)
+
+
+
+local speechRecord = SpeechRecognizer.createSpeechRecognizer(service)
+
+speechRecord.setRecognitionListener{
+
+onResults = function(results)
+
+local spokenText = results.getParcelableArrayList(SpeechRecognizer.RESULTS_RECOGNITION).get(0)
+
+service.insertText(service.getEditText(), spokenText .. autoPunctuationBysurya)
+
+service.speak(spokenText)
+
+speechRecord.destroy()
+
+end,
+
+onError = function()
+
+speechRecord.destroy()
+
+service.asyncSpeak("I Did Not Understand Your Message!")
+
+end
+
+}
+
+
+
+speechRecord.startListening(recordIntent)
+require "import"
+import "android.content.Intent"
+import "android.speech.SpeechRecognizer"
+import "android.speech.RecognitionListener"
+import "android.speech.RecognizerIntent"
+
+local editText = service.getEditText()
+
+if not editText then
+
+service.asyncSpeak("Text Box Not Found")
+
+return
+end
+local context = service.getApplicationContext()
+local speechRec = SpeechRecognizer.createSpeechRecognizer(context)
+local changeTable = {
+["table"] = "table",
+}
+
+
+
+local listener = RecognitionListener {
+onResults = function(results)
+local resultsArray = results.getParcelableArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+if resultsArray and resultsArray.size() > 0 then
+local spokenText = resultsArray.get(0)
+for rawWord, newWord in pairs(changeTable) do
+spokenText = spokenText:gsub(rawWord, newWord)
+end
+spokenText = spokenText:gsub("%s([?,!])", "%1") -- Trim spaces before specific punctuation
+local lastChars = spokenText:match("[.?!,à¥¤
+ðŸ‘â¤ðŸ™ðŸ‘Œ%s]+$") -- Find the last characters that match the pattern
+if not lastChars then
+spokenText = spokenText .. ". 
+"
+end
+service.insertText(editText, spokenText)
+service.speak(spokenText)
+end
+speechRec.destroy()
+end,
+onError = function()
+service.asyncSpeak("I did not understand your message")
+speechRec.destroy()
+return false
+end,
+}
+
+local intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "right language code to typing")
+
+speechRec.setRecognitionListener(listener)
+speechRec.startListening(intent)
+require 'import'
+import "android.content.*"
+
+local intent = Intent()
+.setComponent(ComponentName("com.android.settings", "com.android.settings.Settings$right setting name to open exampleà¥¤ WifiSettingsActivity"))
+
+service.startActivity(intent)
+Node = ...
+service.postExecute( give value in milliseconds for weight, "write your name", node, function() use function Or any service("  right or pest text") end)
+require "import"
+import "android.content.Intent"
+import "android.net.Uri"
+
+local url = "pest specific application link to open in specific application "
+local intent = Intent(Intent.ACTION_VIEW) 
+intent.setData(Uri.parse(url))
+this.startActivity( intent)
+return true
+if
+service.click({
+{"write option to click ",
+continue with same process option writing completed }
+})return true
+end
+if
+service.click({
+{"write option to click ",
+continue with same process option writing completed }
+})
+ use any service to create
+return true
+end
+return trueservice.acceptCall
+service.acceptRingingCall
+service.accessibilityFocus
+service.accessibilityFocus2
+service.addAutoSpeakCache
+service.addClipboard
+service.addContentBlacklist
+service.addFavorites
+service.addNodeChangedList
+service.addNotificationMap
+service.addTimer
+service.allStop
+service.announcementNotificationBox
+service.appendCopy
+service.appendSpeak
+service.appendSpeak2
+service.asyncAppendSpeak
+service.asyncGetAllApp
+service.asyncSpeak
+service.asyncStop
+service.asyncTrans
+service.attach
+service.beep
+service.bindIsolatedService
+service.bindService
+service.bindServiceAsUser
+service.call
+service.callPhone
+service.canAddLabel
+service.cancelAll
+service.check
+service.checkAction
+service.checkBlackList
+service.checkBound2
+service.checkBound3
+service.checkBound4
+service.checkCallingOrSelfPermission
+service.checkCallingOrSelfUriPermission
+service.checkCallingOrSelfUriPermissions
+service.checkCallingPermission
+service.checkCallingUriPermission
+service.checkCallingUriPermissions
+service.checkClassName
+service.checkCmdPath
+service.checkGoogleNumber
+service.checkId
+service.checkId2
+service.checkNetwork
+service.checkNetworkWiFi
+service.checkNode
+service.checkNumber
+service.checkOneNode
+service.checkPackageName
+service.checkParent
+service.checkPermission
+service.checkPluginPath
+service.checkSamsungNumber
+service.checkSelfPermission
+service.checkTalkback
+service.checkToolPath
+service.checkUriPermission
+service.checkUriPermissions
+service.checkWeixinVer
+service.clear
+service.clearAccessibilityFocus
+service.clearLuaCache
+service.clearStatInfo
+service.clearWallpaper
+service.click
+service.click2
+service.click3
+service.cmd
+service.colorClick
+service.commitText
+service.copy
+service.create
+service.createApplicationContext
+service.createAttributionContext
+service.createConfigurationContext
+service.createContext
+service.createContextAsUser
+service.createContextForSplit
+service.createCredentialProtectedStorageContext
+service.createDeviceProtectedStorageContext
+service.createDialog
+service.createDisplayContext
+service.createFeatureContext
+service.createPackageContext
+service.createPackageContextAsUser
+service.createShortcut
+service.createWindowContext
+service.databaseList
+service.deleteApp
+service.deleteDatabase
+service.deleteFile
+service.deleteSharedPreferences
+service.destroy
+service.deviceHasNavigationBar
+service.disableSelf
+service.dispatchGesture
+service.doAsset
+service.doBooleanFile
+service.doBooleanFunction
+service.doCmd
+service.doFile
+service.doGestureFile
+service.doString
+service.doubleClick
+service.doubleSwipe
+service.down
+service.downPage
+service.editDict
+service.editNodeInfo
+service.editNodeName
+service.endCall
+service.endRingingCall
+service.enforceCallingOrSelfPermission
+service.enforceCallingOrSelfUriPermission
+service.enforceCallingPermission
+service.enforceCallingUriPermission
+service.enforcePermission
+service.enforceUriPermission
+service.equals
+service.execute
+service.execute_action
+service.fileList
+service.findAccessibilityNodeInfo
+service.findAccessibilityNodeInfoByPinyin
+service.findAccessibilityNodeInfoByText
+service.findCheckView
+service.findClick
+service.findFocus
+service.findFocusView
+service.findListView
+service.findView
+service.focusHtml
+service.focusSound
+service.getAccessibilityButtonController
+service.getAlarmInterval
+service.getAllAppList
+service.getAllEditTextList
+service.getAllText
+service.getAllTextList
+service.getAllTextSplitList
+service.getAppName
+service.getAppNameAndVer
+service.getApplication
+service.getApplicationContext
+service.getApplicationInfo
+service.getAssets
+service.getAttributionSource
+service.getAttributionTag
+service.getAudioMode
+service.getAutoSpeakBlacklist
+service.getBaseContext
+service.getBasePackageName
+service.getBatteryLevel
+service.getButton1
+service.getButton2
+service.getCacheDir
+service.getClass
+service.getClassLoader
+service.getClassLoaders
+service.getClickList
+service.getClipboardList
+service.getCloudNodeInfoLabel
+service.getCodeCacheDir
+service.getColor
+service.getColorStateList
+service.getContentResolver
+service.getContext
+service.getCustomActions
+service.getDataDir
+service.getDatabasePath
+service.getDensity
+service.getDescriptionFromConfig
+service.getDir
+service.getDisplay
+service.getDisplayHeight
+service.getDisplayWidth
+service.getDrawable
+service.getDurationFromFilePath
+service.getEdgeGestures
+service.getEditText
+service.getEventCount
+service.getEventFunc
+service.getEventText
+service.getEventTime
+service.getExtActions
+service.getExternalCacheDir
+service.getExternalCacheDirs
+service.getExternalFilesDir
+service.getExternalFilesDirs
+service.getExternalMediaDirs
+service.getFavoritesList
+service.getFeatureId
+service.getFileName
+service.getFileStreamPath
+service.getFilesDir
+service.getFingerprintGestureController
+service.getFocusView
+service.getForegroundServiceType
+service.getGestureCount
+service.getGesturePackage
+service.getGestureTime
+service.getGlobalData
+service.getHandler
+service.getHeight
+service.getHintText
+service.getHoverCount
+service.getHoverTime
+service.getIndexLabel
+service.getIndexLabel2
+service.getInputMethodManager
+service.getInputWindowNode
+service.getInstance
+service.getLastEdittext
+service.getLastScrollIndex
+service.getLastSetFocusViewTime
+service.getLastSpeakText
+service.getLeftButton
+service.getLibrarys
+service.getLight
+service.getListView
+service.getListView2
+service.getListViewItem
+service.getLuaCpath
+service.getLuaDir
+service.getLuaExtDir
+service.getLuaExtPath
+service.getLuaLpath
+service.getLuaPath
+service.getLuaState
+service.getMagnificationController
+service.getMainExecutor
+service.getMainLooper
+service.getMessage
+service.getMobileLevel
+service.getMode
+service.getNavBarHeight
+service.getNextChapterKeyword
+service.getNoBackupFilesDir
+service.getNodeIndexId
+service.getNodeIndexId2
+service.getNodeInfoLabel
+service.getNodeInfoLabelExt
+service.getNodeInfoResId
+service.getNodeInfoText
+service.getNodeTree
+service.getNowTime
+service.getObbDir
+service.getObbDirs
+service.getOpPackageName
+service.getOrientation
+service.getPackageCodePath
+service.getPackageManager
+service.getPackageName
+service.getPackageResourcePath
+service.getParams
+service.getPreloadsFileCache
+service.getPreviousChapterKeyword
+service.getRawMode
+service.getRawNodeInfoText
+service.getRawNodeInfoText2
+service.getRawNodeInfoText3
+service.getRawSpeakSourceText
+service.getRecordNode
+service.getResources
+service.getRightButton
+service.getRoleDescription
+service.getRootInActiveWindow
+service.getRootNode
+service.getRootNodeInfo
+service.getScreenShot
+service.getScreenShot2
+service.getSelectionEnd
+service.getSelectionStart
+service.getSelectionText
+service.getService
+service.getServiceInfo
+service.getSharedData
+service.getSharedPreferences
+service.getSharedPreferencesPath
+service.getSharedPrefsFile
+service.getSoftKeyboardController
+service.getSoundClockTime
+service.getSoundTickTime
+service.getSourceText
+service.getSpeakSourceText
+service.getSpeechRecognizer
+service.getStatusBarHeight
+service.getStatusBarWindowHeight
+service.getStreamVolume
+service.getString
+service.getSystemActions
+service.getSystemService
+service.getSystemServiceName
+service.getTTS
+service.getText
+service.getText3
+service.getText4
+service.getTextFormatter
+service.getTextMove
+service.getTheme
+service.getThemeResId
+service.getTimerInterval
+service.getTimerModePauseTime
+service.getTimerTags
+service.getTouchExpCount
+service.getTouchExpTime
+service.getTtsScale
+service.getUriForFile
+service.getUriForPath
+service.getUserId
+service.getUserName
+service.getVibrateIntensity
+service.getViewIdResourceName
+service.getViewName
+service.getViewName2
+service.getWallpaper
+service.getWallpaperDesiredMinimumHeight
+service.getWallpaperDesiredMinimumWidth
+service.getWebAllText
+service.getWebAllTextList
+service.getWebScrollView
+service.getWidth
+service.getWifiLevel
+service.getWindows
+service.getWindowsOnAllDisplays
+service.getWtNode
+service.getWxNode
+service.grantUriPermission
+service.hasChildNodeInfoAllClick
+service.hasChildNodeInfoClick
+service.hasChildNodeInfoNoneClick
+service.hasChildNodeInfoText
+service.hasChildNodeInfoTextAux
+service.hasClickSpan
+service.hasNavigationBar
+service.hasNodeInfoText
+service.hashCode
+service.init
+service.insert
+service.insertText
+service.installApk
+service.installApp
+service.isAccessibilityFocusable
+service.isAccessibilityVolume
+service.isAsyncSpeakEnabled
+service.isAsyncUseProixmitySensor
+service.isAutoEnabled
+service.isAutoNext
+service.isAutoPrevious
+service.isAutoRead
+service.isAutoReadEnabled
+service.isAutoSpeech
+service.isAutoSpeechEnabled
+service.isAutoTrans
+service.isBatteryConnected
+service.isCN
+service.isCharMode
+service.isCharModeGesture
+service.isClickable
+service.isCredentialProtectedStorage
+service.isDebug
+service.isDeviceProtectedStorage
+service.isDimmed
+service.isEditMode
+service.isEditView
+service.isEditable
+service.isEnabled
+service.isInCalling
+service.isInInputWindow
+service.isInListView
+service.isInLongSpeak
+service.isInScrollView
+service.isInWebView
+service.isInWebView2
+service.isIncallMode
+service.isInputWindowOnScreen
+service.isLandscape
+service.isListView
+service.isListView2
+service.isLoad
+service.isLock
+service.isLongCopy
+service.isMenuUpTap
+service.isNear
+service.isNoneFocusView
+service.isOcring
+service.isPartialWakeLock
+service.isPauseGesture
+service.isQuickView
+service.isRawClick
+service.isRestricted
+service.isRingMode
+service.isRinging
+service.isScreenOn
+service.isScrollView
+service.isSeekBar
+service.isSelectionMode
+service.isShowIME
+service.isShowInputWindow
+service.isSpeakListViewItem
+service.isSpeaking
+service.isSpeaking2
+service.isSpeeching
+service.isSupperMode
+service.isTTSEnabled
+service.isTapMode
+service.isTatansIme
+service.isTimerMode
+service.isTouch
+service.isTouchMode
+service.isUiContext
+service.isUpTap
+service.isUpTapEnabled
+service.isUseAccessibilityVolume
+service.isUseAccessibilityVolumeFix
+service.isUseAlarm
+service.isUseAsyncAccessibilityVolume
+service.isUseAutoViewType
+service.isUseCloudLabel
+service.isUseDpadKey
+service.isUseEdgeGesture
+service.isUseFastMode
+service.isUseFloatMenu
+service.isUseForeground
+service.isUseHotkey
+service.isUseImageToText
+service.isUseKeepType
+service.isUseLoopMove
+service.isUseLoopMoveSpace
+service.isUseMoreNode
+service.isUseMoveListViewItem
+service.isUseMoveWindow
+service.isUseNewWebMove
+service.isUseNode
+service.isUseOCR
+service.isUseOldPrevious
+service.isUseProixmitySensor
+service.isUseProximityFalseTouchPrevention
+service.isUseRawClick
+service.isUseRawTap
+service.isUseScrollListContent
+service.isUseScrollListIndex
+service.isUseShowDisabledQuickMenu
+service.isUseSingleTTS
+service.isUseSlowSpeed
+service.isUseTextFormatCharUpper
+service.isUseTextFormatFirst
+service.isUseTextFormatReadWord
+service.isUseUseTextFormatCharNumber
+service.isUseViewMove
+service.isUseViewTypeMoveMode
+service.isUseVolumeKeyEnabled
+service.isUseWebMove
+service.isVoiceInputAppendMode
+service.isVolumeKeyEnabled
+service.isWakeLock
+service.isWebView
+service.isWindowStateChanged
+service.keyLock
+service.left
+service.leftPage
+service.loadAllTimerRun
+service.loadAutoSpeakBlacklist
+service.loadContentBlacklist
+service.loadDex
+service.loadGesturePackage
+service.loadHotKey
+service.loadHotKeyPackage
+service.loadNotificationBlackList
+service.loadNotificationWhiteList
+service.loadSound
+service.loadSoundPackage
+service.lock
+service.longClick
+service.longCopy
+service.longHold
+service.loopClick
+service.lowerVolume
+service.lowerVolume2
+service.moveDatabaseFrom
+service.moveSharedPreferencesFrom
+service.navigation
+service.newActivity
+service.newTask
+service.newThread
+service.newTimer
+service.nextAlarm
+service.nextRun
+service.nextTimer
+service.nodeChangedListManager
+service.noneFocus
+service.noneFocusView
+service.notificationBox
+service.notify
+service.notifyAll
+service.obtainStyledAttributes
+service.ocr
+service.ocr3
+service.ocrClick
+service.ocrScreen
+service.ocrScreen2
+service.ocrToLayout2
+service.onASREnd
+service.onASRStart
+service.onASRStop
+service.onAccessibilityEvent
+service.onAsyncSpeak
+service.onAsyncSpeak2
+service.onBind
+service.onConfigurationChanged
+service.onCreate
+service.onDestroy
+service.onGesture
+service.onIncall
+service.onInterrupt
+service.onKeyEvent
+service.onLockedBootCompleted
+service.onLowMemory
+service.onNotificationBar
+service.onRebind
+service.onScreenOff
+service.onScreenOn
+service.onScreenOn2
+service.onServiceConnected
+service.onSpeak
+service.onSpeak2
+service.onStart
+service.onStartCommand
+service.onSystemActionsChanged
+service.onTTSEnd
+service.onTTSStart
+service.onTTSStop
+service.onTaskRemoved
+service.onToast
+service.onTrimMemory
+service.onUnbind
+service.onUnlockedBootCompleted
+service.openActivity
+service.openFileInput
+service.openFileOutput
+service.openOrCreateDatabase
+service.openUrl
+service.paste
+service.pasteText
+service.pauseTouchMode
+service.peekWallpaper
+service.performGlobalAction
+service.play
+service.playSoundClock
+service.playSoundGestureBegin
+service.playSoundGestureEnd
+service.playSoundScroll
+service.playSoundTick
+service.plugin
+service.postClick
+service.postExecute
+service.postSpeak
+service.press
+service.print
+service.raiseVolume
+service.raiseVolume2
+service.rawClick
+service.rawDoubleClick
+service.rawSpeak
+service.reAccessibilityFocus
+service.reCreate
+service.reLoad
+service.reLoadTTS
+service.reSize
+service.readAsset
+service.regEvent
+service.regGc
+service.registerComponentCallbacks
+service.registerReceiver
+service.registerReceiverAsUser
+service.registerReceiverForAllUsers
+service.removeStickyBroadcast
+service.removeStickyBroadcastAsUser
+service.requestPermissions
+service.resetStreamVolume
+service.revokeUriPermission
+service.right
+service.rightPage
+service.scrollBackward
+service.scrollBackwardFind
+service.scrollForward
+service.scrollForwardFind
+service.select
+service.semBindServiceAsUser
+service.semCreatePackageContextAsUser
+service.semRegisterReceiverAsUser
+service.semStartForegroundServiceAsUser
+service.semStartServiceAsUser
+service.sendBroadcast
+service.sendBroadcastAsUser
+service.sendBroadcastWithMultiplePermissions
+service.sendError
+service.sendKey
+service.sendKeyEvent
+service.sendMsg
+service.sendOrderedBroadcast
+service.sendOrderedBroadcastAsUser
+service.sendStickyBroadcast
+service.sendStickyBroadcastAsUser
+service.sendStickyOrderedBroadcast
+service.sendStickyOrderedBroadcastAsUser
+service.sendText
+service.set
+service.setAccessibilityFocus
+service.setAccessibilityFocus2
+service.setAccessibilityFocusAppearance
+service.setAccessibilityVolume
+service.setAcquireWakeLock
+service.setAlarmEndHour
+service.setAlarmHours
+service.setAlarmInterval
+service.setAlarmStartHour
+service.setAsyncAudioFocus
+service.setAsyncSpeakEnabled
+service.setAsyncTTSSpeed
+service.setAsyncTTSVolume
+service.setAsyncTtsEngine
+service.setAsyncTtsPitch
+service.setAsyncTtsScale
+service.setAsyncUseAccessibilityVolume
+service.setAsyncUseProixmitySensor
+service.setAsyncUseTouchStop
+service.setAsyncUseWakeLock
+service.setAudioFocus
+service.setAutoNext
+service.setAutoPrevious
+service.setAutoRead
+service.setAutoReadEnabled
+service.setAutoShowVirtualScreen
+service.setAutoSpeak
+service.setAutoSpeakApps
+service.setAutoSpeech
+service.setAutoSpeechEnabled
+service.setAutoTrans
+service.setCharMode
+service.setCharModeGesture
+service.setClearNode
+service.setCloudNodeInfoLabel
+service.setContentBlacklist
+service.setDimmed
+service.setDimmedEnabled
+service.setDoubleFling
+service.setDoubleFlingTime
+service.setEdgeGesture
+service.setEdgeGestureWidth
+service.setEnabled
+service.setFalseTouchPrevention
+service.setFalseTouchPreventionEnabled
+service.setFocusView
+service.setForeground
+service.setForeground2
+service.setGameMode
+service.setGameModeList
+service.setGestureDetectionPassthroughRegion
+service.setIncallMode
+service.setInputMode
+service.setKeepFocusPosition
+service.setLeftButton
+service.setLongClickTime
+service.setLongCopy
+service.setLuaExtDir
+service.setMenuUpTap
+service.setModeAudio
+service.setNaviUpTap
+service.setNoKeyList
+service.setNodeLabel
+service.setNotificationAnnouncementSpeak
+service.setNotificationAppNameSpeak
+service.setNotificationBarSpeak
+service.setNotificationBlackList
+service.setNotificationInAutoReadNoSpeak
+service.setNotificationInCallNoSpeak
+service.setNotificationInTouchNoSpeak
+service.setNotificationSpeak
+service.setNotificationSummary
+service.setNotificationToastSpeak
+service.setNotificationWhiteList
+service.setOnAccessibilityFocusedListener
+service.setOnScrolledListener
+service.setOnlyNotification
+service.setPartialWakeLock
+service.setPauseGesture
+service.setProfiles
+service.setRawSpeak
+service.setRightButton
+service.setScreenOffSpeak
+service.setSelection
+service.setSelectionMode
+service.setSensor
+service.setServiceInfo
+service.setSharedData
+service.setSingleTap
+service.setSound
+service.setSoundVolume
+service.setSpeakListViewItem
+service.setSpeaking
+service.setSpeechRecognitionListener
+service.setSpeeching
+service.setStreamVolume
+service.setSupperMode
+service.setSupperModeAux
+service.setTTSEnabled
+service.setTTSSpeaker
+service.setTTSSpeed
+service.setTTSVolume
+service.setTapMode
+service.setText
+service.setTextToSpeechListener
+service.setTheme
+service.setTimerInterval
+service.setTimerMode
+service.setTimerModeAux
+service.setTimerModePause
+service.setTouchExplorationMode
+service.setTouchExplorationModeRunnable
+service.setTouchExplorationPassthroughRegion
+service.setTouchMode
+service.setTtsEngine
+service.setTtsPitch
+service.setTtsScale
+service.setUnknownIndex
+service.setUnknownLabel
+service.setUpTap
+service.setUpTapEnabled
+service.setUsageHints
+service.setUseAccessibilityVolume
+service.setUseAccessibilityVolumeFix
+service.setUseAlarm
+service.setUseAppTTS
+service.setUseAutoFocus
+service.setUseAutoViewType
+service.setUseBottomMenuEdgeGesture
+service.setUseCloudLabel
+service.setUseContentChanged
+service.setUseContentTreeChanged
+service.setUseCustomDictRegex
+service.setUseCustomDictSpeak
+service.setUseCustomNodeName
+service.setUseCustomSpeakClear
+service.setUseCustomSpeakSymbolNumber
+service.setUseCustomSymbolSpeak
+service.setUseDpadKey
+service.setUseEdgeGesture
+service.setUseEditHint
+service.setUseEmojiSpeak
+service.setUseEmojiSpeakClear
+service.setUseFastMode
+service.setUseFingerprintGesture
+service.setUseFloatMenu
+service.setUseForeground
+service.setUseForegroundPro
+service.setUseGameModeNoEdge
+service.setUseGameModeNoSpeak
+service.setUseHeadSetKey
+service.setUseHotkey
+service.setUseImageFilter
+service.setUseImageToText
+service.setUseInputMethodDoubleTap
+service.setUseInputMethodGesture
+service.setUseInputMethodNoGesture
+service.setUseInputMethodNoTouch
+service.setUseInputMethodSpeakCandidate
+service.setUseInputMethodSpeakCommit
+service.setUseInputMethodSpeakCommitSpace
+service.setUseInputMethodSpeakKey
+service.setUseInputMethodSpeakPassword
+service.setUseInputMethodSpeakWord
+service.setUseKeepType
+service.setUseLeftRight
+service.setUseListIndex
+service.setUseListItemIndex
+service.setUseListItemIndexRealTime
+service.setUseLog
+service.setUseLongClickVoiceImage
+service.setUseLongClickVoiceInput
+service.setUseLoopMove
+service.setUseLoopMoveSpace
+service.setUseMoreNode
+service.setUseMoveListViewItem
+service.setUseMoveWindow
+service.setUseMultiTouchMode
+service.setUseNavigationGesture
+service.setUseNewTextMoveType
+service.setUseNewWebMove
+service.setUseNoBluetooth
+service.setUseNode
+service.setUseNodeInfo
+service.setUseOCR
+service.setUseOfflineTTS
+service.setUseOldPrevious
+service.setUsePagerScroll
+service.setUsePinyinSpeak
+service.setUsePowerSave
+service.setUseProgress
+service.setUseProixmitySensor
+service.setUseProximityFalseTouchPrevention
+service.setUseProximityFalseTouchPreventionOnlyLock
+service.setUseRawClick
+service.setUseRawTap
+service.setUseRingtoneVolume
+service.setUseScreenOffSpeak
+service.setUseScreenOnSpeak
+service.setUseScreenOnSpeakBattery
+service.setUseScreenOnSpeakNotification
+service.setUseScrollListContent
+service.setUseScrollListIndex
+service.setUseScrollListKeepPosition
+service.setUseShowDisabledQuickMenu
+service.setUseShowText
+service.setUseSingleTTS
+service.setUseSlowSpeed
+service.setUseSmallFilter
+service.setUseSpeakKey
+service.setUseSpeakQqChanged
+service.setUseSpeakState
+service.setUseSpeakWindowAllChanged
+service.setUseSupperFilter
+service.setUseTextFormatCharNumber
+service.setUseTextFormatCharUpper
+service.setUseTextFormatFirst
+service.setUseTextFormatReadWord
+service.setUseTouchMode
+service.setUseTouchStop
+service.setUseUpLongClick
+service.setUseUpLongQuickMenu
+service.setUseViewMove
+service.setUseViewName
+service.setUseViewTypeMoveMode
+service.setUseVolumeKeyEnabled
+service.setUseVolumeKeyMoveText
+service.setUseWakeLock
+service.setUseWakeLockPro
+service.setUseWebMove
+service.setUseWebViewName
+service.setUseWindowTitleChanged
+service.setVibrate
+service.setVibrateIntensity
+service.setVoiceHelperMediaMuteMode
+service.setVoiceInputAppendMode
+service.setVolumeKeyEnabled
+service.setWakeLock
+service.setWakeLock_aux
+service.setWallpaper
+service.setup
+service.shareFile
+service.showAllNode
+service.showAutoSpeakCache
+service.showGrid
+service.showNodeInfo
+service.showNotificationBox
+service.showOnScreen
+service.showOnScreen2
+service.showQuickView
+service.showText2
+service.showToast
+service.showVirtualScreen
+service.showVirtualTableScreen
+service.speak
+service.speakAllNotification
+service.speakAllText
+service.speakLight
+service.speakNetInfo
+service.speakNowTime
+service.speakOnScreen
+service.speakSourceText
+service.speakTime
+service.speakTimeInfo
+service.speakTimer
+service.speak_aux
+service.splitRow
+service.splitRow2
+service.splitRow3
+service.splitSpeak
+service.startActivities
+service.startActivity
+service.startActivityAsUser
+service.startActivityForResult
+service.startApp
+service.startApp2
+service.startAppExtend
+service.startDebug
+service.startForeground
+service.startForegroundService
+service.startInput
+service.startInputting
+service.startInstrumentation
+service.startIntentSender
+service.startListening
+service.startReadMode
+service.startService
+service.startServiceAsUser
+service.stop
+service.stopDebug
+service.stopForeground
+service.stopInputting
+service.stopSelf
+service.stopSelfResult
+service.stopService
+service.swipe
+service.swipe2
+service.takeScreenshot
+service.tap
+service.task
+service.thread
+service.ticker
+service.timer
+service.toBack
+service.toChild
+service.toClick
+service.toClick1
+service.toClick2
+service.toClick3
+service.toClick4
+service.toClick5
+service.toClick6
+service.toEnd
+service.toHeadsetHook
+service.toHome
+service.toListViewEnd
+service.toListViewStart
+service.toLockScreen
+service.toLongClick
+service.toMulti
+service.toNext
+service.toNextChar
+service.toNextLine
+service.toNextPage
+service.toNextParagraph
+service.toNextRow
+service.toNextWindow
+service.toNextWord
+service.toNotifications
+service.toParent
+service.toPinyin
+service.toPowerDialog
+service.toPrevious
+service.toPreviousChar
+service.toPreviousLine
+service.toPreviousPage
+service.toPreviousParagraph
+service.toPreviousRow
+service.toPreviousWindow
+service.toPreviousWord
+service.toQuickSettings
+service.toRawClick
+service.toRecents
+service.toSelect
+service.toSplitScreen
+service.toStart
+service.toString
+service.toTakeScreenshot
+service.toTakeScreenshot3
+service.toTextEnd
+service.toTextStart
+service.toastNotificationBox
+service.tool
+service.ttsSpeak
+service.unbindService
+service.unlock
+service.unregisterComponentCallbacks
+service.unregisterReceiver
+service.up
+service.upPage
+service.updateServiceGroup
+service.vibrate
+service.vibrate_aux
+service.wait
+service.windowsNotificationBox
+service.youTu
