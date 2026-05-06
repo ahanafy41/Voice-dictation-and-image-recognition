@@ -173,7 +173,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 2.6
+local currentAppVersion = 2.7
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -4925,7 +4925,7 @@ function startVoiceRecognition(fromDashboard)
                              service.asyncSpeak(getFeedbackString(feedbackKey, currentDictLangDetails.code, finalTextToInsert))
                         end
 
-                        local editTextNode = service.getEditText()
+                        local editTextNode = targetEditText
                         if editTextNode then
                             local currentContent = editTextNode.getText() or ""
                             local textToActuallyInsert = finalTextToInsert
