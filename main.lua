@@ -173,7 +173,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 3.9
+local currentAppVersion = 4.0
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -372,7 +372,6 @@ mainHandler = Handler(Looper.getMainLooper())
 stopDictation = false
 speechRecord = nil
 recognizer = nil
-lastInsertedDictationTextLength = 0 -- Track last text length for "undo/delete" feature
 local wm = service.getSystemService(Context.WINDOW_SERVICE)
 local settingsDialog = nil
 local resultWindow = nil
@@ -4899,71 +4898,6 @@ function startVoiceRecognition(fromDashboard)
 
                     local targetEditText = getBestTargetNode()
 
-                    -- **Hardcoded Zero-Delay Dictation Commands**
-                    local cleanCmd = recognizedText:match("^%s*(.-)%s*$"):lower()
-
-                    if cleanCmd == "سطر جديد" or cleanCmd == "سطر" then
-                        if targetEditText then
-                            local AccessibilityNodeInfo = luajava.bindClass("android.view.accessibility.AccessibilityNodeInfo")
-                            targetEditText.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
-                            service.insertText(targetEditText, "\n")
-                            lastInsertedDictationTextLength = 1
-                            service.asyncSpeak("سطر جديد")
-                        else
-                            service.asyncSpeak("يرجى الوقوف على حقل كتابة.")
-                        end
-                        if shouldContinue then startListening() elseif not continuousDictationEnabled then cleanupResources() end
-                        return
-                    elseif cleanCmd == "حذف" or cleanCmd == "مسح" then
-                        if targetEditText then
-                            local AccessibilityNodeInfo = luajava.bindClass("android.view.accessibility.AccessibilityNodeInfo")
-                            targetEditText.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
-                            if lastInsertedDictationTextLength > 0 then
-                                local currentContent = tostring(targetEditText.getText() or "")
-                                if #currentContent >= lastInsertedDictationTextLength then
-                                    local newContent = currentContent:sub(1, -lastInsertedDictationTextLength - 1)
-                                    local b = luajava.bindClass("android.os.Bundle")()
-                                    b.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, newContent)
-                                    targetEditText.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, b)
-                                    lastInsertedDictationTextLength = 0
-                                    service.asyncSpeak("تم المسح")
-                                else
-                                     service.asyncSpeak("لا يوجد نص حديث لمسحه")
-                                end
-                            else
-                                 service.asyncSpeak("لا يوجد نص حديث لمسحه")
-                            end
-                        else
-                            service.asyncSpeak("يرجى الوقوف على حقل كتابة.")
-                        end
-                        if shouldContinue then startListening() elseif not continuousDictationEnabled then cleanupResources() end
-                        return
-                    elseif cleanCmd == "إرسال" or cleanCmd == "ارسال" then
-                        if targetEditText then
-                            local AccessibilityNodeInfo = luajava.bindClass("android.view.accessibility.AccessibilityNodeInfo")
-                            targetEditText.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
-                            targetEditText.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                        end
-                        -- Try finding a send button nearby
-                        local root = service.getRootInActiveWindow()
-                        if root then
-                            local AccessibilityNodeInfo = luajava.bindClass("android.view.accessibility.AccessibilityNodeInfo")
-                            local sendNodes = root.findAccessibilityNodeInfosByText("إرسال")
-                            if sendNodes and sendNodes.size() > 0 then
-                                sendNodes.get(0).performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                            else
-                                local sendNodesEn = root.findAccessibilityNodeInfosByText("Send")
-                                if sendNodesEn and sendNodesEn.size() > 0 then
-                                    sendNodesEn.get(0).performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                                end
-                            end
-                            root.recycle()
-                        end
-                        service.asyncSpeak("تم الإرسال")
-                        if shouldContinue then startListening() elseif not continuousDictationEnabled then cleanupResources() end
-                        return
-                    end
-
                     local function insertFinalResult(finalTextToInsert, wasTranslated)
                         local feedbackKey = wasTranslated and "dictation_insert_verify_translated" or "dictation_insert_verify"
                         if finalTextToInsert and finalTextToInsert:match("%S") then
@@ -4981,36 +4915,51 @@ function startVoiceRecognition(fromDashboard)
                                 textToActuallyInsert = " " .. textToActuallyInsert
                             end
 
-                            local success = pcall(function() service.insertText(targetNode, textToActuallyInsert) end)
-                            if success then
+                            local AccessibilityNodeInfo = luajava.bindClass("android.view.accessibility.AccessibilityNodeInfo")
+                            local Bundle = luajava.bindClass("android.os.Bundle")
+
+                            -- 1. Try ACTION_SET_TEXT (Most robust for native EditText)
+                            local b = Bundle()
+                            b.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, currentContent .. textToActuallyInsert)
+                            local ok, actionResult = pcall(function() return targetNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, b) end)
+
+                            if ok and actionResult then
                                 insertedSuccessfully = true
-                                lastInsertedDictationTextLength = #tostring(textToActuallyInsert)
+                            else
+                                -- 2. Try ACTION_PASTE
+                                pcall(function() service.copy(textToActuallyInsert) end)
+                                ok, actionResult = pcall(function() return targetNode.performAction(AccessibilityNodeInfo.ACTION_PASTE) end)
+                                if ok and actionResult then
+                                    insertedSuccessfully = true
+                                else
+                                    -- 3. Fallback to Jieshuo's insertText
+                                    local okInsert = pcall(function() service.insertText(targetNode, textToActuallyInsert) end)
+                                    if okInsert then
+                                        insertedSuccessfully = true
+                                    end
+                                end
                             end
                             pcall(targetNode.recycle, targetNode)
                         end
 
-                        -- Third attempt: Fallback to commitText (very strong for browsers/webviews)
+                        -- Fourth attempt: Fallback to commitText (very strong for browsers/webviews)
                         if not insertedSuccessfully then
-                            local success = pcall(function() return service.commitText(textToActuallyInsert) end)
-                            -- Jieshuo commitText might not return a boolean, so we assume success if no error was thrown, but wait, commitText is usually void.
-                            if success then
+                            local okCommit = pcall(function() return service.commitText(textToActuallyInsert) end)
+                            -- Jieshuo commitText might not return a boolean, so we assume success if no error was thrown.
+                            if okCommit then
                                 insertedSuccessfully = true
-                                lastInsertedDictationTextLength = #tostring(textToActuallyInsert)
                             end
                         end
 
-                        -- Fourth attempt: Fallback to Jieshuo paste or copy
+                        -- Fifth attempt: Fallback to Jieshuo paste or copy
                         if not insertedSuccessfully then
-                            -- Let's try service.paste()
-                            local success = pcall(function() service.paste(textToActuallyInsert) end)
-                            if success then
+                            local okPaste = pcall(function() service.paste(textToActuallyInsert) end)
+                            if okPaste then
                                 insertedSuccessfully = true
-                                lastInsertedDictationTextLength = #tostring(textToActuallyInsert)
                             else
                                 -- Absolute fallback: copy to clipboard so the user doesn't lose data
                                 pcall(function() service.copy(textToActuallyInsert) end)
                                 service.asyncSpeak("لم يتم العثور على مربع كتابة، تم نسخ النص للحافظة")
-                                lastInsertedDictationTextLength = 0
                             end
                         end
 
