@@ -173,7 +173,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 4.0
+local currentAppVersion = 4.1
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -4910,8 +4910,8 @@ function startVoiceRecognition(fromDashboard)
                         local targetNode = getBestTargetNode()
 
                         if targetNode then
-                            local currentContent = targetNode.getText() or ""
-                            if autoSpaceEnabled and #tostring(currentContent) > 0 and not tostring(currentContent):match("%s$") and not tostring(currentContent):match("[\"\'“‘]$") then
+                            local currentContent = targetNode.getText() and tostring(targetNode.getText()) or ""
+                            if autoSpaceEnabled and #currentContent > 0 and not currentContent:match("%s$") and not currentContent:match("[\"\'“‘]$") then
                                 textToActuallyInsert = " " .. textToActuallyInsert
                             end
 
