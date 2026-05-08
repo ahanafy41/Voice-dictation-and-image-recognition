@@ -173,7 +173,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 2.9
+local currentAppVersion = 3.9
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -4865,46 +4865,89 @@ function startVoiceRecognition(fromDashboard)
                 end
 
                 if not commandProcessed and recognizedText and recognizedText:match("%S") then
-                    local targetEditText = service.getEditText()
-                    if not targetEditText then
-                        service.asyncSpeak("يرجى الوقوف على حقل كتابة.")
-                        if shouldContinue then startListening() elseif not continuousDictationEnabled and not stopDictation then cleanupResources() end
-                        return
+
+                    local function findAnyEditableNode(node)
+                        if not node then return nil end
+                        if node.isEditable() then return node end
+                        for i = 0, node.getChildCount() - 1 do
+                            local child = node.getChild(i)
+                            if child then
+                                local found = findAnyEditableNode(child)
+                                if found then return found end
+                                pcall(child.recycle, child)
+                            end
+                        end
+                        return nil
                     end
+
+                    local function getBestTargetNode()
+                        local targetNode = service.getEditText()
+                        if not targetNode then
+                            targetNode = service.getFocusView()
+                            if targetNode and not targetNode.isEditable() then
+                                targetNode = nil
+                            end
+                        end
+                        if not targetNode then
+                            local root = service.getRootInActiveWindow()
+                            if root then
+                                targetNode = findAnyEditableNode(root)
+                            end
+                        end
+                        return targetNode
+                    end
+
+                    local targetEditText = getBestTargetNode()
 
                     -- **Hardcoded Zero-Delay Dictation Commands**
                     local cleanCmd = recognizedText:match("^%s*(.-)%s*$"):lower()
+
                     if cleanCmd == "سطر جديد" or cleanCmd == "سطر" then
-                        service.insertText(targetEditText, "\n")
-                        lastInsertedDictationTextLength = 1
-                        service.asyncSpeak("سطر جديد")
+                        if targetEditText then
+                            local AccessibilityNodeInfo = luajava.bindClass("android.view.accessibility.AccessibilityNodeInfo")
+                            targetEditText.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+                            service.insertText(targetEditText, "\n")
+                            lastInsertedDictationTextLength = 1
+                            service.asyncSpeak("سطر جديد")
+                        else
+                            service.asyncSpeak("يرجى الوقوف على حقل كتابة.")
+                        end
                         if shouldContinue then startListening() elseif not continuousDictationEnabled then cleanupResources() end
                         return
                     elseif cleanCmd == "حذف" or cleanCmd == "مسح" then
-                        if lastInsertedDictationTextLength > 0 then
-                            local currentContent = tostring(targetEditText.getText() or "")
-                            if #currentContent >= lastInsertedDictationTextLength then
-                                local newContent = currentContent:sub(1, -lastInsertedDictationTextLength - 1)
-                                local AccessibilityNodeInfo = luajava.bindClass("android.view.accessibility.AccessibilityNodeInfo")
-                                local b = luajava.bindClass("android.os.Bundle")()
-                                b.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, newContent)
-                                targetEditText.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, b)
-                                lastInsertedDictationTextLength = 0
-                                service.asyncSpeak("تم المسح")
+                        if targetEditText then
+                            local AccessibilityNodeInfo = luajava.bindClass("android.view.accessibility.AccessibilityNodeInfo")
+                            targetEditText.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+                            if lastInsertedDictationTextLength > 0 then
+                                local currentContent = tostring(targetEditText.getText() or "")
+                                if #currentContent >= lastInsertedDictationTextLength then
+                                    local newContent = currentContent:sub(1, -lastInsertedDictationTextLength - 1)
+                                    local b = luajava.bindClass("android.os.Bundle")()
+                                    b.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, newContent)
+                                    targetEditText.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, b)
+                                    lastInsertedDictationTextLength = 0
+                                    service.asyncSpeak("تم المسح")
+                                else
+                                     service.asyncSpeak("لا يوجد نص حديث لمسحه")
+                                end
+                            else
+                                 service.asyncSpeak("لا يوجد نص حديث لمسحه")
                             end
                         else
-                             service.asyncSpeak("لا يوجد نص حديث لمسحه")
+                            service.asyncSpeak("يرجى الوقوف على حقل كتابة.")
                         end
                         if shouldContinue then startListening() elseif not continuousDictationEnabled then cleanupResources() end
                         return
                     elseif cleanCmd == "إرسال" or cleanCmd == "ارسال" then
-                        -- Attempt to hit ENTER key as a fallback for send
-                        local AccessibilityNodeInfo = luajava.bindClass("android.view.accessibility.AccessibilityNodeInfo")
-                        -- Some apps respond to action click or action send on the edit text itself if IME action is set
-                        targetEditText.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                        -- Try finding a send button nearby (common content descriptions)
+                        if targetEditText then
+                            local AccessibilityNodeInfo = luajava.bindClass("android.view.accessibility.AccessibilityNodeInfo")
+                            targetEditText.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+                            targetEditText.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                        end
+                        -- Try finding a send button nearby
                         local root = service.getRootInActiveWindow()
                         if root then
+                            local AccessibilityNodeInfo = luajava.bindClass("android.view.accessibility.AccessibilityNodeInfo")
                             local sendNodes = root.findAccessibilityNodeInfosByText("إرسال")
                             if sendNodes and sendNodes.size() > 0 then
                                 sendNodes.get(0).performAction(AccessibilityNodeInfo.ACTION_CLICK)
@@ -4930,16 +4973,7 @@ function startVoiceRecognition(fromDashboard)
                         local textToActuallyInsert = finalTextToInsert
                         local insertedSuccessfully = false
 
-                        -- First attempt: service.getEditText()
-                        local targetNode = service.getEditText()
-                        -- Second attempt: service.getFocusView() if getEditText fails
-                        if not targetNode then
-                            targetNode = service.getFocusView()
-                            -- ensure it's actually an editable node or at least a node we can try
-                            if targetNode and not targetNode.isEditable() then
-                                targetNode = nil
-                            end
-                        end
+                        local targetNode = getBestTargetNode()
 
                         if targetNode then
                             local currentContent = targetNode.getText() or ""
