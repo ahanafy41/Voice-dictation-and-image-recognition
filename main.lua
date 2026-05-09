@@ -173,7 +173,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 4.4
+local currentAppVersion = 4.5
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -260,6 +260,7 @@ showFloatingSettingsButtonEnabled = prefs.getBoolean("showFloatingSettingsButton
 newTranslationFeatureEnabled = prefs.getBoolean("newTranslationFeatureEnabled", false)
 translateToLanguage = prefs.getString("translateToLanguage", defaultTranslateTo)
 floatingButtonQuickTranslateTapEnabled = prefs.getBoolean("floatingButtonQuickTranslateTapEnabled", true)
+floatingButtonAction = prefs.getString("floatingButtonAction", "translate") -- "translate" or "agent"
 autoPunctuationEnabled = prefs.getBoolean("autoPunctuation", true)
 geminiLiveSystemInstruction = prefs.getString("geminiLiveSystemInstruction", "أنت مساعد صوتي ذكي. مهمتك الرد المباشر بصوتك فقط.")
 geminiLiveVoiceName = prefs.getString("geminiLiveVoiceName", "Puck")
@@ -738,12 +739,22 @@ function createAndShowFloatingButton()
          return
     end
     floatingSettingsBtn = Button(service)
-    floatingSettingsBtn.setText(floatingButtonQuickTranslateTapEnabled and "🎙️" or "⚙️")
+
+    local btnText = "⚙️"
+    local btnDesc = getFeedbackString("command_settings", selectedLanguage)
+
     if floatingButtonQuickTranslateTapEnabled then
-        floatingSettingsBtn.setContentDescription("نقرة واحدة لبدء الإملاء والترجمة بسرعة، ونقرة مطولة لفتح الإعدادات.")
-    else
-        floatingSettingsBtn.setContentDescription(getFeedbackString("command_settings", selectedLanguage))
+        if floatingButtonAction == "agent" then
+            btnText = "🤖"
+            btnDesc = "نقرة واحدة لفتح الوكيل الذكي، ونقرة مطولة لفتح الإعدادات."
+        else
+            btnText = "🎙️"
+            btnDesc = "نقرة واحدة لبدء الإملاء والترجمة بسرعة، ونقرة مطولة لفتح الإعدادات."
+        end
     end
+
+    floatingSettingsBtn.setText(btnText)
+    floatingSettingsBtn.setContentDescription(btnDesc)
     local bg = GradientDrawable()
     bg.setCornerRadius(100)
     bg.setColor(0xFF1E1E1E)
@@ -754,14 +765,19 @@ function createAndShowFloatingButton()
     floatingSettingsBtn.setFocusableInTouchMode(false)
     floatingSettingsBtn.setOnClickListener(function()
         if floatingButtonQuickTranslateTapEnabled then
-            if not newTranslationFeatureEnabled then
-                newTranslationFeatureEnabled = true
-                local editor = prefs.edit()
-                editor.putBoolean("newTranslationFeatureEnabled", true)
-                editor.apply()
+            if floatingButtonAction == "agent" then
+                hideMainWindow()
+                if showSmartAgentWindow then showSmartAgentWindow() end
+            else
+                if not newTranslationFeatureEnabled then
+                    newTranslationFeatureEnabled = true
+                    local editor = prefs.edit()
+                    editor.putBoolean("newTranslationFeatureEnabled", true)
+                    editor.apply()
+                end
+                hideMainWindow()
+                startVoiceRecognition(true)
             end
-            hideMainWindow()
-            startVoiceRecognition(true)
         else
             openMainWindow()
         end
@@ -3659,6 +3675,7 @@ function saveSettings()
     editor.putBoolean("newTranslationFeatureEnabled", newTranslationFeatureEnabled)
     editor.putString("translateToLanguage", translateToLanguage or defaultTranslateTo)
     editor.putBoolean("floatingButtonQuickTranslateTapEnabled", floatingButtonQuickTranslateTapEnabled)
+    editor.putString("floatingButtonAction", floatingButtonAction or "translate")
     editor.putBoolean("startWithDictation", startWithDictation)
     editor.putBoolean("tashkeelEnabled", tashkeelEnabled or false)
     editor.putBoolean("profanityFilterEnabled", profanityFilterEnabled or false)
@@ -4702,6 +4719,13 @@ function openInterfaceSettings()
     local swStart = Switch(service); swStart.setChecked(startWithDictation); createSettingRow("بدء بالإملاء", swStart, uiCard)
     local swFloat = Switch(service); swFloat.setChecked(showFloatingSettingsButtonEnabled); createSettingRow("الزر العائم", swFloat, uiCard)
 
+    uiCard.addView(createLabel("وظيفة الزر العائم:"))
+    local faNames = ArrayList(); local faIds = {"translate", "agent"}
+    faNames.add("🎙️ الترجمة السريعة"); faNames.add("🤖 الوكيل الذكي")
+    local faSpinner = Spinner(service); faSpinner.setAdapter(ArrayAdapter(service, android.R.layout.simple_spinner_item, faNames))
+    local currFaIdx = 0; if floatingButtonAction == "agent" then currFaIdx = 1 end
+    faSpinner.setSelection(currFaIdx); uiCard.addView(faSpinner)
+
     local upBtn = Button(service); upBtn.setText("🔄 التحديثات"); styleButton(upBtn, "secondary"); upBtn.setOnClickListener(function() checkForUpdates(false) end); uiCard.addView(upBtn)
 
     local sortBtn = Button(service); sortBtn.setText("🔢 ترتيب اللوحة"); styleButton(sortBtn, "secondary"); sortBtn.setOnClickListener(function()
@@ -4753,6 +4777,7 @@ function openInterfaceSettings()
     local saveBtn = Button(service); saveBtn.setText("💾 حفظ"); styleButton(saveBtn, "primary")
     saveBtn.setOnClickListener(function()
         startWithDictation = swStart.isChecked(); showFloatingSettingsButtonEnabled = swFloat.isChecked()
+        floatingButtonAction = faIds[faSpinner.getSelectedItemPosition() + 1]
         saveSettings()
     end)
     contentL.addView(saveBtn)
@@ -5194,78 +5219,20 @@ local smartAgentRecognizer = nil
 local isAgentProcessing = false
 
 function showSmartAgentWindow()
-    if smartAgentWindow then return end
-
-    smartAgentWindow = LinearLayout(service)
-    smartAgentWindow.setOrientation(LinearLayout.VERTICAL)
-    smartAgentWindow.setBackgroundColor(0xFF000000)
-    smartAgentWindow.setPadding(40, 40, 40, 40)
-    smartAgentWindow.setGravity(Gravity.CENTER)
-
-    local title = TextView(service)
-    title.setText("🤖 الوكيل الذكي (تجريبي)")
-    title.setTextColor(0xFF00FFCC)
-    title.setTextSize(24)
-    title.setTypeface(nil, Typeface.BOLD)
-    title.setPadding(0, 0, 0, 50)
-    smartAgentWindow.addView(title)
-
-    local statusTv = TextView(service)
-    statusTv.setText("جاهز لتلقي أوامرك يا ريس 🫡")
-    statusTv.setTextColor(0xFFE0E0E0)
-    statusTv.setTextSize(18)
-    statusTv.setGravity(Gravity.CENTER)
-    statusTv.setPadding(0, 0, 0, 60)
-    smartAgentWindow.addView(statusTv)
-
-    local micBtn = Button(service)
-    micBtn.setText("🎤 دوس واتكلم")
-    styleButton(micBtn, "primary")
-    micBtn.setOnClickListener(function()
-        if isAgentProcessing then return end
-        startAgentVoiceRecognition(statusTv)
-    end)
-    smartAgentWindow.addView(micBtn, LinearLayout.LayoutParams(-1, -2))
-
-    local closeBtn = Button(service)
-    closeBtn.setText("❌ إغلاق")
-    styleButton(closeBtn, "danger")
-    closeBtn.setOnClickListener(function()
-        if smartAgentWindow then
-            pcall(function() wm.removeView(smartAgentWindow) end)
-            smartAgentWindow = nil
-        end
-        if smartAgentRecognizer then
-            pcall(function() smartAgentRecognizer.destroy() end)
-            smartAgentRecognizer = nil
-        end
-        isAgentProcessing = false
-        agentContextHistory = {}
-    end)
-    local lpClose = LinearLayout.LayoutParams(-1, -2)
-    lpClose.topMargin = 30
-    smartAgentWindow.addView(closeBtn, lpClose)
-
-    local params = WindowManager.LayoutParams(
-        WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
-        WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-        WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
-        PixelFormat.TRANSLUCENT
-    )
-    pcall(function() wm.addView(smartAgentWindow, params) end)
-    service.asyncSpeak("الوكيل الذكي معاك يا ريس. دوس على زرار المايك وقولي عايز تعمل إيه.")
+    if isAgentProcessing then return end
+    startAgentVoiceRecognition()
 end
 
-function startAgentVoiceRecognition(statusTv)
+function startAgentVoiceRecognition()
     if not SpeechRecognizer.isRecognitionAvailable(service) then
         service.asyncSpeak("عذراً، خدمة التعرف على الصوت مش شغالة عندك.")
         return
     end
 
-    statusTv.setText("⏳ سامعك.. اتفضل قول")
     service.asyncSpeak("سامعك يا ريس.. اتفضل")
     pcall(function() service.vibrate(50) end)
 
+    if smartAgentRecognizer then pcall(function() smartAgentRecognizer.destroy() end) end
     smartAgentRecognizer = SpeechRecognizer.createSpeechRecognizer(service)
     local intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
     intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
@@ -5276,14 +5243,13 @@ function startAgentVoiceRecognition(statusTv)
             local matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
             if matches and matches.size() > 0 then
                 local command = matches.get(0)
-                statusTv.setText("🤔 ثواني بشوف هعمل إيه في: " .. command)
                 pcall(function() service.playSoundTick() end)
-                processAgentCommand(command, statusTv)
+                processAgentCommand(command)
             end
         end,
         onError = function(err)
-            statusTv.setText("❌ معلش مسمعتش كويس، جرب تاني")
             service.asyncSpeak("معلش مسمعتش كويس، جرب تاني")
+            isAgentProcessing = false
         end
     })
     smartAgentRecognizer.startListening(intent)
@@ -5291,10 +5257,10 @@ end
 
 local agentContextHistory = {}
 
-function processAgentCommand(userCommand, statusTv)
+function processAgentCommand(userCommand)
     isAgentProcessing = true
     if #agentContextHistory == 0 then
-        service.asyncSpeak("ثواني بشوف الشاشة قدامي فيها إيه.. حاضر")
+        service.asyncSpeak("حاضر، بشوف الشاشة قدامي فيها إيه عشان أنفذ طلبك: " .. userCommand)
     end
 
     takeScreenshotAndEncode(function(imgB64)
@@ -5305,7 +5271,7 @@ function processAgentCommand(userCommand, statusTv)
 
 يجب أن يكون ردك بتنسيق JSON فقط، ولا تكتب أي كلام خارجه. التنسيق:
 {
-  "thought": "اشرح بالمصري وببساطة هتعمل إيه (مثلاً: هفتح الإعدادات وأدور على الواي فاي)",
+  "thought": "ابدأ بوصف سريع للي شايفه في الشاشة وبعدين قول هتعمل إيه بالمصري وببساطة (مثلاً: أنا شايف قدامي إعدادات الواي فاي، هدوس على زرار التشغيل دلوقتي)",
   "code": "كود Lua سليم يستخدم كائن 'service' للتنفيذ. مثال: service.click({'الإعدادات'})",
   "status": "DONE إذا انتهت المهمة، أو CONTINUE إذا كنت ستحتاج لمشاهدة الشاشة مرة أخرى بعد تنفيذ الكود الحالي"
 }
@@ -5338,7 +5304,6 @@ function processAgentCommand(userCommand, statusTv)
                 local code = data.optString("code", "")
                 local status = data.optString("status", "DONE")
 
-                statusTv.setText("🤖 " .. thought)
                 service.asyncSpeak(thought)
 
                 table.insert(agentContextHistory, "المستخدم: " .. userCommand)
@@ -5352,15 +5317,16 @@ function processAgentCommand(userCommand, statusTv)
 
                 if status == "CONTINUE" then
                     mainHandler.postDelayed(luajava.createProxy("java.lang.Runnable", {
-                        run = function() processAgentCommand(userCommand, statusTv) end
+                        run = function() processAgentCommand(userCommand) end
                     }), 3000)
                 else
                     isAgentProcessing = false
+                    agentContextHistory = {}
                     pcall(function() service.vibrate(100) end)
                     -- Session ends here or waits for next command
                 end
             else
-                statusTv.setText("❌ عذراً، حصلت مشكلة في فهم الطلب")
+                isAgentProcessing = false
                 service.asyncSpeak("معلش يا ريس، حصلت مشكلة وأنا بحاول أفهم أعمل إيه.")
                 print("Agent Error: " .. response)
             end
