@@ -56,6 +56,7 @@ import "android.webkit.WebChromeClient"
 import "android.webkit.WebViewClient"
 import "android.graphics.BitmapFactory"
 import "android.graphics.Matrix"
+import "android.graphics.Rect"
 
 -- **Base64 Encode Function**
 local base64_chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
@@ -173,7 +174,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 5.4
+local currentAppVersion = 5.5
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -3506,8 +3507,70 @@ end
 function collectText(node, textList)
     if not node then return end
     local nT; local s=pcall(function() nT=node.getText() end); if s and nT and #tostring(nT)>0 then table.insert(textList,tostring(nT)) end
+    local nD; s=pcall(function() nD=node.getContentDescription() end); if s and nD and #tostring(nD)>0 then table.insert(textList,tostring(nD)) end
     local cC=0; s=pcall(function() cC=node.getChildCount() end); if not s then return end
     for i=0,cC-1 do local ch; s=pcall(function() ch=node.getChild(i) end); if s and ch then collectText(ch,textList); pcall(ch.recycle,ch) end end
+end
+
+function getUiTreeForAgent()
+    local rootN = service.getRootInActiveWindow()
+    if not rootN then return "[]" end
+
+    local dm = service.getResources().getDisplayMetrics()
+    local screenW = dm.widthPixels
+    local screenH = dm.heightPixels
+
+    local elements = {}
+    local function collectUiElements(node)
+        if not node then return end
+
+        local text = tostring(node.getText() or "")
+        local desc = tostring(node.getContentDescription() or "")
+        local className = tostring(node.getClassName() or "")
+        local isClickable = node.isClickable()
+
+        if #text > 0 or #desc > 0 or isClickable then
+            local rect = Rect()
+            node.getBoundsInScreen(rect)
+
+            -- Normalize coordinates to 0-1000
+            local left = math.max(0, math.min(1000, math.floor(rect.left * 1000 / screenW)))
+            local top = math.max(0, math.min(1000, math.floor(rect.top * 1000 / screenH)))
+            local right = math.max(0, math.min(1000, math.floor(rect.right * 1000 / screenW)))
+            local bottom = math.max(0, math.min(1000, math.floor(rect.bottom * 1000 / screenH)))
+
+            table.insert(elements, {
+                text = text,
+                desc = desc,
+                class = className:match("[^.]+$") or className, -- Short class name
+                bounds = string.format("[%d,%d,%d,%d]", left, top, right, bottom),
+                clickable = isClickable
+            })
+        end
+
+        local childCount = node.getChildCount()
+        for i = 0, childCount - 1 do
+            local child = node.getChild(i)
+            if child then
+                collectUiElements(child)
+                pcall(child.recycle, child)
+            end
+        end
+    end
+
+    collectUiElements(rootN)
+    pcall(rootN.recycle, rootN)
+
+    -- Convert to a compact string format for the AI
+    local output = {}
+    for _, el in ipairs(elements) do
+        local safeText = el.text:gsub("'", "\\'"):gsub("\n", "\\n")
+        local safeDesc = el.desc:gsub("'", "\\'"):gsub("\n", "\\n")
+        local entry = string.format("{t:'%s', d:'%s', c:'%s', b:%s, clk:%s}",
+            safeText, safeDesc, el.class, el.bounds, tostring(el.clickable))
+        table.insert(output, entry)
+    end
+    return table.concat(output, "\n")
 end
 
 function runImageDescription()
@@ -5249,10 +5312,10 @@ function processAgentCommand(userCommand)
     end
 
     takeScreenshotAndEncode(function(imgB64)
-        local screenText = getTextFromScreen()
+        local uiTree = getUiTreeForAgent()
 
         local systemPrompt = [[أنت "الوكيل الذكي" (Smart Agent) لموبايل أندرويد. مهمتك هي مساعدة المستخدم الكفيف في تنفيذ مهام على جهازه.
-أنا سأعطيك لقطة شاشة، النص المستخرج منها، وطلب المستخدم.
+أنا سأعطيك لقطة شاشة، شجرة العناصر (UI Tree) التي تحتوي على النصوص والإحداثيات، وطلب المستخدم.
 
 يجب أن يكون ردك بتنسيق JSON فقط، ولا تكتب أي كلام خارجه. التنسيق:
 {
@@ -5268,23 +5331,24 @@ function processAgentCommand(userCommand)
    - لو فيه مربع نص قدامك ومش عارف تفعله، استخدم service.click({"نص المربع"}) ثم setText.
 
 2. أوامر الضغط والتحرك (Smart Interaction):
-   - service.click({"النص"}): للضغط على عنصر. لو فشل، استخدم الحركة بالتركيز.
-   - الاستراتيجية الأضمن للضغط: service.toNext() أو service.toPrevious() حتى تصل للعنصر، ثم service.execute("النَّقْر المباشر").
-   - service.click(x, y): للضغط على إحداثيات بالنظر (من 0 لـ 1000).
+   - service.click(x, y): للضغط على إحداثيات دقيقة (0-1000). **استخدمها دائماً بناءً على الإحداثيات (bounds) المذكورة في UI Tree لضمان الدقة.**
+   - service.click({"النص"}): للضغط على عنصر بالاسم.
+   - الاستراتيجية الأضمن للضغط (High Reliability): استخدم service.toNext() أو service.toPrevious() حتى تصل للعنصر، ثم service.execute("النَّقْر المباشر").
 
 3. أوامر النظام (System Core):
    - service.toHome(), service.toBack(), service.toRecents(), service.toNotifications().
    - service.startApp("الاسم"), service.swipe(x1, y1, x2, y2, ms).
-   - لفتح درج التطبيقات: service.swipe(500, 800, 500, 200, 300) return true.
 
-قواعد هامة:
-- لو الزرار ملوش اسم، استخدم إحداثياته من الصورة أو اتحرك بالتركيز (toNext) حتى تسمع الوصف ثم اضغط (Direct Click).
+قواعد هامة (MUST FOLLOW):
+- شجرة العناصر (UI Tree) هي مصدرك الأول للأمان. استخدم إحداثيات (b) الموجودة في الشجرة للضغط الدقيق `service.click(center_x, center_y)`.
+- لحساب مركز الزرار: لو الإحداثيات [left, top, right, bottom]، المركز هو x = (left+right)/2 و y = (top+bottom)/2.
+- لو الزرار في واتساب ملوش نص (t) بس ليه وصف (d) زي "إرسال"، اعتمد على الوصف ومكان الزرار.
 - في الكتابة، جرب setText الأول، ولو مظهرش النص جرب paste في الخطوة الجاية.
 - لازم الكود ينتهي بـ return true.
 - المهمة الطويلة تقسمها خطوات وخلي status: CONTINUE.]]
 
         local historyText = table.concat(agentContextHistory, "\n")
-        local fullPrompt = "تاريخ المحادثة في هذه الجلسة:\n" .. historyText .. "\n\nطلب المستخدم الحالي: " .. userCommand .. "\n\nالنص الحالي على الشاشة:\n" .. screenText
+        local fullPrompt = "تاريخ المحادثة في هذه الجلسة:\n" .. historyText .. "\n\nطلب المستخدم الحالي: " .. userCommand .. "\n\nشجرة العناصر الحالية (UI Tree):\n" .. uiTree
 
         makeAiRequest(fullPrompt, systemPrompt, imgB64, "gemini-3.1-flash-lite-preview", function(response)
             isAgentProcessing = false
