@@ -173,7 +173,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 4.8
+local currentAppVersion = 4.9
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -5261,19 +5261,22 @@ function processAgentCommand(userCommand)
   "status": "DONE إذا انتهت المهمة، أو CONTINUE إذا كنت ستحتاج لمشاهدة الشاشة مرة أخرى بعد تنفيذ الكود الحالي"
 }
 
-أهم الأوامر (API):
-1. التنقل: service.toHome(), service.toBack(), service.toNotifications()
-2. التطبيقات: service.startApp("اسم_التطبيق"), service.openUrl("رابط")
-3. التفاعل:
+أهم الأوامر (API) - استخدم الأوامر العربية أولاً لأفضل أداء:
+1. أوامر التنفيذ المباشر (service.execute):
+   - service.execute("الشاشة الرئيسية"), service.execute("رجوع"), service.execute("التطبيقات الحديثة")
+   - service.execute("فتح شريط الإشعارات"), service.execute("الإعدادات السريعة"), service.execute("لقطة شاشة")
+   - service.execute("الإزاحةُ إلى اليسار"), service.execute("الإزاحةُ إلى اليَمِين"), service.execute("الإزاحةُ إلى الأعلى"), service.execute("الإزاحةُ إلى الْأسفل")
+   - service.execute("النَّقْر المباشر"), service.execute("الضغط المطول المباشر"), service.execute("النَّقْر المزدوج")
+
+2. أوامر التفاعل المخصصة:
    - service.click({"النص"}): للضغط على نص معين (يجب وضع النص داخل {}).
-   - service.click(x, y): للضغط على إحداثيات (من 0 لـ 1000). مهم جداً لو الزرار ملوش نص.
-   - service.setText("النص"): للكتابة في المربع المفوكس.
-4. المعلومات: service.speak("النص"), service.getBatteryLevel()
+   - service.click(x, y): للضغط على إحداثيات (من 0 لـ 1000). مهم لو الزرار ملوش نص.
+   - service.startApp("اسم_التطبيق"), service.setText("النص"), service.speak("النص")
 
 قواعد هامة:
-- لا تستخدم إلا كائن 'service'.
+- الأولوية دائماً لأوامر service.execute بالعربي.
 - لو المهمة صعبة، قسمها لخطوات واستخدم status: CONTINUE.
-- في حالة التطبيقات غير المتوافقة، حلل الصورة واستخدم service.click(x, y) للإحداثيات.]]
+- في حالة التطبيقات غير المتوافقة، حلل الصورة واستخدم الإحداثيات.]]
 
         local historyText = table.concat(agentContextHistory, "\n")
         local fullPrompt = "تاريخ المحادثة في هذه الجلسة:\n" .. historyText .. "\n\nطلب المستخدم الحالي: " .. userCommand .. "\n\nالنص الحالي على الشاشة:\n" .. screenText
