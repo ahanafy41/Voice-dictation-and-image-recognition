@@ -173,7 +173,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 4.7
+local currentAppVersion = 4.8
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -5266,14 +5266,14 @@ function processAgentCommand(userCommand)
 2. التطبيقات: service.startApp("اسم_التطبيق"), service.openUrl("رابط")
 3. التفاعل:
    - service.click({"النص"}): للضغط على نص معين (يجب وضع النص داخل {}).
-   - service.click3(x, y): للضغط على إحداثيات (من 0 لـ 1000). مهم جداً لو الزرار ملوش نص.
+   - service.click(x, y): للضغط على إحداثيات (من 0 لـ 1000). مهم جداً لو الزرار ملوش نص.
    - service.setText("النص"): للكتابة في المربع المفوكس.
 4. المعلومات: service.speak("النص"), service.getBatteryLevel()
 
 قواعد هامة:
 - لا تستخدم إلا كائن 'service'.
 - لو المهمة صعبة، قسمها لخطوات واستخدم status: CONTINUE.
-- في حالة التطبيقات غير المتوافقة، حلل الصورة واستخدم service.click3 للإحداثيات.]]
+- في حالة التطبيقات غير المتوافقة، حلل الصورة واستخدم service.click(x, y) للإحداثيات.]]
 
         local historyText = table.concat(agentContextHistory, "\n")
         local fullPrompt = "تاريخ المحادثة في هذه الجلسة:\n" .. historyText .. "\n\nطلب المستخدم الحالي: " .. userCommand .. "\n\nالنص الحالي على الشاشة:\n" .. screenText
