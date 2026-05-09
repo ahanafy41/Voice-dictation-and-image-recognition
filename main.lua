@@ -173,7 +173,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 4.9
+local currentAppVersion = 5.0
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -5274,8 +5274,10 @@ function processAgentCommand(userCommand)
    - service.startApp("اسم_التطبيق"), service.setText("النص"), service.speak("النص")
 
 قواعد هامة:
+- لفتح أي تطبيق، استخدم فوراً service.startApp("اسم التطبيق بالعربي أو الإنجليزي") دي أسرع طريقة.
+- لو بتدور على حاجة ومش شايفها في الشاشة، استخدم أوامر الإزاحة (service.execute) عشان تقلب وتشوف الباقي، وقول في الـ thought إنك بتدور.
 - الأولوية دائماً لأوامر service.execute بالعربي.
-- لو المهمة صعبة، قسمها لخطوات واستخدم status: CONTINUE.
+- لو المهمة محتاجة كذا خطوة، نفذ خطوة واحدة وخلي status: CONTINUE عشان تبص على الشاشة اللي بعدها وتكمل.
 - في حالة التطبيقات غير المتوافقة، حلل الصورة واستخدم الإحداثيات.]]
 
         local historyText = table.concat(agentContextHistory, "\n")
