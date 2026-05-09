@@ -5300,30 +5300,29 @@ function processAgentCommand(userCommand, statusTv)
     takeScreenshotAndEncode(function(imgB64)
         local screenText = getTextFromScreen()
 
-        local systemPrompt = [[أنت "الوكيل الذكي" لموبايل أندرويد. مهمتك مساعدة المستخدم (كفيف) في التحكم في جهازه.
-أنا سأعطيك:
-1. لقطة شاشة (Screenshot).
-2. النص المستخرج من الشاشة.
-3. طلب المستخدم.
+        local systemPrompt = [[أنت "الوكيل الذكي" (Smart Agent) لموبايل أندرويد. مهمتك هي مساعدة المستخدم الكفيف في تنفيذ مهام على جهازه.
+أنا سأعطيك لقطة شاشة، النص المستخرج منها، وطلب المستخدم.
 
-يجب أن ترد بتنسيق JSON فقط كالتالي:
+يجب أن يكون ردك بتنسيق JSON فقط، ولا تكتب أي كلام خارجه. التنسيق:
 {
-  "thought": "شرح بسيط بالمصري للي هتعمله (مثلاً: هفتح الإعدادات عشان أشغل البلوتوث)",
-  "code": "كود Lua يستخدم كائن 'service' فقط لتنفيذ المهمة",
-  "status": "DONE أو CONTINUE لو محتاج تبص ع الشاشة تاني بعد الكود"
+  "thought": "اشرح بالمصري وببساطة هتعمل إيه (مثلاً: هفتح الإعدادات وأدور على الواي فاي)",
+  "code": "كود Lua سليم يستخدم كائن 'service' للتنفيذ. مثال: service.click({'الإعدادات'})",
+  "status": "DONE إذا انتهت المهمة، أو CONTINUE إذا كنت ستحتاج لمشاهدة الشاشة مرة أخرى بعد تنفيذ الكود الحالي"
 }
 
-الأوامر المتاحة لك (API Reference):
-- service.toHome(), service.toBack(), service.toRecents(), service.toNotifications(), service.toQuickSettings()
-- service.startApp("packageName"), service.openUrl("url"), service.callPhone("number")
-- service.click({"text" or "id"}), service.longClick({"text" or "id"}), service.setText("text")
-- service.click3(x, y): الضغط بالإحداثيات (مهم للتطبيقات غير المتوافقة). الإحداثيات من 0 لـ 1000.
-- service.swipe(x1, y1, x2, y2, duration)
-- service.speak("text"), service.asyncSpeak("text"), service.vibrate(duration)
-- service.getBatteryLevel(), service.getAllAppList()
+أهم الأوامر (API):
+1. التنقل: service.toHome(), service.toBack(), service.toNotifications()
+2. التطبيقات: service.startApp("اسم_التطبيق"), service.openUrl("رابط")
+3. التفاعل:
+   - service.click({"النص"}): للضغط على نص معين.
+   - service.click3(x, y): للضغط على إحداثيات (من 0 لـ 1000). مهم جداً لو الزرار ملوش نص.
+   - service.setText("النص"): للكتابة في المربع المفوكس.
+4. المعلومات: service.speak("النص"), service.getBatteryLevel()
 
-استخدم service.click3(x, y) لو الزرار ملوش اسم واضح في النص المستخرج بس باين في الصورة.
-رد فقط بالـ JSON.]]
+قواعد هامة:
+- لا تستخدم إلا كائن 'service'.
+- لو المهمة صعبة، قسمها لخطوات واستخدم status: CONTINUE.
+- في حالة التطبيقات غير المتوافقة، حلل الصورة واستخدم service.click3 للإحداثيات.]]
 
         local historyText = table.concat(agentContextHistory, "\n")
         local fullPrompt = "تاريخ المحادثة في هذه الجلسة:\n" .. historyText .. "\n\nطلب المستخدم الحالي: " .. userCommand .. "\n\nالنص الحالي على الشاشة:\n" .. screenText
@@ -5346,7 +5345,9 @@ function processAgentCommand(userCommand, statusTv)
                 table.insert(agentContextHistory, "الوكيل: " .. thought)
 
                 if code ~= "" then
-                    executeAgentCode(code)
+                    mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                        run = function() executeAgentCode(code) end
+                    }))
                 end
 
                 if status == "CONTINUE" then
@@ -5368,35 +5369,25 @@ function processAgentCommand(userCommand, statusTv)
 end
 
 function executeAgentCode(luaCode)
+    print("Agent Executing Code: " .. luaCode)
     local success, err = pcall(function()
-        -- Compatibility for Lua 5.1 (AndroLua) and Lua 5.2+
-        local func, syntaxErr = loadstring(luaCode)
-        if not func then
-            error("Syntax error in agent code: " .. tostring(syntaxErr))
-        end
-
-        -- Safely provide only the service object and basic helpers
-        local env = {
-            service = service,
-            print = print,
-            pcall = pcall,
-            tostring = tostring,
-            tonumber = tonumber,
-            math = math,
-            table = table,
-            string = string,
-            pairs = pairs,
-            ipairs = ipairs
-        }
-
-        if setfenv then
-            setfenv(func, env)
+        -- Directly using service.doString might be more robust in Jieshuo
+        if service.doString then
+            service.doString(luaCode)
         else
-            -- For Lua 5.2+, we'd use _ENV, but AndroLua is usually 5.1/LuaJIT
-            -- If it's 5.2+, this might need adjustment, but setfenv is standard in AndroLua
-        end
+            -- Fallback to loadstring
+            local func, syntaxErr = loadstring(luaCode)
+            if not func then error("Syntax error: " .. tostring(syntaxErr)) end
 
-        func()
+            -- Bind environment
+            local env = {
+                service = service, print = print, pcall = pcall,
+                tostring = tostring, tonumber = tonumber, math = math,
+                table = table, string = string, pairs = pairs, ipairs = ipairs
+            }
+            if setfenv then setfenv(func, env) end
+            func()
+        end
     end)
     if not success then
         print("Agent Execution Error: " .. tostring(err))
