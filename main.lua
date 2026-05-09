@@ -173,7 +173,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 5.3
+local currentAppVersion = 5.4
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -5262,31 +5262,26 @@ function processAgentCommand(userCommand)
 }
 
 أهم الأوامر (API) - استخدم الأوامر المباشرة لضمان التنفيذ:
-1. أوامر النظام المباشرة (Direct Actions):
-   - service.toHome(): الشاشة الرئيسية.
-   - service.toBack(): رجوع.
-   - service.toRecents(): التطبيقات الحديثة.
-   - service.toNotifications(): الإشعارات.
-   - service.startApp("الاسم أو الحزمة"): فتح تطبيق.
+1. أوامر الكتابة الذكية (Smart Typing):
+   - service.setText("النص"): للكتابة في مربع النص المفعل حالياً.
+   - service.paste("النص"): لاستخدام خاصية اللصق (فعالة جداً لو setText منعت).
+   - لو فيه مربع نص قدامك ومش عارف تفعله، استخدم service.click({"نص المربع"}) ثم setText.
 
-2. أوامر التحرك والتركيز (Focus Navigation):
-   - service.toNext(): العنصر التالي.
-   - service.toPrevious(): العنصر السابق.
-   - service.execute("النَّقْر المباشر"): الضغط على العنصر اللي عليه التركيز حالياً.
+2. أوامر الضغط والتحرك (Smart Interaction):
+   - service.click({"النص"}): للضغط على عنصر. لو فشل، استخدم الحركة بالتركيز.
+   - الاستراتيجية الأضمن للضغط: service.toNext() أو service.toPrevious() حتى تصل للعنصر، ثم service.execute("النَّقْر المباشر").
+   - service.click(x, y): للضغط على إحداثيات بالنظر (من 0 لـ 1000).
 
-3. أوامر السحب والضغط (Gestures & Coordinates):
-   - service.swipe(x1, y1, x2, y2, duration): سحب من نقطة لنقطة (الإحداثيات من 0 لـ 1000).
-     * لفتح شاشة التطبيقات (سحب لأعلى): service.swipe(500, 800, 500, 200, 300)
-     * للتمرير لأسفل: service.swipe(500, 200, 500, 800, 300)
-   - service.click(x, y): ضغط على إحداثيات معينة.
-   - service.click({"النص"}): ضغط على عنصر يحمل نص معين.
+3. أوامر النظام (System Core):
+   - service.toHome(), service.toBack(), service.toRecents(), service.toNotifications().
+   - service.startApp("الاسم"), service.swipe(x1, y1, x2, y2, ms).
+   - لفتح درج التطبيقات: service.swipe(500, 800, 500, 200, 300) return true.
 
 قواعد هامة:
-- لا تستخدم service.execute مع أسماء أوامر عربية إلا للنقر المباشر فقط.
-- لفتح درج التطبيقات، استخدم service.swipe(500, 800, 500, 200, 300) فوراً.
+- لو الزرار ملوش اسم، استخدم إحداثياته من الصورة أو اتحرك بالتركيز (toNext) حتى تسمع الوصف ثم اضغط (Direct Click).
+- في الكتابة، جرب setText الأول، ولو مظهرش النص جرب paste في الخطوة الجاية.
 - لازم الكود ينتهي بـ return true.
-- لو المهمة محتاجة كذا خطوة، نفذ خطوة واحدة وخلي status: CONTINUE.
-- فكر كأنك مستخدم بيسحب وبيدوس على الشاشة فعلياً.]]
+- المهمة الطويلة تقسمها خطوات وخلي status: CONTINUE.]]
 
         local historyText = table.concat(agentContextHistory, "\n")
         local fullPrompt = "تاريخ المحادثة في هذه الجلسة:\n" .. historyText .. "\n\nطلب المستخدم الحالي: " .. userCommand .. "\n\nالنص الحالي على الشاشة:\n" .. screenText
