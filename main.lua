@@ -173,7 +173,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 4.2
+local currentAppVersion = 4.3
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -5306,7 +5306,7 @@ function processAgentCommand(userCommand, statusTv)
 يجب أن يكون ردك بتنسيق JSON فقط، ولا تكتب أي كلام خارجه. التنسيق:
 {
   "thought": "اشرح بالمصري وببساطة هتعمل إيه (مثلاً: هفتح الإعدادات وأدور على الواي فاي)",
-  "code": "كود Lua سليم يستخدم كائن 'service' للتنفيذ. مثال: service.click({'الإعدادات'})",
+  "code": "كود Lua سليم يستخدم كائن 'service' للتنفيذ. مثال: service.click('الإعدادات')",
   "status": "DONE إذا انتهت المهمة، أو CONTINUE إذا كنت ستحتاج لمشاهدة الشاشة مرة أخرى بعد تنفيذ الكود الحالي"
 }
 
@@ -5314,7 +5314,7 @@ function processAgentCommand(userCommand, statusTv)
 1. التنقل: service.toHome(), service.toBack(), service.toNotifications()
 2. التطبيقات: service.startApp("اسم_التطبيق"), service.openUrl("رابط")
 3. التفاعل:
-   - service.click({"النص"}): للضغط على نص معين.
+   - service.click("النص"): للضغط على نص معين.
    - service.click3(x, y): للضغط على إحداثيات (من 0 لـ 1000). مهم جداً لو الزرار ملوش نص.
    - service.setText("النص"): للكتابة في المربع المفوكس.
 4. المعلومات: service.speak("النص"), service.getBatteryLevel()
@@ -5370,28 +5370,32 @@ end
 
 function executeAgentCode(luaCode)
     print("Agent Executing Code: " .. luaCode)
-    local success, err = pcall(function()
-        -- Directly using service.doString might be more robust in Jieshuo
-        if service.doString then
-            service.doString(luaCode)
-        else
-            -- Fallback to loadstring
-            local func, syntaxErr = loadstring(luaCode)
-            if not func then error("Syntax error: " .. tostring(syntaxErr)) end
 
-            -- Bind environment
-            local env = {
-                service = service, print = print, pcall = pcall,
-                tostring = tostring, tonumber = tonumber, math = math,
-                table = table, string = string, pairs = pairs, ipairs = ipairs
-            }
-            if setfenv then setfenv(func, env) end
-            func()
+    -- In some AndroLua environments, variables like 'service' are global.
+    -- We'll try to run the code in a way that handles different Lua versions.
+    local success, err = pcall(function()
+        local func, syntaxErr = loadstring(luaCode)
+        if not func then
+            error("Syntax error: " .. tostring(syntaxErr))
         end
+
+        -- Try to use the current global environment if setfenv is not available
+        -- but inject service just in case.
+        if setfenv then
+            local env = _G or {}
+            -- Ensure important objects are there
+            env.service = service
+            setfenv(func, env)
+        end
+
+        func()
     end)
+
     if not success then
         print("Agent Execution Error: " .. tostring(err))
-        service.asyncSpeak("حصلت مشكلة وأنا بنفذ الطلب: " .. tostring(err))
+        -- Sometimes errors are just Java exceptions, try to make them readable
+        local readableErr = tostring(err):match(":(.-)$") or tostring(err)
+        service.asyncSpeak("حصل خطأ بسيط في التنفيذ: " .. readableErr)
     end
 end
 
