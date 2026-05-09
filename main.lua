@@ -173,7 +173,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 4.3
+local currentAppVersion = 4.4
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -5306,7 +5306,7 @@ function processAgentCommand(userCommand, statusTv)
 يجب أن يكون ردك بتنسيق JSON فقط، ولا تكتب أي كلام خارجه. التنسيق:
 {
   "thought": "اشرح بالمصري وببساطة هتعمل إيه (مثلاً: هفتح الإعدادات وأدور على الواي فاي)",
-  "code": "كود Lua سليم يستخدم كائن 'service' للتنفيذ. مثال: service.click('الإعدادات')",
+  "code": "كود Lua سليم يستخدم كائن 'service' للتنفيذ. مثال: service.click({'الإعدادات'})",
   "status": "DONE إذا انتهت المهمة، أو CONTINUE إذا كنت ستحتاج لمشاهدة الشاشة مرة أخرى بعد تنفيذ الكود الحالي"
 }
 
@@ -5314,7 +5314,7 @@ function processAgentCommand(userCommand, statusTv)
 1. التنقل: service.toHome(), service.toBack(), service.toNotifications()
 2. التطبيقات: service.startApp("اسم_التطبيق"), service.openUrl("رابط")
 3. التفاعل:
-   - service.click("النص"): للضغط على نص معين.
+   - service.click({"النص"}): للضغط على نص معين (يجب وضع النص داخل {}).
    - service.click3(x, y): للضغط على إحداثيات (من 0 لـ 1000). مهم جداً لو الزرار ملوش نص.
    - service.setText("النص"): للكتابة في المربع المفوكس.
 4. المعلومات: service.speak("النص"), service.getBatteryLevel()
