@@ -173,7 +173,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 4.1
+local currentAppVersion = 4.2
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -226,11 +226,11 @@ end
 selectedGeminiModelId = isValidModel and loadedModelId or defaultGeminiModelId
 
 selectedGroqModelId = prefs.getString("groqModelId", defaultGroqModelId)
-dashboardOrder = prefs.getString("dashboardOrder", "dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings")
+dashboardOrder = prefs.getString("dashboardOrder", "smart_agent,dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings")
 -- Remove assistant from legacy orders
 if dashboardOrder:match("assistant,") then dashboardOrder = dashboardOrder:gsub("assistant,", "") end
 if dashboardOrder:match(",assistant") then dashboardOrder = dashboardOrder:gsub(",assistant", "") end
-if dashboardOrder == "assistant" then dashboardOrder = "dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings" end
+if dashboardOrder == "assistant" then dashboardOrder = "smart_agent,dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings" end
 
 selectedDictationMode = prefs.getString("selectedDictationMode", defaultDictationMode)
 
@@ -239,10 +239,15 @@ if dashboardOrder:match("reader") and not dashboardOrder:match("doc_reader") the
 if dashboardOrder:match("library") and not dashboardOrder:match("doc_reader") then dashboardOrder = dashboardOrder:gsub("library", "doc_reader") end
 
 -- Auto-append missing default buttons for old users
-local defaultButtons = {"dictation", "geminiLive", "doc_reader", "video_analyzer", "image", "transcription", "settings"}
+local defaultButtons = {"smart_agent", "dictation", "geminiLive", "doc_reader", "video_analyzer", "image", "transcription", "settings"}
 for _, btn in ipairs(defaultButtons) do
     if not dashboardOrder:match("^" .. btn .. "$") and not dashboardOrder:match("^" .. btn .. ",") and not dashboardOrder:match("," .. btn .. "$") and not dashboardOrder:match("," .. btn .. ",") then
-        dashboardOrder = dashboardOrder .. "," .. btn
+        -- Insert smart_agent at the beginning if missing
+        if btn == "smart_agent" then
+            dashboardOrder = "smart_agent," .. dashboardOrder
+        else
+            dashboardOrder = dashboardOrder .. "," .. btn
+        end
     end
 end
 
@@ -3938,6 +3943,13 @@ function openMainWindow()
     contentL.addView(titleTxt)
 
     local buttons = {
+        smart_agent = function()
+            local btn = Button(service); btn.setText("🤖 الوكيل الذكي (تجريبي)")
+            btn.setContentDescription("بدء التحدث مع الوكيل الذكي للتحكم في الموبايل")
+            styleButton(btn, "primary")
+            btn.setOnClickListener(function() hideMainWindow(); showSmartAgentWindow() end)
+            return btn
+        end,
         dictation = function()
             local btn = Button(service); btn.setText("🎙️ الإملاء والترجمة")
             btn.setContentDescription("فتح الإملاء الصوتي والترجمة")
@@ -4698,7 +4710,7 @@ function openInterfaceSettings()
 
         local scrollV = ScrollView(service); local listL = LinearLayout(service); listL.setOrientation(LinearLayout.VERTICAL); scrollV.addView(listL); settingsDialog.addView(scrollV, LinearLayout.LayoutParams(-1, 0, 1.0))
 
-        local keyNames = { dictation = "🎙️ الإملاء والترجمة", geminiLive = "🗣️ البث المباشر", doc_reader = "📚 المكتبة والقارئ", video_analyzer = "🎬 وصف الفيديوهات", image = "🖼️ وصف الصور", transcription = "📁 تحويل الصوت", settings = "⚙️ الإعدادات" }
+        local keyNames = { smart_agent = "🤖 الوكيل الذكي", dictation = "🎙️ الإملاء والترجمة", geminiLive = "🗣️ البث المباشر", doc_reader = "📚 المكتبة والقارئ", video_analyzer = "🎬 وصف الفيديوهات", image = "🖼️ وصف الصور", transcription = "📁 تحويل الصوت", settings = "⚙️ الإعدادات" }
 
         local function refreshUI()
             listL.removeAllViews()
@@ -5170,6 +5182,222 @@ function showVideoAnalyzerMenu()
     local winP = WindowManager.LayoutParams(-1, -2, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY, WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL, PixelFormat.TRANSLUCENT)
     winP.gravity = Gravity.CENTER
     pcall(function() wm.addView(videoAnalyzerWindow, winP) end)
+end
+
+-- ### Smart AI Agent Feature (Beta) ###
+local smartAgentWindow = nil
+local smartAgentRecognizer = nil
+local isAgentProcessing = false
+
+function showSmartAgentWindow()
+    if smartAgentWindow then return end
+
+    smartAgentWindow = LinearLayout(service)
+    smartAgentWindow.setOrientation(LinearLayout.VERTICAL)
+    smartAgentWindow.setBackgroundColor(0xFF000000)
+    smartAgentWindow.setPadding(40, 40, 40, 40)
+    smartAgentWindow.setGravity(Gravity.CENTER)
+
+    local title = TextView(service)
+    title.setText("🤖 الوكيل الذكي (تجريبي)")
+    title.setTextColor(0xFF00FFCC)
+    title.setTextSize(24)
+    title.setTypeface(nil, Typeface.BOLD)
+    title.setPadding(0, 0, 0, 50)
+    smartAgentWindow.addView(title)
+
+    local statusTv = TextView(service)
+    statusTv.setText("جاهز لتلقي أوامرك يا ريس 🫡")
+    statusTv.setTextColor(0xFFE0E0E0)
+    statusTv.setTextSize(18)
+    statusTv.setGravity(Gravity.CENTER)
+    statusTv.setPadding(0, 0, 0, 60)
+    smartAgentWindow.addView(statusTv)
+
+    local micBtn = Button(service)
+    micBtn.setText("🎤 دوس واتكلم")
+    styleButton(micBtn, "primary")
+    micBtn.setOnClickListener(function()
+        if isAgentProcessing then return end
+        startAgentVoiceRecognition(statusTv)
+    end)
+    smartAgentWindow.addView(micBtn, LinearLayout.LayoutParams(-1, -2))
+
+    local closeBtn = Button(service)
+    closeBtn.setText("❌ إغلاق")
+    styleButton(closeBtn, "danger")
+    closeBtn.setOnClickListener(function()
+        if smartAgentWindow then
+            pcall(function() wm.removeView(smartAgentWindow) end)
+            smartAgentWindow = nil
+        end
+        if smartAgentRecognizer then
+            pcall(function() smartAgentRecognizer.destroy() end)
+            smartAgentRecognizer = nil
+        end
+        isAgentProcessing = false
+        agentContextHistory = {}
+    end)
+    local lpClose = LinearLayout.LayoutParams(-1, -2)
+    lpClose.topMargin = 30
+    smartAgentWindow.addView(closeBtn, lpClose)
+
+    local params = WindowManager.LayoutParams(
+        WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
+        WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+        WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+        PixelFormat.TRANSLUCENT
+    )
+    pcall(function() wm.addView(smartAgentWindow, params) end)
+    service.asyncSpeak("الوكيل الذكي معاك يا ريس. دوس على زرار المايك وقولي عايز تعمل إيه.")
+end
+
+function startAgentVoiceRecognition(statusTv)
+    if not SpeechRecognizer.isRecognitionAvailable(service) then
+        service.asyncSpeak("عذراً، خدمة التعرف على الصوت مش شغالة عندك.")
+        return
+    end
+
+    statusTv.setText("⏳ سامعك.. اتفضل قول")
+    service.asyncSpeak("سامعك يا ريس.. اتفضل")
+    pcall(function() service.vibrate(50) end)
+
+    smartAgentRecognizer = SpeechRecognizer.createSpeechRecognizer(service)
+    local intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+    intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+    intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ar-EG")
+
+    smartAgentRecognizer.setRecognitionListener(RecognitionListener{
+        onResults = function(results)
+            local matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+            if matches and matches.size() > 0 then
+                local command = matches.get(0)
+                statusTv.setText("🤔 ثواني بشوف هعمل إيه في: " .. command)
+                pcall(function() service.playSoundTick() end)
+                processAgentCommand(command, statusTv)
+            end
+        end,
+        onError = function(err)
+            statusTv.setText("❌ معلش مسمعتش كويس، جرب تاني")
+            service.asyncSpeak("معلش مسمعتش كويس، جرب تاني")
+        end
+    })
+    smartAgentRecognizer.startListening(intent)
+end
+
+local agentContextHistory = {}
+
+function processAgentCommand(userCommand, statusTv)
+    isAgentProcessing = true
+    if #agentContextHistory == 0 then
+        service.asyncSpeak("ثواني بشوف الشاشة قدامي فيها إيه.. حاضر")
+    end
+
+    takeScreenshotAndEncode(function(imgB64)
+        local screenText = getTextFromScreen()
+
+        local systemPrompt = [[أنت "الوكيل الذكي" لموبايل أندرويد. مهمتك مساعدة المستخدم (كفيف) في التحكم في جهازه.
+أنا سأعطيك:
+1. لقطة شاشة (Screenshot).
+2. النص المستخرج من الشاشة.
+3. طلب المستخدم.
+
+يجب أن ترد بتنسيق JSON فقط كالتالي:
+{
+  "thought": "شرح بسيط بالمصري للي هتعمله (مثلاً: هفتح الإعدادات عشان أشغل البلوتوث)",
+  "code": "كود Lua يستخدم كائن 'service' فقط لتنفيذ المهمة",
+  "status": "DONE أو CONTINUE لو محتاج تبص ع الشاشة تاني بعد الكود"
+}
+
+الأوامر المتاحة لك (API Reference):
+- service.toHome(), service.toBack(), service.toRecents(), service.toNotifications(), service.toQuickSettings()
+- service.startApp("packageName"), service.openUrl("url"), service.callPhone("number")
+- service.click({"text" or "id"}), service.longClick({"text" or "id"}), service.setText("text")
+- service.click3(x, y): الضغط بالإحداثيات (مهم للتطبيقات غير المتوافقة). الإحداثيات من 0 لـ 1000.
+- service.swipe(x1, y1, x2, y2, duration)
+- service.speak("text"), service.asyncSpeak("text"), service.vibrate(duration)
+- service.getBatteryLevel(), service.getAllAppList()
+
+استخدم service.click3(x, y) لو الزرار ملوش اسم واضح في النص المستخرج بس باين في الصورة.
+رد فقط بالـ JSON.]]
+
+        local historyText = table.concat(agentContextHistory, "\n")
+        local fullPrompt = "تاريخ المحادثة في هذه الجلسة:\n" .. historyText .. "\n\nطلب المستخدم الحالي: " .. userCommand .. "\n\nالنص الحالي على الشاشة:\n" .. screenText
+
+        makeAiRequest(fullPrompt, systemPrompt, imgB64, "gemini-3.1-flash-lite-preview", function(response)
+            isAgentProcessing = false
+            -- Clean JSON from markdown if present
+            local jsonStr = response:match("({.+})") or response
+            local success, data = pcall(function() return JSONObject(jsonStr) end)
+
+            if success and data then
+                local thought = data.optString("thought", "شغال يا ريس..")
+                local code = data.optString("code", "")
+                local status = data.optString("status", "DONE")
+
+                statusTv.setText("🤖 " .. thought)
+                service.asyncSpeak(thought)
+
+                table.insert(agentContextHistory, "المستخدم: " .. userCommand)
+                table.insert(agentContextHistory, "الوكيل: " .. thought)
+
+                if code ~= "" then
+                    executeAgentCode(code)
+                end
+
+                if status == "CONTINUE" then
+                    mainHandler.postDelayed(luajava.createProxy("java.lang.Runnable", {
+                        run = function() processAgentCommand(userCommand, statusTv) end
+                    }), 3000)
+                else
+                    isAgentProcessing = false
+                    pcall(function() service.vibrate(100) end)
+                    -- Session ends here or waits for next command
+                end
+            else
+                statusTv.setText("❌ عذراً، حصلت مشكلة في فهم الطلب")
+                service.asyncSpeak("معلش يا ريس، حصلت مشكلة وأنا بحاول أفهم أعمل إيه.")
+                print("Agent Error: " .. response)
+            end
+        end)
+    end)
+end
+
+function executeAgentCode(luaCode)
+    local success, err = pcall(function()
+        -- Compatibility for Lua 5.1 (AndroLua) and Lua 5.2+
+        local func, syntaxErr = loadstring(luaCode)
+        if not func then
+            error("Syntax error in agent code: " .. tostring(syntaxErr))
+        end
+
+        -- Safely provide only the service object and basic helpers
+        local env = {
+            service = service,
+            print = print,
+            pcall = pcall,
+            tostring = tostring,
+            tonumber = tonumber,
+            math = math,
+            table = table,
+            string = string,
+            pairs = pairs,
+            ipairs = ipairs
+        }
+
+        if setfenv then
+            setfenv(func, env)
+        else
+            -- For Lua 5.2+, we'd use _ENV, but AndroLua is usually 5.1/LuaJIT
+            -- If it's 5.2+, this might need adjustment, but setfenv is standard in AndroLua
+        end
+
+        func()
+    end)
+    if not success then
+        print("Agent Execution Error: " .. tostring(err))
+        service.asyncSpeak("حصلت مشكلة وأنا بنفذ الطلب: " .. tostring(err))
+    end
 end
 
 -- ### Personal Assistant Feature ###
