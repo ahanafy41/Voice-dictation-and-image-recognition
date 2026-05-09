@@ -173,7 +173,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 5.1
+local currentAppVersion = 5.2
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -5257,29 +5257,33 @@ function processAgentCommand(userCommand)
 يجب أن يكون ردك بتنسيق JSON فقط، ولا تكتب أي كلام خارجه. التنسيق:
 {
   "thought": "ابدأ بوصف سريع للي شايفه في الشاشة وبعدين قول هتعمل إيه بالمصري وببساطة (مثلاً: أنا شايف قدامي إعدادات الواي فاي، هدوس على زرار التشغيل دلوقتي)",
-  "code": "كود Lua سليم يستخدم كائن 'service' للتنفيذ. مثال: service.click({'الإعدادات'})",
+  "code": "كود Lua سليم ينتهي بـ return true. مثال: service.click({'الإعدادات'}) return true",
   "status": "DONE إذا انتهت المهمة، أو CONTINUE إذا كنت ستحتاج لمشاهدة الشاشة مرة أخرى بعد تنفيذ الكود الحالي"
 }
 
 أهم الأوامر (API) - استخدم الأوامر العربية أولاً لأفضل أداء:
-1. أوامر التنفيذ المباشر (service.execute):
-   - service.execute("الشاشة الرئيسية"), service.execute("رجوع"), service.execute("التطبيقات الحديثة")
-   - service.execute("فتح شريط الإشعارات"), service.execute("الإعدادات السريعة"), service.execute("لقطة شاشة")
-   - service.execute("الإزاحةُ إلى اليسار"), service.execute("الإزاحةُ إلى اليَمِين"), service.execute("الإزاحةُ إلى الأعلى"), service.execute("الإزاحةُ إلى الْأسفل")
-   - service.execute("التَّمْرير للأمام"), service.execute("التَّمْرير للخلف"), service.execute("إختصار التَّمْرير للأعلى")
-   - service.execute("النَّقْر المباشر"), service.execute("الضغط المطول المباشر"), service.execute("النَّقْر المزدوج")
+1. أوامر التحرك والتركيز (System Movement):
+   - service.toNext(): للتحرك للعنصر التالي (زي سحب الإصبع لليمين).
+   - service.toPrevious(): للتحرك للعنصر السابق (زي سحب الإصبع لليسار).
+   - استخدم دول لو مش عارف توصل للعنصر بالاسم أو لو الشاشة معقدة.
 
-2. أوامر التفاعل المخصصة:
-   - service.click({"النص"}): للضغط على نص معين (يجب وضع النص داخل {}).
-   - service.click(x, y): للضغط على إحداثيات (من 0 لـ 1000). مهم لو الزرار ملوش نص.
+2. أوامر التنفيذ المباشر (service.execute):
+   - "الشاشة الرئيسية", "رجوع", "التطبيقات الحديثة", "لقطة شاشة"
+   - "التَّمْرير للأمام" (Scroll Forward), "التَّمْرير للخلف" (Scroll Backward).
+   - "النَّقْر المباشر" (Direct Click): بيضغط على العنصر اللي عليه التركيز (Focus) حالياً.
+   - "الضغط المطول المباشر" (Direct Long Press): بيضغط مطول على العنصر اللي عليه التركيز حالياً.
+
+3. أوامر التفاعل المخصصة:
+   - service.click({"النص"}): للضغط على نص معين.
+   - service.click(x, y): للضغط على إحداثيات (من 0 لـ 1000).
    - service.startApp("اسم_التطبيق"), service.setText("النص"), service.speak("النص")
 
 قواعد هامة:
-- لفتح أي تطبيق، استخدم فوراً service.startApp("اسم التطبيق بالعربي أو الإنجليزي") دي أسرع طريقة.
-- لو بتدور على حاجة ومش شايفها في الشاشة، استخدم أوامر التَّمْرير (service.execute) بدلاً من الإزاحة عشان تقلب وتشوف الباقي، دي أضمن وأقوى.
-- الأولوية دائماً لأوامر service.execute بالعربي.
-- لو المهمة محتاجة كذا خطوة، نفذ خطوة واحدة وخلي status: CONTINUE عشان تبص على الشاشة اللي بعدها وتكمل.
-- في حالة التطبيقات غير المتوافقة، حلل الصورة واستخدم الإحداثيات.]]
+- للوصول لعنصر مش باين: اتحرك بـ service.toNext() لحد ما توصله أو استخدم "التَّمْرير للأمام".
+- بعد ما توصل للعنصر بالتركيز، استخدم "النَّقْر المباشر" لو service.click مش شغالة.
+- لازم الكود ينتهي بـ return true عشان السيستم يعرف إن الخطوة خلصت.
+- لو المهمة محتاجة كذا خطوة، نفذ خطوة واحدة وخلي status: CONTINUE.
+- الأولوية دائماً لأوامر الحركة والتركيز لضمان الدقة مع قارئ الشاشة.]]
 
         local historyText = table.concat(agentContextHistory, "\n")
         local fullPrompt = "تاريخ المحادثة في هذه الجلسة:\n" .. historyText .. "\n\nطلب المستخدم الحالي: " .. userCommand .. "\n\nالنص الحالي على الشاشة:\n" .. screenText
