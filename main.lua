@@ -173,7 +173,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 5.2
+local currentAppVersion = 5.3
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -5258,32 +5258,35 @@ function processAgentCommand(userCommand)
 {
   "thought": "ابدأ بوصف سريع للي شايفه في الشاشة وبعدين قول هتعمل إيه بالمصري وببساطة (مثلاً: أنا شايف قدامي إعدادات الواي فاي، هدوس على زرار التشغيل دلوقتي)",
   "code": "كود Lua سليم ينتهي بـ return true. مثال: service.click({'الإعدادات'}) return true",
-  "status": "DONE إذا انتهت المهمة، أو CONTINUE إذا كنت ستحتاج لمشاهدة الشاشة مرة أخرى بعد تنفيذ الكود الحالي"
+  "status": "DONE أو CONTINUE"
 }
 
-أهم الأوامر (API) - استخدم الأوامر العربية أولاً لأفضل أداء:
-1. أوامر التحرك والتركيز (System Movement):
-   - service.toNext(): للتحرك للعنصر التالي (زي سحب الإصبع لليمين).
-   - service.toPrevious(): للتحرك للعنصر السابق (زي سحب الإصبع لليسار).
-   - استخدم دول لو مش عارف توصل للعنصر بالاسم أو لو الشاشة معقدة.
+أهم الأوامر (API) - استخدم الأوامر المباشرة لضمان التنفيذ:
+1. أوامر النظام المباشرة (Direct Actions):
+   - service.toHome(): الشاشة الرئيسية.
+   - service.toBack(): رجوع.
+   - service.toRecents(): التطبيقات الحديثة.
+   - service.toNotifications(): الإشعارات.
+   - service.startApp("الاسم أو الحزمة"): فتح تطبيق.
 
-2. أوامر التنفيذ المباشر (service.execute):
-   - "الشاشة الرئيسية", "رجوع", "التطبيقات الحديثة", "لقطة شاشة"
-   - "التَّمْرير للأمام" (Scroll Forward), "التَّمْرير للخلف" (Scroll Backward).
-   - "النَّقْر المباشر" (Direct Click): بيضغط على العنصر اللي عليه التركيز (Focus) حالياً.
-   - "الضغط المطول المباشر" (Direct Long Press): بيضغط مطول على العنصر اللي عليه التركيز حالياً.
+2. أوامر التحرك والتركيز (Focus Navigation):
+   - service.toNext(): العنصر التالي.
+   - service.toPrevious(): العنصر السابق.
+   - service.execute("النَّقْر المباشر"): الضغط على العنصر اللي عليه التركيز حالياً.
 
-3. أوامر التفاعل المخصصة:
-   - service.click({"النص"}): للضغط على نص معين.
-   - service.click(x, y): للضغط على إحداثيات (من 0 لـ 1000).
-   - service.startApp("اسم_التطبيق"), service.setText("النص"), service.speak("النص")
+3. أوامر السحب والضغط (Gestures & Coordinates):
+   - service.swipe(x1, y1, x2, y2, duration): سحب من نقطة لنقطة (الإحداثيات من 0 لـ 1000).
+     * لفتح شاشة التطبيقات (سحب لأعلى): service.swipe(500, 800, 500, 200, 300)
+     * للتمرير لأسفل: service.swipe(500, 200, 500, 800, 300)
+   - service.click(x, y): ضغط على إحداثيات معينة.
+   - service.click({"النص"}): ضغط على عنصر يحمل نص معين.
 
 قواعد هامة:
-- للوصول لعنصر مش باين: اتحرك بـ service.toNext() لحد ما توصله أو استخدم "التَّمْرير للأمام".
-- بعد ما توصل للعنصر بالتركيز، استخدم "النَّقْر المباشر" لو service.click مش شغالة.
-- لازم الكود ينتهي بـ return true عشان السيستم يعرف إن الخطوة خلصت.
+- لا تستخدم service.execute مع أسماء أوامر عربية إلا للنقر المباشر فقط.
+- لفتح درج التطبيقات، استخدم service.swipe(500, 800, 500, 200, 300) فوراً.
+- لازم الكود ينتهي بـ return true.
 - لو المهمة محتاجة كذا خطوة، نفذ خطوة واحدة وخلي status: CONTINUE.
-- الأولوية دائماً لأوامر الحركة والتركيز لضمان الدقة مع قارئ الشاشة.]]
+- فكر كأنك مستخدم بيسحب وبيدوس على الشاشة فعلياً.]]
 
         local historyText = table.concat(agentContextHistory, "\n")
         local fullPrompt = "تاريخ المحادثة في هذه الجلسة:\n" .. historyText .. "\n\nطلب المستخدم الحالي: " .. userCommand .. "\n\nالنص الحالي على الشاشة:\n" .. screenText
@@ -5329,31 +5332,28 @@ function processAgentCommand(userCommand)
 end
 
 function executeAgentCode(luaCode)
+    -- Ensure service is accessible within the loaded code
+    local prefixedCode = "local service = service or _G.service\n" .. luaCode
 
-    -- In some AndroLua environments, variables like 'service' are global.
-    -- We'll try to run the code in a way that handles different Lua versions.
     local success, err = pcall(function()
-        local func, syntaxErr = loadstring(luaCode)
+        local func, syntaxErr = loadstring(prefixedCode)
         if not func then
             error("Syntax error: " .. tostring(syntaxErr))
         end
 
-        -- Try to use the current global environment if setfenv is not available
-        -- but inject service just in case.
+        -- Use the global environment to ensure all libraries and 'service' are available
         if setfenv then
-            local env = _G or {}
-            -- Ensure important objects are there
-            env.service = service
-            setfenv(func, env)
+            setfenv(func, _G)
         end
 
         func()
     end)
 
     if not success then
-        -- Sometimes errors are just Java exceptions, try to make them readable
         local readableErr = tostring(err):match(":(.-)$") or tostring(err)
-        service.asyncSpeak("حصل خطأ بسيط في التنفيذ: " .. readableErr)
+        -- Log to console for debugging but use voice for user
+        print("Agent Execution Error: " .. tostring(err))
+        service.asyncSpeak("عذراً، حصلت مشكلة تقنية في تنفيذ الحركة: " .. readableErr)
     end
 end
 
