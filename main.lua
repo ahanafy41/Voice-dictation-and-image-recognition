@@ -173,7 +173,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 4.5
+local currentAppVersion = 4.6
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -425,6 +425,15 @@ function styleEditText(et)
     et.setTextColor(0xFFFFFFFF)
     et.setHintTextColor(0xFF888888)
     et.setPadding(25, 25, 25, 25)
+end
+
+function createLabel(text)
+    local lbl = TextView(service)
+    lbl.setText(text)
+    lbl.setTextSize(15)
+    lbl.setTextColor(0xFFB0B0B0)
+    lbl.setPadding(0, 15, 0, 10)
+    return lbl
 end
 
 -- UI/UX Helpers for Settings Organization
@@ -4130,14 +4139,6 @@ function openAiSettingsWindow()
         parent.addView(header)
     end
 
-    local function createLabel(text)
-        local lbl = TextView(service)
-        lbl.setText(text)
-        lbl.setTextSize(15)
-        lbl.setTextColor(0xFFB0B0B0)
-        lbl.setPadding(0, 15, 0, 10)
-        return lbl
-    end
 
     -- Initial variables for switches that need to be accessed in save logic
     local swCorr, swTash, swCont, swSpace, swPunc, swDot, swComma, swLine, swProf, swNum, swSpc
@@ -4469,14 +4470,6 @@ function openConnectionSettings()
     settingsDialog.addView(loadingShield)
     settingsDialog.addView(scrollV)
 
-    local function createLabel(text)
-        local lbl = TextView(service)
-        lbl.setText(text)
-        lbl.setTextSize(15)
-        lbl.setTextColor(0xFFB0B0B0)
-        lbl.setPadding(0, 15, 0, 10)
-        return lbl
-    end
 
     local gIn, mIn, wIn, tIn
     local audSpinner, audIds
@@ -4607,14 +4600,6 @@ function openFeaturesSettings()
     settingsDialog.addView(loadingShield)
     settingsDialog.addView(scrollV)
 
-    local function createLabel(text)
-        local lbl = TextView(service)
-        lbl.setText(text)
-        lbl.setTextSize(15)
-        lbl.setTextColor(0xFFB0B0B0)
-        lbl.setPadding(0, 15, 0, 10)
-        return lbl
-    end
 
     local swTrans, swQuickTap, swSum, swImg
     local trLangSpinner, trLangIds
