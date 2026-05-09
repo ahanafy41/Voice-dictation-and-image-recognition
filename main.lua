@@ -173,7 +173,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 5.0
+local currentAppVersion = 5.1
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -5266,6 +5266,7 @@ function processAgentCommand(userCommand)
    - service.execute("الشاشة الرئيسية"), service.execute("رجوع"), service.execute("التطبيقات الحديثة")
    - service.execute("فتح شريط الإشعارات"), service.execute("الإعدادات السريعة"), service.execute("لقطة شاشة")
    - service.execute("الإزاحةُ إلى اليسار"), service.execute("الإزاحةُ إلى اليَمِين"), service.execute("الإزاحةُ إلى الأعلى"), service.execute("الإزاحةُ إلى الْأسفل")
+   - service.execute("التَّمْرير للأمام"), service.execute("التَّمْرير للخلف"), service.execute("إختصار التَّمْرير للأعلى")
    - service.execute("النَّقْر المباشر"), service.execute("الضغط المطول المباشر"), service.execute("النَّقْر المزدوج")
 
 2. أوامر التفاعل المخصصة:
@@ -5275,7 +5276,7 @@ function processAgentCommand(userCommand)
 
 قواعد هامة:
 - لفتح أي تطبيق، استخدم فوراً service.startApp("اسم التطبيق بالعربي أو الإنجليزي") دي أسرع طريقة.
-- لو بتدور على حاجة ومش شايفها في الشاشة، استخدم أوامر الإزاحة (service.execute) عشان تقلب وتشوف الباقي، وقول في الـ thought إنك بتدور.
+- لو بتدور على حاجة ومش شايفها في الشاشة، استخدم أوامر التَّمْرير (service.execute) بدلاً من الإزاحة عشان تقلب وتشوف الباقي، دي أضمن وأقوى.
 - الأولوية دائماً لأوامر service.execute بالعربي.
 - لو المهمة محتاجة كذا خطوة، نفذ خطوة واحدة وخلي status: CONTINUE عشان تبص على الشاشة اللي بعدها وتكمل.
 - في حالة التطبيقات غير المتوافقة، حلل الصورة واستخدم الإحداثيات.]]
