@@ -173,7 +173,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 4.1
+local currentAppVersion = 5.3
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -226,11 +226,11 @@ end
 selectedGeminiModelId = isValidModel and loadedModelId or defaultGeminiModelId
 
 selectedGroqModelId = prefs.getString("groqModelId", defaultGroqModelId)
-dashboardOrder = prefs.getString("dashboardOrder", "dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings")
+dashboardOrder = prefs.getString("dashboardOrder", "smart_agent,dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings")
 -- Remove assistant from legacy orders
 if dashboardOrder:match("assistant,") then dashboardOrder = dashboardOrder:gsub("assistant,", "") end
 if dashboardOrder:match(",assistant") then dashboardOrder = dashboardOrder:gsub(",assistant", "") end
-if dashboardOrder == "assistant" then dashboardOrder = "dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings" end
+if dashboardOrder == "assistant" then dashboardOrder = "smart_agent,dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings" end
 
 selectedDictationMode = prefs.getString("selectedDictationMode", defaultDictationMode)
 
@@ -239,10 +239,15 @@ if dashboardOrder:match("reader") and not dashboardOrder:match("doc_reader") the
 if dashboardOrder:match("library") and not dashboardOrder:match("doc_reader") then dashboardOrder = dashboardOrder:gsub("library", "doc_reader") end
 
 -- Auto-append missing default buttons for old users
-local defaultButtons = {"dictation", "geminiLive", "doc_reader", "video_analyzer", "image", "transcription", "settings"}
+local defaultButtons = {"smart_agent", "dictation", "geminiLive", "doc_reader", "video_analyzer", "image", "transcription", "settings"}
 for _, btn in ipairs(defaultButtons) do
     if not dashboardOrder:match("^" .. btn .. "$") and not dashboardOrder:match("^" .. btn .. ",") and not dashboardOrder:match("," .. btn .. "$") and not dashboardOrder:match("," .. btn .. ",") then
-        dashboardOrder = dashboardOrder .. "," .. btn
+        -- Insert smart_agent at the beginning if missing
+        if btn == "smart_agent" then
+            dashboardOrder = "smart_agent," .. dashboardOrder
+        else
+            dashboardOrder = dashboardOrder .. "," .. btn
+        end
     end
 end
 
@@ -255,6 +260,7 @@ showFloatingSettingsButtonEnabled = prefs.getBoolean("showFloatingSettingsButton
 newTranslationFeatureEnabled = prefs.getBoolean("newTranslationFeatureEnabled", false)
 translateToLanguage = prefs.getString("translateToLanguage", defaultTranslateTo)
 floatingButtonQuickTranslateTapEnabled = prefs.getBoolean("floatingButtonQuickTranslateTapEnabled", true)
+floatingButtonAction = prefs.getString("floatingButtonAction", "translate") -- "translate" or "agent"
 autoPunctuationEnabled = prefs.getBoolean("autoPunctuation", true)
 geminiLiveSystemInstruction = prefs.getString("geminiLiveSystemInstruction", "أنت مساعد صوتي ذكي. مهمتك الرد المباشر بصوتك فقط.")
 geminiLiveVoiceName = prefs.getString("geminiLiveVoiceName", "Puck")
@@ -419,6 +425,15 @@ function styleEditText(et)
     et.setTextColor(0xFFFFFFFF)
     et.setHintTextColor(0xFF888888)
     et.setPadding(25, 25, 25, 25)
+end
+
+function createLabel(text)
+    local lbl = TextView(service)
+    lbl.setText(text)
+    lbl.setTextSize(15)
+    lbl.setTextColor(0xFFB0B0B0)
+    lbl.setPadding(0, 15, 0, 10)
+    return lbl
 end
 
 -- UI/UX Helpers for Settings Organization
@@ -733,12 +748,22 @@ function createAndShowFloatingButton()
          return
     end
     floatingSettingsBtn = Button(service)
-    floatingSettingsBtn.setText(floatingButtonQuickTranslateTapEnabled and "🎙️" or "⚙️")
+
+    local btnText = "⚙️"
+    local btnDesc = getFeedbackString("command_settings", selectedLanguage)
+
     if floatingButtonQuickTranslateTapEnabled then
-        floatingSettingsBtn.setContentDescription("نقرة واحدة لبدء الإملاء والترجمة بسرعة، ونقرة مطولة لفتح الإعدادات.")
-    else
-        floatingSettingsBtn.setContentDescription(getFeedbackString("command_settings", selectedLanguage))
+        if floatingButtonAction == "agent" then
+            btnText = "🤖"
+            btnDesc = "نقرة واحدة لفتح الوكيل الذكي، ونقرة مطولة لفتح الإعدادات."
+        else
+            btnText = "🎙️"
+            btnDesc = "نقرة واحدة لبدء الإملاء والترجمة بسرعة، ونقرة مطولة لفتح الإعدادات."
+        end
     end
+
+    floatingSettingsBtn.setText(btnText)
+    floatingSettingsBtn.setContentDescription(btnDesc)
     local bg = GradientDrawable()
     bg.setCornerRadius(100)
     bg.setColor(0xFF1E1E1E)
@@ -749,14 +774,19 @@ function createAndShowFloatingButton()
     floatingSettingsBtn.setFocusableInTouchMode(false)
     floatingSettingsBtn.setOnClickListener(function()
         if floatingButtonQuickTranslateTapEnabled then
-            if not newTranslationFeatureEnabled then
-                newTranslationFeatureEnabled = true
-                local editor = prefs.edit()
-                editor.putBoolean("newTranslationFeatureEnabled", true)
-                editor.apply()
+            if floatingButtonAction == "agent" then
+                hideMainWindow()
+                if showSmartAgentWindow then showSmartAgentWindow() end
+            else
+                if not newTranslationFeatureEnabled then
+                    newTranslationFeatureEnabled = true
+                    local editor = prefs.edit()
+                    editor.putBoolean("newTranslationFeatureEnabled", true)
+                    editor.apply()
+                end
+                hideMainWindow()
+                startVoiceRecognition(true)
             end
-            hideMainWindow()
-            startVoiceRecognition(true)
         else
             openMainWindow()
         end
@@ -3654,6 +3684,7 @@ function saveSettings()
     editor.putBoolean("newTranslationFeatureEnabled", newTranslationFeatureEnabled)
     editor.putString("translateToLanguage", translateToLanguage or defaultTranslateTo)
     editor.putBoolean("floatingButtonQuickTranslateTapEnabled", floatingButtonQuickTranslateTapEnabled)
+    editor.putString("floatingButtonAction", floatingButtonAction or "translate")
     editor.putBoolean("startWithDictation", startWithDictation)
     editor.putBoolean("tashkeelEnabled", tashkeelEnabled or false)
     editor.putBoolean("profanityFilterEnabled", profanityFilterEnabled or false)
@@ -3938,6 +3969,13 @@ function openMainWindow()
     contentL.addView(titleTxt)
 
     local buttons = {
+        smart_agent = function()
+            local btn = Button(service); btn.setText("🤖 الوكيل الذكي (تجريبي)")
+            btn.setContentDescription("بدء التحدث مع الوكيل الذكي للتحكم في الموبايل")
+            styleButton(btn, "primary")
+            btn.setOnClickListener(function() hideMainWindow(); showSmartAgentWindow() end)
+            return btn
+        end,
         dictation = function()
             local btn = Button(service); btn.setText("🎙️ الإملاء والترجمة")
             btn.setContentDescription("فتح الإملاء الصوتي والترجمة")
@@ -4010,17 +4048,21 @@ function openMainWindow()
         end
     }
 
-    local orderStr = prefs.getString("dashboardOrder", "dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings")
+    local orderStr = prefs.getString("dashboardOrder", "smart_agent,dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings")
     if orderStr:match("reader") and not orderStr:match("doc_reader") then orderStr = orderStr:gsub("reader", "doc_reader") end
     if orderStr:match("library") and not orderStr:match("doc_reader") then orderStr = orderStr:gsub("library", "doc_reader") end
     if orderStr:match("assistant,") then orderStr = orderStr:gsub("assistant,", "") end
     if orderStr:match(",assistant") then orderStr = orderStr:gsub(",assistant", "") end
-    if orderStr == "assistant" then orderStr = "dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings" end
+    if orderStr == "assistant" then orderStr = "smart_agent,dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings" end
 
-    local defaultBtns = {"dictation", "geminiLive", "doc_reader", "video_analyzer", "image", "transcription", "settings"}
+    local defaultBtns = {"smart_agent", "dictation", "geminiLive", "doc_reader", "video_analyzer", "image", "transcription", "settings"}
     for _, btn in ipairs(defaultBtns) do
         if not orderStr:match("^" .. btn .. "$") and not orderStr:match("^" .. btn .. ",") and not orderStr:match("," .. btn .. "$") and not orderStr:match("," .. btn .. ",") then
-            orderStr = orderStr .. "," .. btn
+            if btn == "smart_agent" then
+                orderStr = "smart_agent," .. orderStr
+            else
+                orderStr = orderStr .. "," .. btn
+            end
         end
     end
 
@@ -4097,14 +4139,6 @@ function openAiSettingsWindow()
         parent.addView(header)
     end
 
-    local function createLabel(text)
-        local lbl = TextView(service)
-        lbl.setText(text)
-        lbl.setTextSize(15)
-        lbl.setTextColor(0xFFB0B0B0)
-        lbl.setPadding(0, 15, 0, 10)
-        return lbl
-    end
 
     -- Initial variables for switches that need to be accessed in save logic
     local swCorr, swTash, swCont, swSpace, swPunc, swDot, swComma, swLine, swProf, swNum, swSpc
@@ -4436,14 +4470,6 @@ function openConnectionSettings()
     settingsDialog.addView(loadingShield)
     settingsDialog.addView(scrollV)
 
-    local function createLabel(text)
-        local lbl = TextView(service)
-        lbl.setText(text)
-        lbl.setTextSize(15)
-        lbl.setTextColor(0xFFB0B0B0)
-        lbl.setPadding(0, 15, 0, 10)
-        return lbl
-    end
 
     local gIn, mIn, wIn, tIn
     local audSpinner, audIds
@@ -4574,14 +4600,6 @@ function openFeaturesSettings()
     settingsDialog.addView(loadingShield)
     settingsDialog.addView(scrollV)
 
-    local function createLabel(text)
-        local lbl = TextView(service)
-        lbl.setText(text)
-        lbl.setTextSize(15)
-        lbl.setTextColor(0xFFB0B0B0)
-        lbl.setPadding(0, 15, 0, 10)
-        return lbl
-    end
 
     local swTrans, swQuickTap, swSum, swImg
     local trLangSpinner, trLangIds
@@ -4686,6 +4704,13 @@ function openInterfaceSettings()
     local swStart = Switch(service); swStart.setChecked(startWithDictation); createSettingRow("بدء بالإملاء", swStart, uiCard)
     local swFloat = Switch(service); swFloat.setChecked(showFloatingSettingsButtonEnabled); createSettingRow("الزر العائم", swFloat, uiCard)
 
+    uiCard.addView(createLabel("وظيفة الزر العائم:"))
+    local faNames = ArrayList(); local faIds = {"translate", "agent"}
+    faNames.add("🎙️ الترجمة السريعة"); faNames.add("🤖 الوكيل الذكي")
+    local faSpinner = Spinner(service); faSpinner.setAdapter(ArrayAdapter(service, android.R.layout.simple_spinner_item, faNames))
+    local currFaIdx = 0; if floatingButtonAction == "agent" then currFaIdx = 1 end
+    faSpinner.setSelection(currFaIdx); uiCard.addView(faSpinner)
+
     local upBtn = Button(service); upBtn.setText("🔄 التحديثات"); styleButton(upBtn, "secondary"); upBtn.setOnClickListener(function() checkForUpdates(false) end); uiCard.addView(upBtn)
 
     local sortBtn = Button(service); sortBtn.setText("🔢 ترتيب اللوحة"); styleButton(sortBtn, "secondary"); sortBtn.setOnClickListener(function()
@@ -4698,7 +4723,7 @@ function openInterfaceSettings()
 
         local scrollV = ScrollView(service); local listL = LinearLayout(service); listL.setOrientation(LinearLayout.VERTICAL); scrollV.addView(listL); settingsDialog.addView(scrollV, LinearLayout.LayoutParams(-1, 0, 1.0))
 
-        local keyNames = { dictation = "🎙️ الإملاء والترجمة", geminiLive = "🗣️ البث المباشر", doc_reader = "📚 المكتبة والقارئ", video_analyzer = "🎬 وصف الفيديوهات", image = "🖼️ وصف الصور", transcription = "📁 تحويل الصوت", settings = "⚙️ الإعدادات" }
+        local keyNames = { smart_agent = "🤖 الوكيل الذكي", dictation = "🎙️ الإملاء والترجمة", geminiLive = "🗣️ البث المباشر", doc_reader = "📚 المكتبة والقارئ", video_analyzer = "🎬 وصف الفيديوهات", image = "🖼️ وصف الصور", transcription = "📁 تحويل الصوت", settings = "⚙️ الإعدادات" }
 
         local function refreshUI()
             listL.removeAllViews()
@@ -4737,6 +4762,7 @@ function openInterfaceSettings()
     local saveBtn = Button(service); saveBtn.setText("💾 حفظ"); styleButton(saveBtn, "primary")
     saveBtn.setOnClickListener(function()
         startWithDictation = swStart.isChecked(); showFloatingSettingsButtonEnabled = swFloat.isChecked()
+        floatingButtonAction = faIds[faSpinner.getSelectedItemPosition() + 1]
         saveSettings()
     end)
     contentL.addView(saveBtn)
@@ -5170,6 +5196,165 @@ function showVideoAnalyzerMenu()
     local winP = WindowManager.LayoutParams(-1, -2, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY, WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL, PixelFormat.TRANSLUCENT)
     winP.gravity = Gravity.CENTER
     pcall(function() wm.addView(videoAnalyzerWindow, winP) end)
+end
+
+-- ### Smart AI Agent Feature (Beta) ###
+local smartAgentWindow = nil
+local smartAgentRecognizer = nil
+local isAgentProcessing = false
+
+function showSmartAgentWindow()
+    if isAgentProcessing then return end
+    startAgentVoiceRecognition()
+end
+
+function startAgentVoiceRecognition()
+    if not SpeechRecognizer.isRecognitionAvailable(service) then
+        service.asyncSpeak("عذراً، خدمة التعرف على الصوت مش شغالة عندك.")
+        return
+    end
+
+    service.asyncSpeak("سامعك يا ريس.. اتفضل")
+    pcall(function() service.vibrate(50) end)
+
+    if smartAgentRecognizer then pcall(function() smartAgentRecognizer.destroy() end) end
+    smartAgentRecognizer = SpeechRecognizer.createSpeechRecognizer(service)
+    local intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+    intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+    intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ar-EG")
+
+    smartAgentRecognizer.setRecognitionListener(RecognitionListener{
+        onResults = function(results)
+            local matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+            if matches and matches.size() > 0 then
+                local command = matches.get(0)
+                pcall(function() service.playSoundTick() end)
+                processAgentCommand(command)
+            end
+        end,
+        onError = function(err)
+            service.asyncSpeak("معلش مسمعتش كويس، جرب تاني")
+            isAgentProcessing = false
+        end
+    })
+    smartAgentRecognizer.startListening(intent)
+end
+
+local agentContextHistory = {}
+
+function processAgentCommand(userCommand)
+    isAgentProcessing = true
+    if #agentContextHistory == 0 then
+        service.asyncSpeak("حاضر، بشوف الشاشة قدامي فيها إيه عشان أنفذ طلبك: " .. userCommand)
+    end
+
+    takeScreenshotAndEncode(function(imgB64)
+        local screenText = getTextFromScreen()
+
+        local systemPrompt = [[أنت "الوكيل الذكي" (Smart Agent) لموبايل أندرويد. مهمتك هي مساعدة المستخدم الكفيف في تنفيذ مهام على جهازه.
+أنا سأعطيك لقطة شاشة، النص المستخرج منها، وطلب المستخدم.
+
+يجب أن يكون ردك بتنسيق JSON فقط، ولا تكتب أي كلام خارجه. التنسيق:
+{
+  "thought": "ابدأ بوصف سريع للي شايفه في الشاشة وبعدين قول هتعمل إيه بالمصري وببساطة (مثلاً: أنا شايف قدامي إعدادات الواي فاي، هدوس على زرار التشغيل دلوقتي)",
+  "code": "كود Lua سليم ينتهي بـ return true. مثال: service.click({'الإعدادات'}) return true",
+  "status": "DONE أو CONTINUE"
+}
+
+أهم الأوامر (API) - استخدم الأوامر المباشرة لضمان التنفيذ:
+1. أوامر النظام المباشرة (Direct Actions):
+   - service.toHome(): الشاشة الرئيسية.
+   - service.toBack(): رجوع.
+   - service.toRecents(): التطبيقات الحديثة.
+   - service.toNotifications(): الإشعارات.
+   - service.startApp("الاسم أو الحزمة"): فتح تطبيق.
+
+2. أوامر التحرك والتركيز (Focus Navigation):
+   - service.toNext(): العنصر التالي.
+   - service.toPrevious(): العنصر السابق.
+   - service.execute("النَّقْر المباشر"): الضغط على العنصر اللي عليه التركيز حالياً.
+
+3. أوامر السحب والضغط (Gestures & Coordinates):
+   - service.swipe(x1, y1, x2, y2, duration): سحب من نقطة لنقطة (الإحداثيات من 0 لـ 1000).
+     * لفتح شاشة التطبيقات (سحب لأعلى): service.swipe(500, 800, 500, 200, 300)
+     * للتمرير لأسفل: service.swipe(500, 200, 500, 800, 300)
+   - service.click(x, y): ضغط على إحداثيات معينة.
+   - service.click({"النص"}): ضغط على عنصر يحمل نص معين.
+
+قواعد هامة:
+- لا تستخدم service.execute مع أسماء أوامر عربية إلا للنقر المباشر فقط.
+- لفتح درج التطبيقات، استخدم service.swipe(500, 800, 500, 200, 300) فوراً.
+- لازم الكود ينتهي بـ return true.
+- لو المهمة محتاجة كذا خطوة، نفذ خطوة واحدة وخلي status: CONTINUE.
+- فكر كأنك مستخدم بيسحب وبيدوس على الشاشة فعلياً.]]
+
+        local historyText = table.concat(agentContextHistory, "\n")
+        local fullPrompt = "تاريخ المحادثة في هذه الجلسة:\n" .. historyText .. "\n\nطلب المستخدم الحالي: " .. userCommand .. "\n\nالنص الحالي على الشاشة:\n" .. screenText
+
+        makeAiRequest(fullPrompt, systemPrompt, imgB64, "gemini-3.1-flash-lite-preview", function(response)
+            isAgentProcessing = false
+            -- Clean JSON from markdown if present
+            local jsonStr = response:match("({.+})") or response
+            local success, data = pcall(function() return JSONObject(jsonStr) end)
+
+            if success and data then
+                local thought = data.optString("thought", "شغال يا ريس..")
+                local code = data.optString("code", "")
+                local status = data.optString("status", "DONE")
+
+                service.asyncSpeak(thought)
+
+                table.insert(agentContextHistory, "المستخدم: " .. userCommand)
+                table.insert(agentContextHistory, "الوكيل: " .. thought)
+
+                if code ~= "" then
+                    mainHandler.post(luajava.createProxy("java.lang.Runnable", {
+                        run = function() executeAgentCode(code) end
+                    }))
+                end
+
+                if status == "CONTINUE" then
+                    mainHandler.postDelayed(luajava.createProxy("java.lang.Runnable", {
+                        run = function() processAgentCommand(userCommand) end
+                    }), 3000)
+                else
+                    isAgentProcessing = false
+                    agentContextHistory = {}
+                    pcall(function() service.vibrate(100) end)
+                    -- Session ends here or waits for next command
+                end
+            else
+                isAgentProcessing = false
+                service.asyncSpeak("معلش يا ريس، حصلت مشكلة وأنا بحاول أفهم أعمل إيه.")
+            end
+        end)
+    end)
+end
+
+function executeAgentCode(luaCode)
+    -- Ensure service is accessible within the loaded code
+    local prefixedCode = "local service = service or _G.service\n" .. luaCode
+
+    local success, err = pcall(function()
+        local func, syntaxErr = loadstring(prefixedCode)
+        if not func then
+            error("Syntax error: " .. tostring(syntaxErr))
+        end
+
+        -- Use the global environment to ensure all libraries and 'service' are available
+        if setfenv then
+            setfenv(func, _G)
+        end
+
+        func()
+    end)
+
+    if not success then
+        local readableErr = tostring(err):match(":(.-)$") or tostring(err)
+        -- Log to console for debugging but use voice for user
+        print("Agent Execution Error: " .. tostring(err))
+        service.asyncSpeak("عذراً، حصلت مشكلة تقنية في تنفيذ الحركة: " .. readableErr)
+    end
 end
 
 -- ### Personal Assistant Feature ###
