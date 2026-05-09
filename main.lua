@@ -174,7 +174,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 5.5
+local currentAppVersion = 5.6
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -3573,6 +3573,23 @@ function getUiTreeForAgent()
     return table.concat(output, "\n")
 end
 
+function smartClick(x, y)
+    -- This function tries multiple ways to click for maximum reliability
+    -- 1. Try coordinate click
+    service.click(x, y)
+
+    -- 2. Try to focus and then execute direct click (High Reliability)
+    -- We wait a tiny bit to let the system process the first click
+    mainHandler.postDelayed(Runnable{
+        run = function()
+            -- The previous service.click(x, y) should have moved the focus.
+            -- Now we execute a direct click on the focused element for high reliability.
+            service.execute("النَّقْر المباشر")
+        end
+    }, 100)
+    return true
+end
+
 function runImageDescription()
     if isDescribingImage then
         service.asyncSpeak(getFeedbackString("image_desc_already_running", selectedLanguage))
@@ -5331,7 +5348,8 @@ function processAgentCommand(userCommand)
    - لو فيه مربع نص قدامك ومش عارف تفعله، استخدم service.click({"نص المربع"}) ثم setText.
 
 2. أوامر الضغط والتحرك (Smart Interaction):
-   - service.click(x, y): للضغط على إحداثيات دقيقة (0-1000). **استخدمها دائماً بناءً على الإحداثيات (bounds) المذكورة في UI Tree لضمان الدقة.**
+   - smartClick(x, y): **(موصى به جداً)** للضغط على إحداثيات دقيقة (0-1000). يستخدم تقنية "الضغط المزدوج الخارق" لضمان العمل في واتساب وتليجرام.
+   - service.click(x, y): للضغط العادي بالإحداثيات.
    - service.click({"النص"}): للضغط على عنصر بالاسم.
    - الاستراتيجية الأضمن للضغط (High Reliability): استخدم service.toNext() أو service.toPrevious() حتى تصل للعنصر، ثم service.execute("النَّقْر المباشر").
 
@@ -5340,9 +5358,9 @@ function processAgentCommand(userCommand)
    - service.startApp("الاسم"), service.swipe(x1, y1, x2, y2, ms).
 
 قواعد هامة (MUST FOLLOW):
-- شجرة العناصر (UI Tree) هي مصدرك الأول للأمان. استخدم إحداثيات (b) الموجودة في الشجرة للضغط الدقيق `service.click(center_x, center_y)`.
+- شجرة العناصر (UI Tree) هي مصدرك الأول للأمان. استخدم إحداثيات (b) الموجودة في الشجرة للضغط الدقيق عبر `smartClick(center_x, center_y)`.
 - لحساب مركز الزرار: لو الإحداثيات [left, top, right, bottom]، المركز هو x = (left+right)/2 و y = (top+bottom)/2.
-- لو الزرار في واتساب ملوش نص (t) بس ليه وصف (d) زي "إرسال"، اعتمد على الوصف ومكان الزرار.
+- لو الزرار في واتساب أو تليجرام ملوش نص (t) بس ليه وصف (d) زي "إرسال"، اعتمد على الوصف واستخدم smartClick.
 - في الكتابة، جرب setText الأول، ولو مظهرش النص جرب paste في الخطوة الجاية.
 - لازم الكود ينتهي بـ return true.
 - المهمة الطويلة تقسمها خطوات وخلي status: CONTINUE.]]
