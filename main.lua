@@ -173,7 +173,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 4.6
+local currentAppVersion = 4.7
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -5313,14 +5313,12 @@ function processAgentCommand(userCommand)
             else
                 isAgentProcessing = false
                 service.asyncSpeak("معلش يا ريس، حصلت مشكلة وأنا بحاول أفهم أعمل إيه.")
-                print("Agent Error: " .. response)
             end
         end)
     end)
 end
 
 function executeAgentCode(luaCode)
-    print("Agent Executing Code: " .. luaCode)
 
     -- In some AndroLua environments, variables like 'service' are global.
     -- We'll try to run the code in a way that handles different Lua versions.
@@ -5343,7 +5341,6 @@ function executeAgentCode(luaCode)
     end)
 
     if not success then
-        print("Agent Execution Error: " .. tostring(err))
         -- Sometimes errors are just Java exceptions, try to make them readable
         local readableErr = tostring(err):match(":(.-)$") or tostring(err)
         service.asyncSpeak("حصل خطأ بسيط في التنفيذ: " .. readableErr)
