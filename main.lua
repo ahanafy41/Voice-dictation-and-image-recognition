@@ -4022,17 +4022,21 @@ function openMainWindow()
         end
     }
 
-    local orderStr = prefs.getString("dashboardOrder", "dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings")
+    local orderStr = prefs.getString("dashboardOrder", "smart_agent,dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings")
     if orderStr:match("reader") and not orderStr:match("doc_reader") then orderStr = orderStr:gsub("reader", "doc_reader") end
     if orderStr:match("library") and not orderStr:match("doc_reader") then orderStr = orderStr:gsub("library", "doc_reader") end
     if orderStr:match("assistant,") then orderStr = orderStr:gsub("assistant,", "") end
     if orderStr:match(",assistant") then orderStr = orderStr:gsub(",assistant", "") end
-    if orderStr == "assistant" then orderStr = "dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings" end
+    if orderStr == "assistant" then orderStr = "smart_agent,dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings" end
 
-    local defaultBtns = {"dictation", "geminiLive", "doc_reader", "video_analyzer", "image", "transcription", "settings"}
+    local defaultBtns = {"smart_agent", "dictation", "geminiLive", "doc_reader", "video_analyzer", "image", "transcription", "settings"}
     for _, btn in ipairs(defaultBtns) do
         if not orderStr:match("^" .. btn .. "$") and not orderStr:match("^" .. btn .. ",") and not orderStr:match("," .. btn .. "$") and not orderStr:match("," .. btn .. ",") then
-            orderStr = orderStr .. "," .. btn
+            if btn == "smart_agent" then
+                orderStr = "smart_agent," .. orderStr
+            else
+                orderStr = orderStr .. "," .. btn
+            end
         end
     end
 
