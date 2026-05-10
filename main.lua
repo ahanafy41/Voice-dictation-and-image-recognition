@@ -174,7 +174,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 5.7
+local currentAppVersion = 5.8
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -3527,9 +3527,11 @@ function getUiTreeForAgent()
         local text = tostring(node.getText() or "")
         local desc = tostring(node.getContentDescription() or "")
         local className = tostring(node.getClassName() or "")
+        local viewId = ""
+        pcall(function() viewId = tostring(node.getViewIdResourceName() or "") end)
         local isClickable = node.isClickable()
 
-        if #text > 0 or #desc > 0 or isClickable then
+        if #text > 0 or #desc > 0 or #viewId > 0 or isClickable then
             local rect = Rect()
             node.getBoundsInScreen(rect)
 
@@ -3542,6 +3544,7 @@ function getUiTreeForAgent()
             table.insert(elements, {
                 text = text,
                 desc = desc,
+                id = viewId,
                 class = className:match("[^.]+$") or className, -- Short class name
                 bounds = string.format("[%d,%d,%d,%d]", left, top, right, bottom),
                 clickable = isClickable
@@ -3566,8 +3569,10 @@ function getUiTreeForAgent()
     for _, el in ipairs(elements) do
         local safeText = el.text:gsub("'", "\\'"):gsub("\n", "\\n")
         local safeDesc = el.desc:gsub("'", "\\'"):gsub("\n", "\\n")
-        local entry = string.format("{t:'%s', d:'%s', c:'%s', b:%s, clk:%s}",
-            safeText, safeDesc, el.class, el.bounds, tostring(el.clickable))
+        local safeId = el.id:gsub("'", "\\'")
+
+        local entry = string.format("{t:'%s', d:'%s', id:'%s', c:'%s', b:%s, clk:%s}",
+            safeText, safeDesc, safeId, el.class, el.bounds, tostring(el.clickable))
         table.insert(output, entry)
     end
     return table.concat(output, "\n")
@@ -3600,6 +3605,53 @@ function smartClick(x, y)
         end
     }, 100)
     return true
+end
+
+function forceClick(textOrDesc)
+    if not textOrDesc or textOrDesc == "" then return false end
+    local targetText = textOrDesc:lower()
+
+    local function searchAndClick(node)
+        if not node then return false end
+
+        local text = tostring(node.getText() or ""):lower()
+        local desc = tostring(node.getContentDescription() or ""):lower()
+        local viewId = ""
+        pcall(function() viewId = tostring(node.getViewIdResourceName() or ""):lower() end)
+
+        if text == targetText or desc == targetText or viewId == targetText or string.find(text, targetText, 1, true) or string.find(desc, targetText, 1, true) or string.find(viewId, targetText, 1, true) then
+            -- Try native Accessibility ACTION_CLICK (16)
+            local success = pcall(function() return node.performAction(16) end)
+            if success then return true end
+        end
+
+        local childCount = 0
+        pcall(function() childCount = node.getChildCount() end)
+
+        for i = 0, childCount - 1 do
+            local child = nil
+            pcall(function() child = node.getChild(i) end)
+            if child then
+                if searchAndClick(child) then
+                    pcall(function() child.recycle() end)
+                    return true
+                end
+                pcall(function() child.recycle() end)
+            end
+        end
+        return false
+    end
+
+    local rootN = service.getRootInActiveWindow()
+    if rootN then
+        local found = searchAndClick(rootN)
+        pcall(function() rootN.recycle() end)
+        if found then return true end
+    end
+
+    -- Absolute fallback using Jieshuo's double bracket click syntax
+    local fallbackSuccess = pcall(function() service.click({{textOrDesc, ""}}) end)
+    return fallbackSuccess
 end
 
 function smartStartApp(appName)
@@ -5411,7 +5463,7 @@ function processAgentCommand(userCommand)
 يجب أن يكون ردك بتنسيق JSON فقط، ولا تكتب أي كلام خارجه. التنسيق:
 {
   "thought": "ابدأ بوصف سريع للي شايفه في الشاشة وبعدين قول هتعمل إيه بالمصري وببساطة (مثلاً: أنا شايف قدامي إعدادات الواي فاي، هدوس على زرار التشغيل دلوقتي)",
-  "code": "كود Lua سليم ينتهي بـ return true. مثال: service.click({'الإعدادات'}) return true",
+  "code": "كود Lua سليم ينتهي بـ return true. مثال: forceClick('إرسال') return true",
   "status": "DONE أو CONTINUE"
 }
 
@@ -5419,12 +5471,12 @@ function processAgentCommand(userCommand)
 1. أوامر الكتابة الذكية (Smart Typing):
    - service.setText("النص"): للكتابة في مربع النص المفعل حالياً.
    - service.paste("النص"): لاستخدام خاصية اللصق (فعالة جداً لو setText منعت).
-   - لو فيه مربع نص قدامك ومش عارف تفعله، استخدم service.click({"نص المربع"}) ثم setText.
+   - لو فيه مربع نص قدامك ومش عارف تفعله، استخدم forceClick("نص المربع") ثم setText.
 
 2. أوامر الضغط والتحرك (Smart Interaction):
-   - smartClick(x, y): **(موصى به جداً)** للضغط على إحداثيات دقيقة (0-1000). يستخدم تقنية "الضغط المزدوج الخارق" لضمان العمل في واتساب وتليجرام.
-   - service.click(x, y): للضغط العادي بالإحداثيات.
-   - service.click({"النص"}): للضغط على عنصر بالاسم.
+   - forceClick("النص"): **(أولوية قصوى)** يبحث عن العنصر في الشاشة بالاسم أو الوصف ويجبر النظام على الضغط عليه (مفيد جداً لزر الإرسال في الواتساب وتليجرام).
+   - service.click({{"النص", ""}}): أمر الضغط التقليدي. لاحظ الأقواس المزدوجة.
+   - smartClick(x, y): للضغط على إحداثيات دقيقة (0-1000) إذا كان العنصر لا يمتلك نصاً ولا وصفاً.
    - الاستراتيجية الأضمن للضغط (High Reliability): استخدم service.toNext() أو service.toPrevious() حتى تصل للعنصر، ثم service.execute("النَّقْر المباشر").
 
 3. أوامر النظام (System Core):
@@ -5433,9 +5485,9 @@ function processAgentCommand(userCommand)
    - service.swipe(x1, y1, x2, y2, ms).
 
 قواعد هامة (MUST FOLLOW):
-- للضغط على أي زر، **أولوية قصوى**: استخدم `service.click({"النص"})` إذا كان العنصر يحتوي على نص (t) أو وصف (d) واضح. (مثال: `service.click({"إرسال"})` أو `service.click({"Send"})`).
-- استخدم `smartClick(x, y)` كخيار أخير فقط إذا كان العنصر لا يحتوي على نص (t) ولا وصف (d) واضح، ولديك إحداثياته (b).
-- شجرة العناصر (UI Tree) هي دليلك. ابحث عن (t) أو (d) للعنصر، مثل زر الإرسال في الواتساب وتليجرام الذي يحتوي غالباً على (d:'إرسال' أو d:'Send').
+- للضغط على أي زر، **أولوية قصوى**: استخدم `forceClick("النص")` أو `service.click({{"النص", ""}})` إذا كان العنصر يحتوي على نص (t) أو وصف (d) أو معرف (id) واضح. (مثال: `forceClick("إرسال")` أو `forceClick("com.whatsapp:id/send")`).
+- استخدم `smartClick(x, y)` كخيار أخير فقط إذا كان العنصر لا يحتوي على نص أو وصف أو معرف، ولديك إحداثياته (b).
+- شجرة العناصر (UI Tree) هي دليلك. ابحث عن (t) أو (d) أو (id) للعنصر، مثل زر الإرسال في الواتساب وتليجرام الذي يحتوي غالباً على (d:'إرسال' أو d:'Send' أو id:'send').
 - لحساب مركز الزرار في `smartClick`: لو الإحداثيات [left, top, right, bottom]، المركز هو x = (left+right)/2 و y = (top+bottom)/2.
 - في الكتابة، جرب setText الأول، ولو مظهرش النص جرب paste في الخطوة الجاية.
 - لازم الكود ينتهي بـ return true.
