@@ -174,7 +174,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 5.8
+local currentAppVersion = 5.9
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -225,6 +225,13 @@ for _, model in ipairs(geminiModels) do
     if model.id == loadedModelId then isValidModel = true; break end
 end
 selectedGeminiModelId = isValidModel and loadedModelId or defaultGeminiModelId
+
+local loadedAgentModelId = prefs.getString("agentModelId", defaultGeminiModelId)
+local isAgentModelValid = false
+for _, model in ipairs(geminiModels) do
+    if model.id == loadedAgentModelId then isAgentModelValid = true; break end
+end
+selectedAgentModelId = isAgentModelValid and loadedAgentModelId or defaultGeminiModelId
 
 selectedGroqModelId = prefs.getString("groqModelId", defaultGroqModelId)
 dashboardOrder = prefs.getString("dashboardOrder", "smart_agent,dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings")
@@ -3877,6 +3884,7 @@ function saveSettings()
     editor.putString("witApiKey", witApiKey or "")
     editor.putString("tavilyApiKey", tavilyApiKey or "")
     editor.putString("geminiModelId", selectedGeminiModelId or defaultGeminiModelId)
+    editor.putString("agentModelId", selectedAgentModelId or defaultGeminiModelId)
     editor.putString("groqModelId", selectedGroqModelId or defaultGroqModelId)
     editor.putString("audioModelId", selectedAudioModelId or defaultAudioModelId)
     editor.putString("dashboardOrder", dashboardOrder or "dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings")
@@ -4681,6 +4689,7 @@ function openConnectionSettings()
     local audSpinner, audIds
     local grSpinner, grIds
     local gemSpinner, gemIds
+    local agentSpinner, agentIds
 
     local sections = {
         function() -- Header
@@ -4746,6 +4755,13 @@ function openConnectionSettings()
             gemSpinner = Spinner(service); gemSpinner.setAdapter(ArrayAdapter(service, android.R.layout.simple_spinner_item, gemNames))
             local currGemIdx = 0; for i, id in ipairs(gemIds) do if id == selectedGeminiModelId then currGemIdx = i-1 break end end
             gemSpinner.setSelection(currGemIdx); modelCard.addView(gemSpinner)
+
+            modelCard.addView(createLabel("موديل الوكيل الذكي (Smart Agent):"))
+            local agentNames = ArrayList(); agentIds = {}
+            for _, m in ipairs(geminiModels) do agentNames.add(m.name); table.insert(agentIds, m.id) end
+            agentSpinner = Spinner(service); agentSpinner.setAdapter(ArrayAdapter(service, android.R.layout.simple_spinner_item, agentNames))
+            local currAgentIdx = 0; for i, id in ipairs(agentIds) do if id == selectedAgentModelId then currAgentIdx = i-1 break end end
+            agentSpinner.setSelection(currAgentIdx); modelCard.addView(agentSpinner)
         end,
         function() -- Actions
             local btnL = LinearLayout(service); btnL.setOrientation(LinearLayout.VERTICAL); btnL.setGravity(Gravity.CENTER); btnL.setPadding(0, 40, 0, 10)
@@ -4755,6 +4771,7 @@ function openConnectionSettings()
                 selectedAudioModelId = audIds[audSpinner.getSelectedItemPosition() + 1]
                 selectedGroqModelId = grIds[grSpinner.getSelectedItemPosition() + 1]
                 selectedGeminiModelId = gemIds[gemSpinner.getSelectedItemPosition() + 1]
+                selectedAgentModelId = agentIds[agentSpinner.getSelectedItemPosition() + 1]
                 saveSettings()
                 if settingsDialog then pcall(function() wm.removeView(settingsDialog) end); settingsDialog = nil end
             end)
@@ -5496,7 +5513,7 @@ function processAgentCommand(userCommand)
         local historyText = table.concat(agentContextHistory, "\n")
         local fullPrompt = "تاريخ المحادثة في هذه الجلسة:\n" .. historyText .. "\n\nطلب المستخدم الحالي: " .. userCommand .. "\n\nشجرة العناصر الحالية (UI Tree):\n" .. uiTree
 
-        makeAiRequest(fullPrompt, systemPrompt, imgB64, "gemini-3.1-flash-lite-preview", function(response)
+        makeAiRequest(fullPrompt, systemPrompt, imgB64, selectedAgentModelId, function(response)
             isAgentProcessing = false
             -- Clean JSON from markdown if present
             local jsonStr = response:match("({.+})") or response
