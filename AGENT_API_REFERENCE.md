@@ -15,7 +15,7 @@ If `service.click({"Name"})` fails, use this high-reliability sequence:
 
 ## Direct System Actions
 - `service.toHome()`, `service.toBack()`, `service.toRecents()`, `service.toNotifications()`.
-- `service.startApp("Label or Package")`.
+- `smartStartApp("اسم التطبيق")`: Use this to launch apps reliably (e.g. `smartStartApp("واتساب")`).
 - `service.swipe(x1, y1, x2, y2, duration)`: Normalized 0-1000 coordinates.
     - *Open App Drawer:* `service.swipe(500, 800, 500, 200, 300) return true`
 

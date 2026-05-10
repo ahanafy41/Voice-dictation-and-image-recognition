@@ -174,7 +174,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 5.6
+local currentAppVersion = 5.7
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -3575,19 +3575,93 @@ end
 
 function smartClick(x, y)
     -- This function tries multiple ways to click for maximum reliability
-    -- 1. Try coordinate click
-    service.click(x, y)
+    -- Convert normalized coordinates (0-1000) to actual screen pixels
+    local dm = service.getResources().getDisplayMetrics()
+    local screenW = dm.widthPixels
+    local screenH = dm.heightPixels
+
+    -- Safeguard for extreme values
+    x = math.max(0, math.min(1000, x))
+    y = math.max(0, math.min(1000, y))
+
+    local realX = math.floor((x / 1000.0) * screenW)
+    local realY = math.floor((y / 1000.0) * screenH)
+
+    -- 1. Try coordinate click with real pixels
+    pcall(function() service.click(realX, realY) end)
 
     -- 2. Try to focus and then execute direct click (High Reliability)
     -- We wait a tiny bit to let the system process the first click
     mainHandler.postDelayed(Runnable{
         run = function()
-            -- The previous service.click(x, y) should have moved the focus.
+            -- The previous service.click should have moved the focus.
             -- Now we execute a direct click on the focused element for high reliability.
-            service.execute("النَّقْر المباشر")
+            pcall(function() service.execute("النَّقْر المباشر") end)
         end
     }, 100)
     return true
+end
+
+function smartStartApp(appName)
+    if not appName or appName == "" then return false end
+
+    local lowerAppName = appName:lower()
+
+    -- Hardcoded common apps for immediate resolution
+    local commonApps = {
+        ["واتساب"] = "com.whatsapp",
+        ["whatsapp"] = "com.whatsapp",
+        ["يوتيوب"] = "com.google.android.youtube",
+        ["youtube"] = "com.google.android.youtube",
+        ["فيسبوك"] = "com.facebook.katana",
+        ["facebook"] = "com.facebook.katana",
+        ["تليجرام"] = "org.telegram.messenger",
+        ["telegram"] = "org.telegram.messenger",
+        ["انستجرام"] = "com.instagram.android",
+        ["instagram"] = "com.instagram.android",
+        ["تيك توك"] = "com.zhiliaoapp.musically",
+        ["tiktok"] = "com.zhiliaoapp.musically",
+        ["تويتر"] = "com.twitter.android",
+        ["اكس"] = "com.twitter.android",
+        ["x"] = "com.twitter.android",
+        ["ماسنجر"] = "com.facebook.orca",
+        ["messenger"] = "com.facebook.orca"
+    }
+
+    local targetPackage = commonApps[lowerAppName]
+    local pm = service.getPackageManager()
+
+    if not targetPackage then
+        -- Attempt to find it installed
+        local success, packages = pcall(function() return pm.getInstalledApplications(PackageManager.GET_META_DATA) end)
+        if success and packages then
+            for i = 0, packages.size() - 1 do
+                local appInfo = packages.get(i)
+                local label = tostring(pm.getApplicationLabel(appInfo)):lower()
+                local pkgName = appInfo.packageName
+
+                -- Check for direct match or substring (safe search without magic chars)
+                if label == lowerAppName or string.find(label, lowerAppName, 1, true) or string.find(lowerAppName, label, 1, true) then
+                    targetPackage = pkgName
+                    break
+                end
+            end
+        end
+    end
+
+    if targetPackage then
+        pcall(function()
+            local intent = pm.getLaunchIntentForPackage(targetPackage)
+            if intent then
+                service.startActivity(intent)
+            end
+        end)
+        return true
+    end
+
+    -- Absolute fallback using native Jieshuo startApp
+    local fallbackSuccess = pcall(function() service.startApp(appName) end)
+    return fallbackSuccess
 end
 
 function runImageDescription()
@@ -5355,9 +5429,12 @@ function processAgentCommand(userCommand)
 
 3. أوامر النظام (System Core):
    - service.toHome(), service.toBack(), service.toRecents(), service.toNotifications().
-   - service.startApp("الاسم"), service.swipe(x1, y1, x2, y2, ms).
+   - smartStartApp("اسم التطبيق"): لفتح التطبيقات بطريقة ذكية وموثوقة (مثل smartStartApp("واتساب")).
+   - service.swipe(x1, y1, x2, y2, ms).
 
 قواعد هامة (MUST FOLLOW):
+- للضغط على زر يفضل دائماً استخدام service.click({"النص"}) إذا كان العنصر يحتوي على نص واضح (t).
+- استخدم smartClick(x, y) فقط إذا كان العنصر لا يحتوي على نص ولكن لديك إحداثياته (b).
 - شجرة العناصر (UI Tree) هي مصدرك الأول للأمان. استخدم إحداثيات (b) الموجودة في الشجرة للضغط الدقيق عبر `smartClick(center_x, center_y)`.
 - لحساب مركز الزرار: لو الإحداثيات [left, top, right, bottom]، المركز هو x = (left+right)/2 و y = (top+bottom)/2.
 - لو الزرار في واتساب أو تليجرام ملوش نص (t) بس ليه وصف (d) زي "إرسال"، اعتمد على الوصف واستخدم smartClick.
