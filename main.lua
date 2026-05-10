@@ -174,7 +174,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 5.9
+local currentAppVersion = 6.0
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -3684,7 +3684,18 @@ function smartStartApp(appName)
         ["اكس"] = "com.twitter.android",
         ["x"] = "com.twitter.android",
         ["ماسنجر"] = "com.facebook.orca",
-        ["messenger"] = "com.facebook.orca"
+        ["messenger"] = "com.facebook.orca",
+        ["الهاتف"] = "com.google.android.dialer", -- Google default, will be fallback-checked if missed
+        ["phone"] = "com.google.android.dialer",
+        ["جهات الاتصال"] = "com.google.android.contacts",
+        ["contacts"] = "com.google.android.contacts",
+        ["الكاميرا"] = "com.android.camera2",
+        ["camera"] = "com.android.camera2",
+        ["الاعدادات"] = "com.android.settings",
+        ["الإعدادات"] = "com.android.settings",
+        ["settings"] = "com.android.settings",
+        ["المعرض"] = "com.google.android.apps.photos",
+        ["gallery"] = "com.google.android.apps.photos"
     }
 
     local targetPackage = commonApps[lowerAppName]
@@ -3709,17 +3720,26 @@ function smartStartApp(appName)
     end
 
     if targetPackage then
+        local intentLaunched = false
         pcall(function()
             local intent = pm.getLaunchIntentForPackage(targetPackage)
             if intent then
                 service.startActivity(intent)
+                intentLaunched = true
             end
         end)
-        return true
+        if intentLaunched then return true end
     end
 
-    -- Absolute fallback using native Jieshuo startApp
-    local fallbackSuccess = pcall(function() service.startApp(appName) end)
+    -- Absolute fallback using cascading native Jieshuo startApp methods
+    local fallbackSuccess = false
+    fallbackSuccess = pcall(function() service.startApp(appName) end)
+    if fallbackSuccess then return true end
+
+    fallbackSuccess = pcall(function() service.startApp2(appName) end)
+    if fallbackSuccess then return true end
+
+    fallbackSuccess = pcall(function() service.startAppExtend(appName) end)
     return fallbackSuccess
 end
 
