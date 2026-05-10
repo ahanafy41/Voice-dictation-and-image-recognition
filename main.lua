@@ -174,7 +174,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 6.0
+local currentAppVersion = 5.6
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -225,13 +225,6 @@ for _, model in ipairs(geminiModels) do
     if model.id == loadedModelId then isValidModel = true; break end
 end
 selectedGeminiModelId = isValidModel and loadedModelId or defaultGeminiModelId
-
-local loadedAgentModelId = prefs.getString("agentModelId", defaultGeminiModelId)
-local isAgentModelValid = false
-for _, model in ipairs(geminiModels) do
-    if model.id == loadedAgentModelId then isAgentModelValid = true; break end
-end
-selectedAgentModelId = isAgentModelValid and loadedAgentModelId or defaultGeminiModelId
 
 selectedGroqModelId = prefs.getString("groqModelId", defaultGroqModelId)
 dashboardOrder = prefs.getString("dashboardOrder", "smart_agent,dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings")
@@ -3534,11 +3527,9 @@ function getUiTreeForAgent()
         local text = tostring(node.getText() or "")
         local desc = tostring(node.getContentDescription() or "")
         local className = tostring(node.getClassName() or "")
-        local viewId = ""
-        pcall(function() viewId = tostring(node.getViewIdResourceName() or "") end)
         local isClickable = node.isClickable()
 
-        if #text > 0 or #desc > 0 or #viewId > 0 or isClickable then
+        if #text > 0 or #desc > 0 or isClickable then
             local rect = Rect()
             node.getBoundsInScreen(rect)
 
@@ -3551,7 +3542,6 @@ function getUiTreeForAgent()
             table.insert(elements, {
                 text = text,
                 desc = desc,
-                id = viewId,
                 class = className:match("[^.]+$") or className, -- Short class name
                 bounds = string.format("[%d,%d,%d,%d]", left, top, right, bottom),
                 clickable = isClickable
@@ -3576,10 +3566,8 @@ function getUiTreeForAgent()
     for _, el in ipairs(elements) do
         local safeText = el.text:gsub("'", "\\'"):gsub("\n", "\\n")
         local safeDesc = el.desc:gsub("'", "\\'"):gsub("\n", "\\n")
-        local safeId = el.id:gsub("'", "\\'")
-
-        local entry = string.format("{t:'%s', d:'%s', id:'%s', c:'%s', b:%s, clk:%s}",
-            safeText, safeDesc, safeId, el.class, el.bounds, tostring(el.clickable))
+        local entry = string.format("{t:'%s', d:'%s', c:'%s', b:%s, clk:%s}",
+            safeText, safeDesc, el.class, el.bounds, tostring(el.clickable))
         table.insert(output, entry)
     end
     return table.concat(output, "\n")
@@ -3587,160 +3575,19 @@ end
 
 function smartClick(x, y)
     -- This function tries multiple ways to click for maximum reliability
-    -- Convert normalized coordinates (0-1000) to actual screen pixels
-    local dm = service.getResources().getDisplayMetrics()
-    local screenW = dm.widthPixels
-    local screenH = dm.heightPixels
-
-    -- Safeguard for extreme values
-    x = math.max(0, math.min(1000, x))
-    y = math.max(0, math.min(1000, y))
-
-    local realX = math.floor((x / 1000.0) * screenW)
-    local realY = math.floor((y / 1000.0) * screenH)
-
-    -- 1. Try coordinate click with real pixels
-    pcall(function() service.click(realX, realY) end)
+    -- 1. Try coordinate click
+    service.click(x, y)
 
     -- 2. Try to focus and then execute direct click (High Reliability)
     -- We wait a tiny bit to let the system process the first click
     mainHandler.postDelayed(Runnable{
         run = function()
-            -- The previous service.click should have moved the focus.
+            -- The previous service.click(x, y) should have moved the focus.
             -- Now we execute a direct click on the focused element for high reliability.
-            pcall(function() service.execute("النَّقْر المباشر") end)
+            service.execute("النَّقْر المباشر")
         end
     }, 100)
     return true
-end
-
-function forceClick(textOrDesc)
-    if not textOrDesc or textOrDesc == "" then return false end
-    local targetText = textOrDesc:lower()
-
-    local function searchAndClick(node)
-        if not node then return false end
-
-        local text = tostring(node.getText() or ""):lower()
-        local desc = tostring(node.getContentDescription() or ""):lower()
-        local viewId = ""
-        pcall(function() viewId = tostring(node.getViewIdResourceName() or ""):lower() end)
-
-        if text == targetText or desc == targetText or viewId == targetText or string.find(text, targetText, 1, true) or string.find(desc, targetText, 1, true) or string.find(viewId, targetText, 1, true) then
-            -- Try native Accessibility ACTION_CLICK (16)
-            local success = pcall(function() return node.performAction(16) end)
-            if success then return true end
-        end
-
-        local childCount = 0
-        pcall(function() childCount = node.getChildCount() end)
-
-        for i = 0, childCount - 1 do
-            local child = nil
-            pcall(function() child = node.getChild(i) end)
-            if child then
-                if searchAndClick(child) then
-                    pcall(function() child.recycle() end)
-                    return true
-                end
-                pcall(function() child.recycle() end)
-            end
-        end
-        return false
-    end
-
-    local rootN = service.getRootInActiveWindow()
-    if rootN then
-        local found = searchAndClick(rootN)
-        pcall(function() rootN.recycle() end)
-        if found then return true end
-    end
-
-    -- Absolute fallback using Jieshuo's double bracket click syntax
-    local fallbackSuccess = pcall(function() service.click({{textOrDesc, ""}}) end)
-    return fallbackSuccess
-end
-
-function smartStartApp(appName)
-    if not appName or appName == "" then return false end
-
-    local lowerAppName = appName:lower()
-
-    -- Hardcoded common apps for immediate resolution
-    local commonApps = {
-        ["واتساب"] = "com.whatsapp",
-        ["whatsapp"] = "com.whatsapp",
-        ["يوتيوب"] = "com.google.android.youtube",
-        ["youtube"] = "com.google.android.youtube",
-        ["فيسبوك"] = "com.facebook.katana",
-        ["facebook"] = "com.facebook.katana",
-        ["تليجرام"] = "org.telegram.messenger",
-        ["telegram"] = "org.telegram.messenger",
-        ["انستجرام"] = "com.instagram.android",
-        ["instagram"] = "com.instagram.android",
-        ["تيك توك"] = "com.zhiliaoapp.musically",
-        ["tiktok"] = "com.zhiliaoapp.musically",
-        ["تويتر"] = "com.twitter.android",
-        ["اكس"] = "com.twitter.android",
-        ["x"] = "com.twitter.android",
-        ["ماسنجر"] = "com.facebook.orca",
-        ["messenger"] = "com.facebook.orca",
-        ["الهاتف"] = "com.google.android.dialer", -- Google default, will be fallback-checked if missed
-        ["phone"] = "com.google.android.dialer",
-        ["جهات الاتصال"] = "com.google.android.contacts",
-        ["contacts"] = "com.google.android.contacts",
-        ["الكاميرا"] = "com.android.camera2",
-        ["camera"] = "com.android.camera2",
-        ["الاعدادات"] = "com.android.settings",
-        ["الإعدادات"] = "com.android.settings",
-        ["settings"] = "com.android.settings",
-        ["المعرض"] = "com.google.android.apps.photos",
-        ["gallery"] = "com.google.android.apps.photos"
-    }
-
-    local targetPackage = commonApps[lowerAppName]
-    local pm = service.getPackageManager()
-
-    if not targetPackage then
-        -- Attempt to find it installed
-        local success, packages = pcall(function() return pm.getInstalledApplications(PackageManager.GET_META_DATA) end)
-        if success and packages then
-            for i = 0, packages.size() - 1 do
-                local appInfo = packages.get(i)
-                local label = tostring(pm.getApplicationLabel(appInfo)):lower()
-                local pkgName = appInfo.packageName
-
-                -- Check for direct match or substring (safe search without magic chars)
-                if label == lowerAppName or string.find(label, lowerAppName, 1, true) or string.find(lowerAppName, label, 1, true) then
-                    targetPackage = pkgName
-                    break
-                end
-            end
-        end
-    end
-
-    if targetPackage then
-        local intentLaunched = false
-        pcall(function()
-            local intent = pm.getLaunchIntentForPackage(targetPackage)
-            if intent then
-                service.startActivity(intent)
-                intentLaunched = true
-            end
-        end)
-        if intentLaunched then return true end
-    end
-
-    -- Absolute fallback using cascading native Jieshuo startApp methods
-    local fallbackSuccess = false
-    fallbackSuccess = pcall(function() service.startApp(appName) end)
-    if fallbackSuccess then return true end
-
-    fallbackSuccess = pcall(function() service.startApp2(appName) end)
-    if fallbackSuccess then return true end
-
-    fallbackSuccess = pcall(function() service.startAppExtend(appName) end)
-    return fallbackSuccess
 end
 
 function runImageDescription()
@@ -3904,7 +3751,6 @@ function saveSettings()
     editor.putString("witApiKey", witApiKey or "")
     editor.putString("tavilyApiKey", tavilyApiKey or "")
     editor.putString("geminiModelId", selectedGeminiModelId or defaultGeminiModelId)
-    editor.putString("agentModelId", selectedAgentModelId or defaultGeminiModelId)
     editor.putString("groqModelId", selectedGroqModelId or defaultGroqModelId)
     editor.putString("audioModelId", selectedAudioModelId or defaultAudioModelId)
     editor.putString("dashboardOrder", dashboardOrder or "dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings")
@@ -4709,7 +4555,6 @@ function openConnectionSettings()
     local audSpinner, audIds
     local grSpinner, grIds
     local gemSpinner, gemIds
-    local agentSpinner, agentIds
 
     local sections = {
         function() -- Header
@@ -4775,13 +4620,6 @@ function openConnectionSettings()
             gemSpinner = Spinner(service); gemSpinner.setAdapter(ArrayAdapter(service, android.R.layout.simple_spinner_item, gemNames))
             local currGemIdx = 0; for i, id in ipairs(gemIds) do if id == selectedGeminiModelId then currGemIdx = i-1 break end end
             gemSpinner.setSelection(currGemIdx); modelCard.addView(gemSpinner)
-
-            modelCard.addView(createLabel("موديل الوكيل الذكي (Smart Agent):"))
-            local agentNames = ArrayList(); agentIds = {}
-            for _, m in ipairs(geminiModels) do agentNames.add(m.name); table.insert(agentIds, m.id) end
-            agentSpinner = Spinner(service); agentSpinner.setAdapter(ArrayAdapter(service, android.R.layout.simple_spinner_item, agentNames))
-            local currAgentIdx = 0; for i, id in ipairs(agentIds) do if id == selectedAgentModelId then currAgentIdx = i-1 break end end
-            agentSpinner.setSelection(currAgentIdx); modelCard.addView(agentSpinner)
         end,
         function() -- Actions
             local btnL = LinearLayout(service); btnL.setOrientation(LinearLayout.VERTICAL); btnL.setGravity(Gravity.CENTER); btnL.setPadding(0, 40, 0, 10)
@@ -4791,7 +4629,6 @@ function openConnectionSettings()
                 selectedAudioModelId = audIds[audSpinner.getSelectedItemPosition() + 1]
                 selectedGroqModelId = grIds[grSpinner.getSelectedItemPosition() + 1]
                 selectedGeminiModelId = gemIds[gemSpinner.getSelectedItemPosition() + 1]
-                selectedAgentModelId = agentIds[agentSpinner.getSelectedItemPosition() + 1]
                 saveSettings()
                 if settingsDialog then pcall(function() wm.removeView(settingsDialog) end); settingsDialog = nil end
             end)
@@ -5500,7 +5337,7 @@ function processAgentCommand(userCommand)
 يجب أن يكون ردك بتنسيق JSON فقط، ولا تكتب أي كلام خارجه. التنسيق:
 {
   "thought": "ابدأ بوصف سريع للي شايفه في الشاشة وبعدين قول هتعمل إيه بالمصري وببساطة (مثلاً: أنا شايف قدامي إعدادات الواي فاي، هدوس على زرار التشغيل دلوقتي)",
-  "code": "كود Lua سليم ينتهي بـ return true. مثال: forceClick('إرسال') return true",
+  "code": "كود Lua سليم ينتهي بـ return true. مثال: service.click({'الإعدادات'}) return true",
   "status": "DONE أو CONTINUE"
 }
 
@@ -5508,24 +5345,22 @@ function processAgentCommand(userCommand)
 1. أوامر الكتابة الذكية (Smart Typing):
    - service.setText("النص"): للكتابة في مربع النص المفعل حالياً.
    - service.paste("النص"): لاستخدام خاصية اللصق (فعالة جداً لو setText منعت).
-   - لو فيه مربع نص قدامك ومش عارف تفعله، استخدم forceClick("نص المربع") ثم setText.
+   - لو فيه مربع نص قدامك ومش عارف تفعله، استخدم service.click({"نص المربع"}) ثم setText.
 
 2. أوامر الضغط والتحرك (Smart Interaction):
-   - forceClick("النص"): **(أولوية قصوى)** يبحث عن العنصر في الشاشة بالاسم أو الوصف ويجبر النظام على الضغط عليه (مفيد جداً لزر الإرسال في الواتساب وتليجرام).
-   - service.click({{"النص", ""}}): أمر الضغط التقليدي. لاحظ الأقواس المزدوجة.
-   - smartClick(x, y): للضغط على إحداثيات دقيقة (0-1000) إذا كان العنصر لا يمتلك نصاً ولا وصفاً.
+   - smartClick(x, y): **(موصى به جداً)** للضغط على إحداثيات دقيقة (0-1000). يستخدم تقنية "الضغط المزدوج الخارق" لضمان العمل في واتساب وتليجرام.
+   - service.click(x, y): للضغط العادي بالإحداثيات.
+   - service.click({"النص"}): للضغط على عنصر بالاسم.
    - الاستراتيجية الأضمن للضغط (High Reliability): استخدم service.toNext() أو service.toPrevious() حتى تصل للعنصر، ثم service.execute("النَّقْر المباشر").
 
 3. أوامر النظام (System Core):
    - service.toHome(), service.toBack(), service.toRecents(), service.toNotifications().
-   - smartStartApp("اسم التطبيق"): لفتح التطبيقات بطريقة ذكية وموثوقة (مثل smartStartApp("واتساب")).
-   - service.swipe(x1, y1, x2, y2, ms).
+   - service.startApp("الاسم"), service.swipe(x1, y1, x2, y2, ms).
 
 قواعد هامة (MUST FOLLOW):
-- للضغط على أي زر، **أولوية قصوى**: استخدم `forceClick("النص")` أو `service.click({{"النص", ""}})` إذا كان العنصر يحتوي على نص (t) أو وصف (d) أو معرف (id) واضح. (مثال: `forceClick("إرسال")` أو `forceClick("com.whatsapp:id/send")`).
-- استخدم `smartClick(x, y)` كخيار أخير فقط إذا كان العنصر لا يحتوي على نص أو وصف أو معرف، ولديك إحداثياته (b).
-- شجرة العناصر (UI Tree) هي دليلك. ابحث عن (t) أو (d) أو (id) للعنصر، مثل زر الإرسال في الواتساب وتليجرام الذي يحتوي غالباً على (d:'إرسال' أو d:'Send' أو id:'send').
-- لحساب مركز الزرار في `smartClick`: لو الإحداثيات [left, top, right, bottom]، المركز هو x = (left+right)/2 و y = (top+bottom)/2.
+- شجرة العناصر (UI Tree) هي مصدرك الأول للأمان. استخدم إحداثيات (b) الموجودة في الشجرة للضغط الدقيق عبر `smartClick(center_x, center_y)`.
+- لحساب مركز الزرار: لو الإحداثيات [left, top, right, bottom]، المركز هو x = (left+right)/2 و y = (top+bottom)/2.
+- لو الزرار في واتساب أو تليجرام ملوش نص (t) بس ليه وصف (d) زي "إرسال"، اعتمد على الوصف واستخدم smartClick.
 - في الكتابة، جرب setText الأول، ولو مظهرش النص جرب paste في الخطوة الجاية.
 - لازم الكود ينتهي بـ return true.
 - المهمة الطويلة تقسمها خطوات وخلي status: CONTINUE.]]
@@ -5533,7 +5368,7 @@ function processAgentCommand(userCommand)
         local historyText = table.concat(agentContextHistory, "\n")
         local fullPrompt = "تاريخ المحادثة في هذه الجلسة:\n" .. historyText .. "\n\nطلب المستخدم الحالي: " .. userCommand .. "\n\nشجرة العناصر الحالية (UI Tree):\n" .. uiTree
 
-        makeAiRequest(fullPrompt, systemPrompt, imgB64, selectedAgentModelId, function(response)
+        makeAiRequest(fullPrompt, systemPrompt, imgB64, "gemini-3.1-flash-lite-preview", function(response)
             isAgentProcessing = false
             -- Clean JSON from markdown if present
             local jsonStr = response:match("({.+})") or response
