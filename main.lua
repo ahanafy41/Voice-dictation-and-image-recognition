@@ -174,7 +174,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 6.0
+local currentAppVersion = 6.1
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -3528,6 +3528,12 @@ function getUiTreeForAgent()
     local screenH = dm.heightPixels
 
     local elements = {}
+    local currentPackage = "Unknown"
+    pcall(function() currentPackage = tostring(rootN.getPackageName() or "Unknown") end)
+
+    -- Insert the Package Name as the first context item
+    table.insert(elements, string.format("App Package: %s", currentPackage))
+
     local function collectUiElements(node)
         if not node then return end
 
@@ -3574,13 +3580,17 @@ function getUiTreeForAgent()
     -- Convert to a compact string format for the AI
     local output = {}
     for _, el in ipairs(elements) do
-        local safeText = el.text:gsub("'", "\\'"):gsub("\n", "\\n")
-        local safeDesc = el.desc:gsub("'", "\\'"):gsub("\n", "\\n")
-        local safeId = el.id:gsub("'", "\\'")
+        if type(el) == "string" then
+            table.insert(output, el)
+        else
+            local safeText = el.text:gsub("'", "\\'"):gsub("\n", "\\n")
+            local safeDesc = el.desc:gsub("'", "\\'"):gsub("\n", "\\n")
+            local safeId = el.id:gsub("'", "\\'")
 
-        local entry = string.format("{t:'%s', d:'%s', id:'%s', c:'%s', b:%s, clk:%s}",
-            safeText, safeDesc, safeId, el.class, el.bounds, tostring(el.clickable))
-        table.insert(output, entry)
+            local entry = string.format("{t:'%s', d:'%s', id:'%s', c:'%s', b:%s, clk:%s}",
+                safeText, safeDesc, safeId, el.class, el.bounds, tostring(el.clickable))
+            table.insert(output, entry)
+        end
     end
     return table.concat(output, "\n")
 end
@@ -3628,8 +3638,22 @@ function forceClick(textOrDesc)
 
         if text == targetText or desc == targetText or viewId == targetText or string.find(text, targetText, 1, true) or string.find(desc, targetText, 1, true) or string.find(viewId, targetText, 1, true) then
             -- Try native Accessibility ACTION_CLICK (16)
-            local success = pcall(function() return node.performAction(16) end)
-            if success then return true end
+            local success, actRes = pcall(function() return node.performAction(16) end)
+            if success and actRes then return true end
+
+            -- Fallback to clicking bounds
+            local rect = luajava.bindClass("android.graphics.Rect")()
+            pcall(function() node.getBoundsInScreen(rect) end)
+            local dm = service.getResources().getDisplayMetrics()
+            local w = dm.widthPixels
+            local h = dm.heightPixels
+            local centerX = rect.left + (rect.width() / 2)
+            local centerY = rect.top + (rect.height() / 2)
+            -- normalize
+            local normX = math.max(0, math.min(1000, math.floor(centerX * 1000 / w)))
+            local normY = math.max(0, math.min(1000, math.floor(centerY * 1000 / h)))
+            smartClick(normX, normY)
+            return true
         end
 
         local childCount = 0
@@ -3659,6 +3683,20 @@ function forceClick(textOrDesc)
     -- Absolute fallback using Jieshuo's double bracket click syntax
     local fallbackSuccess = pcall(function() service.click({{textOrDesc, ""}}) end)
     return fallbackSuccess
+end
+
+function advancedClick(targetArray)
+    -- This function accepts a table of targets (e.g. {"#id", "text1", "text2"})
+    -- and tries to find and click the first one that exists.
+    if type(targetArray) ~= "table" then return forceClick(tostring(targetArray)) end
+
+    for _, target in ipairs(targetArray) do
+        if forceClick(target) then
+            return true
+        end
+    end
+
+    return false -- Could not find any of the targets
 end
 
 function smartStartApp(appName)
@@ -5496,11 +5534,12 @@ function processAgentCommand(userCommand)
 
         local systemPrompt = [[أنت "الوكيل الذكي" (Smart Agent) لموبايل أندرويد. مهمتك هي مساعدة المستخدم الكفيف في تنفيذ مهام على جهازه.
 أنا سأعطيك لقطة شاشة، شجرة العناصر (UI Tree) التي تحتوي على النصوص والإحداثيات، وطلب المستخدم.
+ملحوظة هامة: أنت الآن تتمتع بخاصية (Self-Healing). إذا أعطيتني كوداً وفشل تنفيذه، سأخبرك في "تاريخ المحادثة" بنتيجة الفشل (Error). مهمتك ألا تتوقف! اقرأ الخطأ وجرب دالة أخرى أو عنصراً آخر حتى تنجح المهمة.
 
 يجب أن يكون ردك بتنسيق JSON فقط، ولا تكتب أي كلام خارجه. التنسيق:
 {
-  "thought": "ابدأ بوصف سريع للي شايفه في الشاشة وبعدين قول هتعمل إيه بالمصري وببساطة (مثلاً: أنا شايف قدامي إعدادات الواي فاي، هدوس على زرار التشغيل دلوقتي)",
-  "code": "كود Lua سليم ينتهي بـ return true. مثال: forceClick('إرسال') return true",
+  "thought": "ابدأ بوصف سريع للي شايفه في الشاشة وبعدين قول هتعمل إيه بالمصري وببساطة. وإذا كان هناك خطأ سابق، اشرح كيف ستعالجه الآن.",
+  "code": "كود Lua سليم ينتهي بـ return true. مثال: advancedClick({'#com.whatsapp:id/send', 'إرسال'}) return true",
   "status": "DONE أو CONTINUE"
 }
 
@@ -5511,30 +5550,28 @@ function processAgentCommand(userCommand)
    - لو فيه مربع نص قدامك ومش عارف تفعله، استخدم forceClick("نص المربع") ثم setText.
 
 2. أوامر الضغط والتحرك (Smart Interaction):
-   - forceClick("النص"): **(أولوية قصوى)** يبحث عن العنصر في الشاشة بالاسم أو الوصف ويجبر النظام على الضغط عليه (مفيد جداً لزر الإرسال في الواتساب وتليجرام).
+   - advancedClick({"هدف1", "هدف2"}): **(الخيار الأقوى)** يمرر مصفوفة من الأهداف (نصوص أو IDs). الدالة ستجربها واحداً تلو الآخر حتى تنجح. مثال: advancedClick({'#id/play', 'Play Video'})
+   - forceClick("النص أو الـ ID"): يبحث عن العنصر في الشاشة (بالنص، الوصف، أو ID) ويجبر النظام على الضغط عليه. استخدمه دائماً إذا كنت متأكداً من الهدف.
    - service.click({{"النص", ""}}): أمر الضغط التقليدي. لاحظ الأقواس المزدوجة.
    - smartClick(x, y): للضغط على إحداثيات دقيقة (0-1000) إذا كان العنصر لا يمتلك نصاً ولا وصفاً.
-   - الاستراتيجية الأضمن للضغط (High Reliability): استخدم service.toNext() أو service.toPrevious() حتى تصل للعنصر، ثم service.execute("النَّقْر المباشر").
 
 3. أوامر النظام (System Core):
    - service.toHome(), service.toBack(), service.toRecents(), service.toNotifications().
-   - smartStartApp("اسم التطبيق"): لفتح التطبيقات بطريقة ذكية وموثوقة (مثل smartStartApp("واتساب")).
+   - smartStartApp("اسم التطبيق"): لفتح التطبيقات (مثل smartStartApp("واتساب")).
    - service.swipe(x1, y1, x2, y2, ms).
 
-قواعد هامة (MUST FOLLOW):
-- للضغط على أي زر، **أولوية قصوى**: استخدم `forceClick("النص")` أو `service.click({{"النص", ""}})` إذا كان العنصر يحتوي على نص (t) أو وصف (d) أو معرف (id) واضح. (مثال: `forceClick("إرسال")` أو `forceClick("com.whatsapp:id/send")`).
-- استخدم `smartClick(x, y)` كخيار أخير فقط إذا كان العنصر لا يحتوي على نص أو وصف أو معرف، ولديك إحداثياته (b).
-- شجرة العناصر (UI Tree) هي دليلك. ابحث عن (t) أو (d) أو (id) للعنصر، مثل زر الإرسال في الواتساب وتليجرام الذي يحتوي غالباً على (d:'إرسال' أو d:'Send' أو id:'send').
+قواعد هامة جداً (MUST FOLLOW):
+- للضغط على أي زر، **استخدم دائماً `advancedClick({'id', 'text', 'desc'})`** لتزويد النظام بعدة خيارات بحث وتجنب الفشل.
+- شجرة العناصر (UI Tree) تحتوي الآن في السطر الأول على (App Package). استخدمه لفهم السياق.
+- إذا رأيت رسالة "Error:" في تاريخ المحادثة، **لا تكرر نفس الكود الفاشل**. ابحث في الـ UI Tree عن نص آخر أو ID آخر، أو استخدم الإحداثيات (smartClick).
 - لحساب مركز الزرار في `smartClick`: لو الإحداثيات [left, top, right, bottom]، المركز هو x = (left+right)/2 و y = (top+bottom)/2.
-- في الكتابة، جرب setText الأول، ولو مظهرش النص جرب paste في الخطوة الجاية.
-- لازم الكود ينتهي بـ return true.
-- المهمة الطويلة تقسمها خطوات وخلي status: CONTINUE.]]
+- لازم الكود ينتهي بـ return true (أو return false إذا أردت إخبار النظام أن الكود لم يجد حلاً لكي يعيد المحاولة).
+- المهمة الطويلة تقسمها لخطوات وخلي status: CONTINUE.]]
 
         local historyText = table.concat(agentContextHistory, "\n")
         local fullPrompt = "تاريخ المحادثة في هذه الجلسة:\n" .. historyText .. "\n\nطلب المستخدم الحالي: " .. userCommand .. "\n\nشجرة العناصر الحالية (UI Tree):\n" .. uiTree
 
         makeAiRequest(fullPrompt, systemPrompt, imgB64, selectedAgentModelId, function(response)
-            isAgentProcessing = false
             -- Clean JSON from markdown if present
             local jsonStr = response:match("({.+})") or response
             local success, data = pcall(function() return JSONObject(jsonStr) end)
@@ -5547,23 +5584,43 @@ function processAgentCommand(userCommand)
                 service.asyncSpeak(thought)
 
                 table.insert(agentContextHistory, "المستخدم: " .. userCommand)
-                table.insert(agentContextHistory, "الوكيل: " .. thought)
+                table.insert(agentContextHistory, "الوكيل (تفكير): " .. thought)
+                table.insert(agentContextHistory, "الوكيل (كود): " .. code)
 
                 if code ~= "" then
                     mainHandler.post(luajava.createProxy("java.lang.Runnable", {
-                        run = function() executeAgentCode(code) end
-                    }))
-                end
+                        run = function()
+                            executeAgentCode(code, function(execSuccess, execMsg)
+                                table.insert(agentContextHistory, "نتيجة التنفيذ: " .. tostring(execMsg))
+                                if not execSuccess then
+                                    -- Self-healing: if execution failed, force continue to try again
+                                    status = "CONTINUE"
+                                    service.asyncSpeak("الكود فشل، هجرب طريقة تانية.")
+                                end
 
-                if status == "CONTINUE" then
-                    mainHandler.postDelayed(luajava.createProxy("java.lang.Runnable", {
-                        run = function() processAgentCommand(userCommand) end
-                    }), 3000)
+                                if status == "CONTINUE" then
+                                    mainHandler.postDelayed(luajava.createProxy("java.lang.Runnable", {
+                                        run = function() processAgentCommand("تابع تنفيذ المهمة أو أصلح الخطأ السابق بناءً على نتيجة التنفيذ.") end
+                                    }), 2500)
+                                else
+                                    isAgentProcessing = false
+                                    agentContextHistory = {}
+                                    pcall(function() service.vibrate(100) end)
+                                    -- Session ends here
+                                end
+                            end)
+                        end
+                    }))
                 else
-                    isAgentProcessing = false
-                    agentContextHistory = {}
-                    pcall(function() service.vibrate(100) end)
-                    -- Session ends here or waits for next command
+                    if status == "CONTINUE" then
+                        mainHandler.postDelayed(luajava.createProxy("java.lang.Runnable", {
+                            run = function() processAgentCommand(userCommand) end
+                        }), 2500)
+                    else
+                        isAgentProcessing = false
+                        agentContextHistory = {}
+                        pcall(function() service.vibrate(100) end)
+                    end
                 end
             else
                 isAgentProcessing = false
@@ -5573,7 +5630,7 @@ function processAgentCommand(userCommand)
     end)
 end
 
-function executeAgentCode(luaCode)
+function executeAgentCode(luaCode, callback)
     -- Ensure service is accessible within the loaded code
     local prefixedCode = "local service = service or _G.service\n" .. luaCode
 
@@ -5588,14 +5645,20 @@ function executeAgentCode(luaCode)
             setfenv(func, _G)
         end
 
-        func()
+        -- Execute the function safely
+        local res = func()
+        -- If it's returning false explicitly, treat it as a failure so agent tries again
+        if res == false then
+            error("Function returned false (action failed).")
+        end
     end)
 
     if not success then
         local readableErr = tostring(err):match(":(.-)$") or tostring(err)
-        -- Log to console for debugging but use voice for user
         print("Agent Execution Error: " .. tostring(err))
-        service.asyncSpeak("عذراً، حصلت مشكلة تقنية في تنفيذ الحركة: " .. readableErr)
+        if callback then callback(false, "Error: " .. readableErr) end
+    else
+        if callback then callback(true, "Success") end
     end
 end
 
