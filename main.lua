@@ -174,7 +174,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 6.1
+local currentAppVersion = 7.1
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -1080,11 +1080,7 @@ function makeAiRequest(prompt, systemInstruction, imageBase64, modelIdOverride, 
     local combinedSystemInstruction = systemInstruction or fastSystemInstruction
 
     -- Truncate massive text prompts to prevent HTTP 413 (Payload Too Large) errors in Personal Assistant
-    local maxPromptLength = 6000
-    local safePrompt = prompt
-    if safePrompt and #safePrompt > maxPromptLength then
-        safePrompt = safePrompt:sub(1, maxPromptLength) .. "\n\n[...النص مقطوع لتجاوز الحد المسموح...]"
-    end
+    local safePrompt = prompt -- Truncation removed
 
     local url, requestBody, headers
 
@@ -1114,7 +1110,7 @@ function makeAiRequest(prompt, systemInstruction, imageBase64, modelIdOverride, 
         root.put("messages", jsonMessages)
         root.put("temperature", 0.3)
         -- Reduced max_tokens for Groq to stay within usage limits
-        root.put("max_tokens", 512)
+        root.put("max_tokens", 8192)
         requestBody = root.toString()
 
     else
@@ -5276,7 +5272,14 @@ function startVoiceRecognition(fromDashboard)
                     local function handleCorrection(textToCorrect, callback)
                         local needsCorrection = geminiCorrectionEnabled or (selectedDictationMode and selectedDictationMode ~= "none")
                         if needsCorrection then
-                            correctWithAi(textToCorrect, callback)
+                            correctWithAi(textToCorrect, function(result)
+                                if result and (result:match("^Error:") or result:match("^خطأ:") or result:match("^AI Request Failed")) then
+                                    service.asyncSpeak("حدث خطأ في الذكاء الاصطناعي، تم كتابة النص الأصلي.")
+                                    callback(textToCorrect)
+                                else
+                                    callback(result)
+                                end
+                            end)
                         else
                             callback(textToCorrect)
                         end
@@ -5294,10 +5297,10 @@ function startVoiceRecognition(fromDashboard)
                                          insertFinalResult(correctedText, false); return
                                     end
                                     translateTextWithGemini_New(correctedText, sourceLangDetails.human_readable_for_gemini, targetLangDetails.human_readable_for_gemini, function(translatedText)
-                                        if translatedText and not (translatedText:match("^Error:") or translatedText:match("^خطأ:")) then
+                                        if translatedText and not (translatedText:match("^Error:") or translatedText:match("^خطأ:") or translatedText:match("^AI Request Failed")) then
                                             insertFinalResult(translatedText, true)
                                         else
-                                            service.asyncSpeak(getFeedbackString("image_desc_fail_api", currentDictLangDetails.code, translatedText))
+                                            service.asyncSpeak("حدث خطأ في الترجمة، تم كتابة النص باللغة الأصلية.")
                                             insertFinalResult(correctedText, false)
                                         end
                                     end)
