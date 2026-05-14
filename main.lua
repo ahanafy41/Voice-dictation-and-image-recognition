@@ -170,7 +170,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 8.4
+local currentAppVersion = 9.4
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -1199,12 +1199,12 @@ function correctWithAi(text, callback)
 
     local fullPrompt = promptPrefix .. "\\n\\nText:\\n" .. text .. "\\n\\nReturn ONLY the result:"
     local temp = 0.1
-    makeAiRequest(fullPrompt, nil, nil, nil, callback, temp)
+    makeAiRequest(fullPrompt, nil, nil, selectedGroqModelId, callback, temp)
 end
 
 function translateTextWithGemini_New(textToTranslate, sourceLang, targetLang, callback)
     local prompt = "Translate to " .. targetLang .. ". Return ONLY the translation:"
-    makeAiRequest(prompt .. "\n" .. textToTranslate, nil, nil, nil, callback)
+    makeAiRequest(prompt .. "\n" .. textToTranslate, nil, nil, selectedGroqModelId, callback)
 end
 
 function summarizeWithGemini(text, callback)
