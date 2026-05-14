@@ -135,17 +135,6 @@ local defaultGeminiModelId = "gemini-3.1-flash-lite-preview"
 -- **Groq Models (Optimized for Free Tier)**
 local defaultGroqModelId = "llama-3.3-70b-versatile"
 
--- Fallback to defaults if empty
-if #groqModels == 0 then
-    groqModels = {
-        { name = "Llama 3.3 70B (الأكثر استقراراً)", id = "llama-3.3-70b-versatile" },
-        { name = "Llama 4 Scout 17B (الأحدث 2026)", id = "meta-llama/llama-4-scout-17b-16e-instruct" },
-        { name = "Llama 4 Maverick 17B (ذكاء فائق)", id = "meta-llama/llama-4-maverick-17b-128e-instruct" },
-        { name = "Qwen 3 32B (قوة في التفكير)", id = "qwen/qwen3-32b" },
-        { name = "Llama 3.1 8B (سريع جداً)", id = "llama-3.1-8b-instant" },
-        { name = "Gemma 2 9B IT", id = "gemma2-9b-it" }
-    }
-end
 
 local defaultDictationMode = "egyptian_emoji"
 local dictationModes = {
@@ -181,7 +170,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 8.3
+local currentAppVersion = 8.4
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
