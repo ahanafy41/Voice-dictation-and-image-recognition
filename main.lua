@@ -170,7 +170,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 9.4
+local currentAppVersion = 9.5
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -1125,7 +1125,7 @@ function makeAiRequest(prompt, systemInstruction, imageBase64, modelIdOverride, 
         root.put("messages", jsonMessages)
         root.put("temperature", 0.3)
         -- Reduced max_tokens for Groq to stay within usage limits
-        root.put("max_tokens", 8192)
+        root.put("max_tokens", 4096)
         requestBody = root.toString()
 
     else
@@ -5251,7 +5251,8 @@ function startVoiceRecognition(fromDashboard)
                         if needsCorrection then
                             correctWithAi(textToCorrect, function(result)
                                 if result and (result:match("^Error:") or result:match("^خطأ:") or result:match("^AI Request Failed")) then
-                                    service.asyncSpeak("حدث خطأ في الذكاء الاصطناعي، تم كتابة النص الأصلي.")
+                                    local shortErr = result:sub(1, 100) -- limit spoken error length
+                                    service.asyncSpeak("عذراً، حدث خطأ في معالجة الذكاء الاصطناعي: " .. shortErr .. ". تم كتابة النص الأصلي.")
                                     callback(textToCorrect)
                                 else
                                     callback(result)
@@ -5277,7 +5278,8 @@ function startVoiceRecognition(fromDashboard)
                                         if translatedText and not (translatedText:match("^Error:") or translatedText:match("^خطأ:") or translatedText:match("^AI Request Failed")) then
                                             insertFinalResult(translatedText, true)
                                         else
-                                            service.asyncSpeak("حدث خطأ في الترجمة، تم كتابة النص باللغة الأصلية.")
+                                            local shortErr = translatedText and translatedText:sub(1, 100) or "Unknown Error"
+                                            service.asyncSpeak("عذراً، فشلت الترجمة: " .. shortErr .. ". تم كتابة النص باللغة الأصلية.")
                                             insertFinalResult(correctedText, false)
                                         end
                                     end)
