@@ -133,6 +133,7 @@ local geminiModels = {
 local defaultGeminiModelId = "gemini-3.1-flash-lite-preview"
 
 -- **Groq Models (Optimized for Free Tier)**
+local defaultGroqModelId = "llama-3.3-70b-versatile"
 local groqModels = {
     { name = "Llama 3.3 70B (الأكثر استقراراً)", id = "llama-3.3-70b-versatile" },
     { name = "Llama 4 Scout 17B (الأحدث 2026)", id = "meta-llama/llama-4-scout-17b-16e-instruct" },
@@ -142,6 +143,7 @@ local groqModels = {
     { name = "Gemma 2 9B IT", id = "gemma2-9b-it" }
 }
 
+local defaultDictationMode = "none"
 local dictationModes = {
     { id = "none", name = "إيقاف (نص خام)", prompt = "Clean the text by removing filler words (like aaa, yaani, etc.), fix minor typos, and add appropriate punctuation. Keep the original style and dialect exactly as is. Return ONLY the clean text:" },
     { id = "correct", name = "تصحيح لغوي فقط", prompt = "Fix grammar and spelling errors, remove filler words, and add punctuation. Keep it natural. Return ONLY corrected text:" },
@@ -174,7 +176,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 7.1
+local currentAppVersion = 7.2
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -4476,6 +4478,8 @@ function openAiSettingsWindow()
             local saveBtn = Button(service); saveBtn.setText("💾 حفظ التغييرات"); styleButton(saveBtn, "primary")
             saveBtn.setOnClickListener(function()
                 if dmSpinner and dmIds then selectedDictationMode = dmIds[dmSpinner.getSelectedItemPosition() + 1] end
+                if emSpinner and emIds then emojiMode = emIds[emSpinner.getSelectedItemPosition() + 1] end
+                if crSpinner and crIds then aiCreativityLevel = crIds[crSpinner.getSelectedItemPosition() + 1] end
                 if swTash then tashkeelEnabled = swTash.isChecked() end
                 if swProf then profanityFilterEnabled = swProf.isChecked() end
                 if swLine then newLinePerSentenceEnabled = swLine.isChecked() end
@@ -5270,7 +5274,8 @@ function startVoiceRecognition(fromDashboard)
                     end
 
                     local function handleCorrection(textToCorrect, callback)
-                        local needsCorrection = geminiCorrectionEnabled or (selectedDictationMode and selectedDictationMode ~= "none")
+                        local hasModifications = tashkeelEnabled or profanityFilterEnabled or newLinePerSentenceEnabled or convertNumbersEnabled or cleanExtraSpacesEnabled or forceDotAtEndEnabled or autoCommaEnabled or (emojiMode and emojiMode ~= "none")
+                        local needsCorrection = geminiCorrectionEnabled or (selectedDictationMode and selectedDictationMode ~= "none") or hasModifications
                         if needsCorrection then
                             correctWithAi(textToCorrect, function(result)
                                 if result and (result:match("^Error:") or result:match("^خطأ:") or result:match("^AI Request Failed")) then
