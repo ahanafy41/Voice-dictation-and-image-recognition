@@ -26,7 +26,27 @@ end
 package.preload['import'] = function() return {} end
 _G.import = function(path) end
 
+
+_G.prefs = {
+    getString = function(k, d) return d end,
+    getBoolean = function(k, d) return d end,
+    getInt = function(k, d) return d end,
+    getFloat = function(k, d) return d end,
+    edit = function()
+        return {
+            putString = function() end,
+            putBoolean = function() end,
+            putInt = function() end,
+            putFloat = function() end,
+            remove = function() end,
+            apply = function() end
+        }
+    end
+}
+_G.groqModels = {}
 _G.service = {
+    getSharedPreferences = function() return _G.prefs end,
+
     getSharedPreferences = function(name, mode)
         return {
             getString = function(key, default) if key == "geminiApiKey" then return "fake_key" end if key == "groqApiKey" then return "fake_key" end if key == "imageDescriptionProvider" then return "gemini" end return default end, getInt = function(key, default) return default end, getFloat = function(key, default) return default end,

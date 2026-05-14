@@ -134,24 +134,29 @@ local defaultGeminiModelId = "gemini-3.1-flash-lite-preview"
 
 -- **Groq Models (Optimized for Free Tier)**
 local defaultGroqModelId = "llama-3.3-70b-versatile"
-local groqModels = {
-    { name = "Llama 3.3 70B (الأكثر استقراراً)", id = "llama-3.3-70b-versatile" },
-    { name = "Llama 4 Scout 17B (الأحدث 2026)", id = "meta-llama/llama-4-scout-17b-16e-instruct" },
-    { name = "Llama 4 Maverick 17B (ذكاء فائق)", id = "meta-llama/llama-4-maverick-17b-128e-instruct" },
-    { name = "Qwen 3 32B (قوة في التفكير)", id = "qwen/qwen3-32b" },
-    { name = "Llama 3.1 8B (سريع جداً)", id = "llama-3.1-8b-instant" },
-    { name = "Gemma 2 9B IT", id = "gemma2-9b-it" }
-}
 
-local defaultDictationMode = "none"
+-- Fallback to defaults if empty
+if #groqModels == 0 then
+    groqModels = {
+        { name = "Llama 3.3 70B (الأكثر استقراراً)", id = "llama-3.3-70b-versatile" },
+        { name = "Llama 4 Scout 17B (الأحدث 2026)", id = "meta-llama/llama-4-scout-17b-16e-instruct" },
+        { name = "Llama 4 Maverick 17B (ذكاء فائق)", id = "meta-llama/llama-4-maverick-17b-128e-instruct" },
+        { name = "Qwen 3 32B (قوة في التفكير)", id = "qwen/qwen3-32b" },
+        { name = "Llama 3.1 8B (سريع جداً)", id = "llama-3.1-8b-instant" },
+        { name = "Gemma 2 9B IT", id = "gemma2-9b-it" }
+    }
+end
+
+local defaultDictationMode = "egyptian_emoji"
 local dictationModes = {
-    { id = "none", name = "إيقاف (نص خام)", prompt = "Clean the text by removing filler words (like aaa, yaani, etc.), fix minor typos, and add appropriate punctuation. Keep the original style and dialect exactly as is. Return ONLY the clean text:" },
-    { id = "correct", name = "تصحيح لغوي فقط", prompt = "Fix grammar and spelling errors, remove filler words, and add punctuation. Keep it natural. Return ONLY corrected text:" },
-    { id = "emoji", name = "تصحيح + إيموجي", prompt = "Fix text, remove filler words, add punctuation, and add suitable emojis. Return ONLY the text:" },
-    { id = "fusha", name = "الوضع الرسمي (فصحى)", prompt = "Rewrite the input in professional and formal Modern Standard Arabic (Fusha). Remove filler words and add punctuation. Return ONLY the rewritten text:" },
-    { id = "egyptian", name = "الوضع المصري (عامية)", prompt = "Rewrite the input in friendly and natural Egyptian Arabic dialect. Remove filler words and add punctuation. Return ONLY the rewritten text:" },
-    { id = "dialect_to_fusha", name = "تحويل اللهجة إلى فصحى", prompt = "Translate any Arabic dialect in the input into clear and formal Modern Standard Arabic. Remove filler words and add punctuation. Return ONLY the translation:" },
-    { id = "creative", name = "وضع الإبداع والتحسين", prompt = "Improve the style and flow of the text to make it more engaging and creative. Remove filler words and add punctuation. Return ONLY the improved text:" }
+    { id = "none", name = "إيقاف (نص خام)", prompt = "Return the exact Arabic text without any modifications. Do not fix anything." },
+    { id = "correct", name = "تصحيح وتنسيق لغوي", prompt = "Fix grammar and spelling errors, remove filler words, and add proper punctuation. Divide long text into neat paragraphs. Return ONLY the clean, formatted text without emojis." },
+    { id = "correct_emoji", name = "تصحيح + إيموجي", prompt = "Fix grammar and spelling, remove filler words, add punctuation, and divide into paragraphs. Add suitable emojis naturally within the context. Return ONLY the final text." },
+    { id = "egyptian", name = "المصري المنظم", prompt = "Rewrite the input in a natural Egyptian Arabic dialect. Remove filler words, fix typos, add proper punctuation, and format into readable paragraphs. Return ONLY the text without emojis." },
+    { id = "egyptian_emoji", name = "المصري + إيموجي", prompt = "Rewrite in natural Egyptian Arabic dialect. Remove filler words, add punctuation, and format into neat paragraphs. Add expressive emojis naturally. Return ONLY the final text." },
+    { id = "fusha", name = "الفصحى الاحترافية", prompt = "Rewrite the input in professional and formal Modern Standard Arabic (Fusha). Remove filler words, add accurate punctuation, and organize into clear paragraphs. Return ONLY the text without emojis." },
+    { id = "fusha_emoji", name = "الفصحى + إيموجي", prompt = "Rewrite in professional Modern Standard Arabic (Fusha). Add punctuation, organize into paragraphs, and include suitable professional emojis. Return ONLY the final text." },
+    { id = "summarize", name = "تلخيص وإعادة هيكلة", prompt = "Summarize the input text and restructure it into clear, easy-to-read bullet points or short paragraphs in Arabic. Add appropriate emojis. Return ONLY the summary." }
 }
 
 -- **Audio Models (Whisper & Gemini)**
@@ -176,7 +181,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 7.2
+local currentAppVersion = 8.3
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -201,19 +206,38 @@ local geminiLiveVoices = {
 
 -- **Load Settings with Defaults**
 local prefs = service.getSharedPreferences("voice_settings", Context.MODE_PRIVATE)
+
+-- Load cached Groq models from SharedPreferences if available
+local cachedGroqModelsJson = prefs.getString("cachedGroqModels", "")
+_G.groqModels = {}
+local groqModels = _G.groqModels
+if cachedGroqModelsJson ~= "" then
+    local success, jArr = pcall(function() return JSONArray(cachedGroqModelsJson) end)
+    if success and jArr then
+        for i = 0, jArr.length() - 1 do
+            local item = jArr.getJSONObject(i)
+            table.insert(groqModels, {
+                name = item.getString("name"),
+                id = item.getString("id")
+            })
+        end
+    end
+end
+if #groqModels == 0 then
+    groqModels = {
+        { name = "Llama 3.3 70B (الأكثر استقراراً)", id = "llama-3.3-70b-versatile" },
+        { name = "Llama 4 Scout 17B (الأحدث 2026)", id = "meta-llama/llama-4-scout-17b-16e-instruct" },
+        { name = "Llama 4 Maverick 17B (ذكاء فائق)", id = "meta-llama/llama-4-maverick-17b-128e-instruct" },
+        { name = "Qwen 3 32B (قوة في التفكير)", id = "qwen/qwen3-32b" },
+        { name = "Llama 3.1 8B (سريع جداً)", id = "llama-3.1-8b-instant" },
+        { name = "Gemma 2 9B IT", id = "gemma2-9b-it" }
+    }
+end
+
 selectedLanguage = prefs.getString("language", defaultSelectedLanguage)
-tashkeelEnabled = prefs.getBoolean("tashkeelEnabled", false)
-profanityFilterEnabled = prefs.getBoolean("profanityFilterEnabled", false)
-newLinePerSentenceEnabled = prefs.getBoolean("newLinePerSentenceEnabled", false)
-convertNumbersEnabled = prefs.getBoolean("convertNumbersEnabled", false)
-cleanExtraSpacesEnabled = prefs.getBoolean("cleanExtraSpacesEnabled", false)
-forceDotAtEndEnabled = prefs.getBoolean("forceDotAtEndEnabled", false)
-autoCommaEnabled = prefs.getBoolean("autoCommaEnabled", false)
-aiCreativityLevel = prefs.getInt("aiCreativityLevel", 1)
-emojiMode = prefs.getString("emojiMode", "none")
 continuousDictationEnabled = prefs.getBoolean("continuousDictation", false)
 autoSpaceEnabled = prefs.getBoolean("autoSpaceEnabled", true)
-geminiCorrectionEnabled = prefs.getBoolean("geminiCorrectionEnabled", false)
+aiProcessingEnabled = false
 
 -- Provider Settings
 geminiApiKey = prefs.getString("geminiApiKey", "")
@@ -1177,24 +1201,6 @@ end
 
 -- ### Feature Wrapper Functions
 function correctWithAi(text, callback)
-    local instructions = {}
-    -- Strict, ultra-short prompt for speed and zero hallucinations
-    table.insert(instructions, "DO NOT change any words. ONLY fix Arabic spelling (Hamzas أإء, Taa/Haa ةه, Yaa ىي). KEEP the exact dialect.")
-
-    if tashkeelEnabled then table.insert(instructions, "Add proper Arabic tashkeel.") end
-    if profanityFilterEnabled then table.insert(instructions, "Replace profanity with ***.") end
-    if newLinePerSentenceEnabled then table.insert(instructions, "Start new line per sentence.") end
-    if convertNumbersEnabled then table.insert(instructions, "Convert digits to Arabic words.") end
-    if cleanExtraSpacesEnabled then table.insert(instructions, "Remove extra spaces.") end
-    if forceDotAtEndEnabled then table.insert(instructions, "End with a period.") end
-    if autoCommaEnabled then table.insert(instructions, "Add commas.") end
-
-    if emojiMode == "smart" then table.insert(instructions, "Add context emojis.")
-    elseif emojiMode == "end" then table.insert(instructions, "Add emojis at end.")
-    elseif emojiMode == "per_word" then table.insert(instructions, "Add emoji per word.")
-    elseif emojiMode == "encrypt" then table.insert(instructions, "Replace words with emojis.")
-    end
-
     local promptPrefix = "Process this text strictly based on instructions. No explanations, no markdown. Text: "
     if selectedDictationMode ~= "none" then
         for _, m in ipairs(dictationModes) do
@@ -1202,9 +1208,8 @@ function correctWithAi(text, callback)
         end
     end
 
-    local fullPrompt = promptPrefix .. "\n\nText:\n" .. text .. "\n\nInstructions: " .. table.concat(instructions, " | ") .. "\nReturn ONLY the result:"
-
-    local temp = 0.1 -- Always low for dictation to ensure speed and predictability
+    local fullPrompt = promptPrefix .. "\\n\\nText:\\n" .. text .. "\\n\\nReturn ONLY the result:"
+    local temp = 0.1
     makeAiRequest(fullPrompt, nil, nil, nil, callback, temp)
 end
 
@@ -1740,7 +1745,20 @@ function fetchGroqModels(callback)
                         table.insert(newModels, {name = id, id = id})
                     end
                 end
-                if #newModels > 0 then groqModels = newModels end
+                if #newModels > 0 then
+                    groqModels = newModels
+                    -- Save to SharedPreferences
+                    local jArrToSave = JSONArray()
+                    for _, m in ipairs(groqModels) do
+                        local jo = JSONObject()
+                        jo.put("name", m.name)
+                        jo.put("id", m.id)
+                        jArrToSave.put(jo)
+                    end
+                    local editor = prefs.edit()
+                    editor.putString("cachedGroqModels", jArrToSave.toString())
+                    editor.apply()
+                end
                 service.asyncSpeak("تم تحديث القائمة: " .. #groqModels .. " موديل.")
                 if callback then callback() end
             else
@@ -3923,7 +3941,6 @@ function saveSettings()
     showFloatingSettingsButtonEnabled = showFloatingSettingsButtonEnabled or false
     continuousDictationEnabled = continuousDictationEnabled or false
     autoSpaceEnabled = autoSpaceEnabled or true
-    geminiCorrectionEnabled = geminiCorrectionEnabled or false
     summarizeEnabled = summarizeEnabled or false
     imageDescriptionEnabled = imageDescriptionEnabled or false
     newTranslationFeatureEnabled = newTranslationFeatureEnabled or false
@@ -3933,7 +3950,6 @@ function saveSettings()
     editor.putString("language", selectedLanguage or defaultSelectedLanguage)
     editor.putBoolean("continuousDictation", continuousDictationEnabled)
     editor.putBoolean("autoSpaceEnabled", autoSpaceEnabled)
-    editor.putBoolean("geminiCorrectionEnabled", geminiCorrectionEnabled)
 
     editor.putString("geminiApiKey", geminiApiKey or "")
     editor.putString("groqApiKey", groqApiKey or "")
@@ -3943,31 +3959,34 @@ function saveSettings()
     editor.putString("agentModelId", selectedAgentModelId or defaultGeminiModelId)
     editor.putString("groqModelId", selectedGroqModelId or defaultGroqModelId)
     editor.putString("audioModelId", selectedAudioModelId or defaultAudioModelId)
-    editor.putString("dashboardOrder", dashboardOrder or "dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings")
+    editor.putString("dashboardOrder", dashboardOrder or "smart_agent,dictation,geminiLive,doc_reader,video_analyzer,image,transcription,settings")
     editor.putString("selectedDictationMode", selectedDictationMode or defaultDictationMode)
 
     editor.putBoolean("summarizeEnabled", summarizeEnabled)
     editor.putBoolean("imageDescriptionEnabled", imageDescriptionEnabled)
     editor.putString("screenshotMode", screenshotMode or "full")
-    editor.putBoolean("autoPunctuation", autoPunctuationEnabled)
     editor.putBoolean("showFloatingSettingsButton", showFloatingSettingsButtonEnabled)
     editor.putBoolean("newTranslationFeatureEnabled", newTranslationFeatureEnabled)
     editor.putString("translateToLanguage", translateToLanguage or defaultTranslateTo)
     editor.putBoolean("floatingButtonQuickTranslateTapEnabled", floatingButtonQuickTranslateTapEnabled)
     editor.putString("floatingButtonAction", floatingButtonAction or "translate")
     editor.putBoolean("startWithDictation", startWithDictation)
-    editor.putBoolean("tashkeelEnabled", tashkeelEnabled or false)
-    editor.putBoolean("profanityFilterEnabled", profanityFilterEnabled or false)
-    editor.putBoolean("newLinePerSentenceEnabled", newLinePerSentenceEnabled or false)
-    editor.putBoolean("convertNumbersEnabled", convertNumbersEnabled or false)
     editor.putString("geminiLiveSystemInstruction", geminiLiveSystemInstruction or "أنت مساعد صوتي ذكي. مهمتك الرد المباشر بصوتك فقط.")
     editor.putString("geminiLiveVoiceName", geminiLiveVoiceName or "Puck")
 
-    editor.putBoolean("cleanExtraSpacesEnabled", cleanExtraSpacesEnabled or false)
-    editor.putBoolean("forceDotAtEndEnabled", forceDotAtEndEnabled or false)
-    editor.putBoolean("autoCommaEnabled", autoCommaEnabled or false)
-    editor.putInt("aiCreativityLevel", aiCreativityLevel or 1)
-    editor.putString("emojiMode", emojiMode or "none")
+    -- Clean up legacy keys
+    editor.remove("tashkeelEnabled")
+    editor.remove("profanityFilterEnabled")
+    editor.remove("newLinePerSentenceEnabled")
+    editor.remove("convertNumbersEnabled")
+    editor.remove("cleanExtraSpacesEnabled")
+    editor.remove("forceDotAtEndEnabled")
+    editor.remove("autoCommaEnabled")
+    editor.remove("aiCreativityLevel")
+    editor.remove("emojiMode")
+    editor.remove("aiProcessingEnabled")
+    editor.remove("autoPunctuation")
+
     editor.apply()
 
     local currentDictLangDetails = getLanguageDetails(selectedLanguage)
@@ -4411,15 +4430,14 @@ function openAiSettingsWindow()
 
 
     -- Initial variables for switches that need to be accessed in save logic
-    local swCorr, swTash, swCont, swSpace, swPunc, swDot, swComma, swLine, swProf, swNum, swSpc
+
+    local swCont, swSpace
     local dmSpinner, dmIds
-    local emSpinner, emIds
-    local crSpinner, crIds
 
     local sections = {
         function() -- 1. Header
             local titleTxt = TextView(service)
-            titleTxt.setText("إعدادات الإملاء والذكاء الاصطناعي 🧠")
+            titleTxt.setText("إعدادات الإملاء الصوتي 🎙️")
             titleTxt.setTextSize(22)
             titleTxt.setTypeface(nil, Typeface.BOLD)
             titleTxt.setTextColor(0xFFFFFFFF)
@@ -4427,72 +4445,38 @@ function openAiSettingsWindow()
             titleTxt.setPadding(0, 0, 0, 40)
             contentL.addView(titleTxt)
         end,
-        function() -- 2. Dictation Features 1
+        function() -- 2. Dictation Features
             local dictationCard = createCard(contentL)
-            addSectionHeader("مميزات الإملاء ⚡", dictationCard)
-            swCorr = Switch(service); swCorr.setChecked(geminiCorrectionEnabled); swCorr.setOnCheckedChangeListener(function(_, c) geminiCorrectionEnabled=c end); createSettingRow("التصحيح الإملائي التلقائي", swCorr, dictationCard)
-            swTash = Switch(service); swTash.setChecked(tashkeelEnabled); swTash.setOnCheckedChangeListener(function(_, c) tashkeelEnabled=c end); createSettingRow("التشكيل بالحركات", swTash, dictationCard)
+            addSectionHeader("أوضاع الإملاء ⚡", dictationCard)
+
             swCont = Switch(service); swCont.setChecked(continuousDictationEnabled); swCont.setOnCheckedChangeListener(function(_, c) continuousDictationEnabled=c end); createSettingRow("الإملاء المستمر", swCont, dictationCard)
-            swSpace = Switch(service); swSpace.setChecked(autoSpaceEnabled); swSpace.setOnCheckedChangeListener(function(_, c) autoSpaceEnabled=c end); createSettingRow("إضافة مسافة تلقائية", swSpace, dictationCard)
-        end,
-        function() -- 3. Dictation Features 2
-            local dictationCard = contentL.getChildAt(contentL.getChildCount()-1)
-            swPunc = Switch(service); swPunc.setChecked(autoPunctuationEnabled); swPunc.setOnCheckedChangeListener(function(_, c) autoPunctuationEnabled=c end); createSettingRow("علامات الترقيم الذكية", swPunc, dictationCard)
-            swDot = Switch(service); swDot.setChecked(forceDotAtEndEnabled); swDot.setOnCheckedChangeListener(function(_, c) forceDotAtEndEnabled=c end); createSettingRow("وضع نقطة (.) حتماً", swDot, dictationCard)
-            swComma = Switch(service); swComma.setChecked(autoCommaEnabled); swComma.setOnCheckedChangeListener(function(_, c) autoCommaEnabled=c end); createSettingRow("وضع فاصلة (،)", swComma, dictationCard)
-            swLine = Switch(service); swLine.setChecked(newLinePerSentenceEnabled); swLine.setOnCheckedChangeListener(function(_, c) newLinePerSentenceEnabled=c end); createSettingRow("سطر جديد لكل جملة", swLine, dictationCard)
-        end,
-        function() -- 4. Dictation Features 3
-            local dictationCard = contentL.getChildAt(contentL.getChildCount()-1)
-            swProf = Switch(service); swProf.setChecked(profanityFilterEnabled); swProf.setOnCheckedChangeListener(function(_, c) profanityFilterEnabled=c end); createSettingRow("حجب الكلمات البذيئة (***)", swProf, dictationCard)
-            swNum = Switch(service); swNum.setChecked(convertNumbersEnabled); swNum.setOnCheckedChangeListener(function(_, c) convertNumbersEnabled=c end); createSettingRow("تحويل الأرقام لحروف", swNum, dictationCard)
-            swSpc = Switch(service); swSpc.setChecked(cleanExtraSpacesEnabled); swSpc.setOnCheckedChangeListener(function(_, c) cleanExtraSpacesEnabled=c end); createSettingRow("تنظيف المسافات الزائدة", swSpc, dictationCard)
-            dictationCard.addView(createLabel("وضع معالجة النص 🎭:"))
+            swSpace = Switch(service); swSpace.setChecked(autoSpaceEnabled); swSpace.setOnCheckedChangeListener(function(_, c) autoSpaceEnabled=c end); createSettingRow("إضافة مسافة تلقائية عند اللصق", swSpace, dictationCard)
+
+            dictationCard.addView(createLabel("وضع معالجة النص الذكي 🎭:"))
             local dmNames = ArrayList(); dmIds = {}
             for _, m in ipairs(dictationModes) do dmNames.add(m.name); table.insert(dmIds, m.id) end
             local dmAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, dmNames); dmAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
             dmSpinner = Spinner(service); dmSpinner.setAdapter(dmAdapter)
             local currDmIdx = 0; for i, id in ipairs(dmIds) do if id == selectedDictationMode then currDmIdx = i-1 break end end
             dmSpinner.setSelection(currDmIdx); dmSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener { onItemSelected = function(p, v, pos, id) selectedDictationMode = dmIds[pos + 1] end }); dictationCard.addView(dmSpinner)
-        end,
-        function() -- 5. AI Creativity & Emojis
-            local aiCard = createCard(contentL)
-            addSectionHeader("إعدادات الذكاء المتقدمة 🤖", aiCard)
-            aiCard.addView(createLabel("تخصيص وضع الإيموجي 🤩:"))
-            local emNames = ArrayList(); emIds = {"none", "smart", "end", "per_word", "encrypt"}
-            emNames.add("بدون إيموجي"); emNames.add("ذكي في السياق"); emNames.add("في آخر النص فقط"); emNames.add("بجوار كل كلمة"); emNames.add("تحويل الكلام لرموز (تشفير)")
-            local emAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, emNames); emAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-            emSpinner = Spinner(service); emSpinner.setAdapter(emAdapter)
-            local currEmIdx = 0; for i, id in ipairs(emIds) do if id == emojiMode then currEmIdx = i-1 break end end
-            emSpinner.setSelection(currEmIdx); emSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener { onItemSelected = function(p, v, pos, id) emojiMode = emIds[pos + 1] end }); aiCard.addView(emSpinner)
 
-            aiCard.addView(createLabel("درجة إبداع الذكاء الاصطناعي ✨:"))
-            local crNames = ArrayList(); crIds = {0, 1, 2}
-            crNames.add("صارم جداً (ملتزم بالنص)"); crNames.add("طبيعي (متوازن)"); crNames.add("إبداعي (خيال واسع)")
-            local crAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, crNames); crAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-            crSpinner = Spinner(service); crSpinner.setAdapter(crAdapter); crSpinner.setSelection(aiCreativityLevel or 1)
-            crSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener { onItemSelected = function(p, v, pos, id) aiCreativityLevel = crIds[pos + 1] end }); aiCard.addView(crSpinner)
+            local helpTxt = TextView(service)
+            helpTxt.setText("💡 تم دمج إعدادات التشكيل، علامات الترقيم، والإيموجي بذكاء داخل الأوضاع السابقة لضمان أفضل جودة للنص بدون تعارض.")
+            helpTxt.setTextColor(0xFF888888)
+            helpTxt.setTextSize(14)
+            helpTxt.setPadding(0, 20, 0, 10)
+            dictationCard.addView(helpTxt)
         end,
-        function() -- 6. Save Buttons
+        function() -- 3. Save Buttons
             local btnL = LinearLayout(service); btnL.setOrientation(LinearLayout.VERTICAL); btnL.setGravity(Gravity.CENTER); btnL.setPadding(0, 40, 0, 10)
             local saveBtn = Button(service); saveBtn.setText("💾 حفظ التغييرات"); styleButton(saveBtn, "primary")
             saveBtn.setOnClickListener(function()
                 if dmSpinner and dmIds then selectedDictationMode = dmIds[dmSpinner.getSelectedItemPosition() + 1] end
-                if emSpinner and emIds then emojiMode = emIds[emSpinner.getSelectedItemPosition() + 1] end
-                if crSpinner and crIds then aiCreativityLevel = crIds[crSpinner.getSelectedItemPosition() + 1] end
-                if swTash then tashkeelEnabled = swTash.isChecked() end
-                if swProf then profanityFilterEnabled = swProf.isChecked() end
-                if swLine then newLinePerSentenceEnabled = swLine.isChecked() end
-                if swNum then convertNumbersEnabled = swNum.isChecked() end
-                if swSpc then cleanExtraSpacesEnabled = swSpc.isChecked() end
-                if swDot then forceDotAtEndEnabled = swDot.isChecked() end
-                if swComma then autoCommaEnabled = swComma.isChecked() end
-                if swCorr then geminiCorrectionEnabled = swCorr.isChecked() end
                 if swCont then continuousDictationEnabled = swCont.isChecked() end
                 if swSpace then autoSpaceEnabled = swSpace.isChecked() end
                 saveSettings()
                 if aiSettingsDialog then pcall(function() wm.removeView(aiSettingsDialog) end); aiSettingsDialog = nil end
-                service.asyncSpeak("تم حفظ إعدادات الإملاء والذكاء الاصطناعي بنجاح.")
+                service.asyncSpeak("تم حفظ إعدادات الإملاء بنجاح.")
             end)
             btnL.addView(saveBtn)
             local closeBtn = Button(service); closeBtn.setText("❌ إلغاء"); styleButton(closeBtn, "danger")
@@ -5274,8 +5258,7 @@ function startVoiceRecognition(fromDashboard)
                     end
 
                     local function handleCorrection(textToCorrect, callback)
-                        local hasModifications = tashkeelEnabled or profanityFilterEnabled or newLinePerSentenceEnabled or convertNumbersEnabled or cleanExtraSpacesEnabled or forceDotAtEndEnabled or autoCommaEnabled or (emojiMode and emojiMode ~= "none")
-                        local needsCorrection = geminiCorrectionEnabled or (selectedDictationMode and selectedDictationMode ~= "none") or hasModifications
+                        local needsCorrection = (selectedDictationMode and selectedDictationMode ~= "none")
                         if needsCorrection then
                             correctWithAi(textToCorrect, function(result)
                                 if result and (result:match("^Error:") or result:match("^خطأ:") or result:match("^AI Request Failed")) then
