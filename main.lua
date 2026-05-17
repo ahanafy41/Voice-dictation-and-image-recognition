@@ -170,7 +170,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 9.7
+local currentAppVersion = 9.8
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -5160,95 +5160,106 @@ function startVoiceRecognition(fromDashboard)
                         return nil
                     end
 
-                    local function getBestTargetNode()
-                        local targetNode = service.getEditText()
-                        if not targetNode then
-                            targetNode = service.getFocusView()
-                            if targetNode and not targetNode.isEditable() then
-                                targetNode = nil
-                            end
-                        end
-                        if not targetNode then
-                            local root = service.getRootInActiveWindow()
-                            if root then
-                                targetNode = findAnyEditableNode(root)
-                            end
-                        end
-                        return targetNode
-                    end
-
-                    local targetEditText = getBestTargetNode()
-
                     local function insertFinalResult(finalTextToInsert, wasTranslated)
                         if finalTextToInsert then
-                            -- Clean the text: remove leading/trailing quotation marks that AI might hallucinate
                             finalTextToInsert = finalTextToInsert:gsub("^[\"\'“‘]+", ""):gsub("[\"\'”’]+$", "")
-                            -- Clean up any extra whitespaces
                             finalTextToInsert = finalTextToInsert:match("^%s*(.-)%s*$")
                         end
 
-                        local feedbackKey = wasTranslated and "dictation_insert_verify_translated" or "dictation_insert_verify"
-                        if finalTextToInsert and finalTextToInsert:match("%S") then
-                             service.asyncSpeak(getFeedbackString(feedbackKey, currentDictLangDetails.code, finalTextToInsert))
+                        if not finalTextToInsert or not finalTextToInsert:match("%S") then
+                            if shouldContinue then startListening() elseif not continuousDictationEnabled then cleanupResources() end
+                            return
                         end
 
-                        local textToActuallyInsert = finalTextToInsert
-                        local insertedSuccessfully = false
+                        local feedbackKey = wasTranslated and "dictation_insert_verify_translated" or "dictation_insert_verify"
+                        service.asyncSpeak(getFeedbackString(feedbackKey, currentDictLangDetails.code, finalTextToInsert))
 
-                        local targetNode = getBestTargetNode()
+                        local cleanText = finalTextToInsert
+                        if autoSpaceEnabled then
+                            cleanText = " " .. cleanText
+                        end
 
-                        if targetNode then
-                            if autoSpaceEnabled then
-                                textToActuallyInsert = " " .. textToActuallyInsert
+                        -- 1. Backup Save: Instantly copy to clipboard as a fail-safe
+                        pcall(function() service.copy(cleanText) end)
+
+                        -- 2. Radar Scanner: Deep recursive scanner
+                        local function scanForEditableNode(node)
+                            if not node then return nil end
+                            if node.isEditable() then return node end
+                            for i = 0, node.getChildCount() - 1 do
+                                local child = node.getChild(i)
+                                if child then
+                                    local found = scanForEditableNode(child)
+                                    if found then return found end
+                                    pcall(child.recycle, child)
+                                end
                             end
+                            return nil
+                        end
 
-                            local AccessibilityNodeInfo = luajava.bindClass("android.view.accessibility.AccessibilityNodeInfo")
-                            local Bundle = luajava.bindClass("android.os.Bundle")
+                        -- 3. Smart Retry Loop
+                        local attempt = 0
+                        local maxAttempts = 4
+                        local AccessibilityNodeInfo = luajava.bindClass("android.view.accessibility.AccessibilityNodeInfo")
 
-                            -- 1. Try ACTION_PASTE (Primary method for injection to avoid hint text capture)
-                            pcall(function() service.copy(textToActuallyInsert) end)
-                            local ok, actionResult = pcall(function() return targetNode.performAction(AccessibilityNodeInfo.ACTION_PASTE) end)
-
-                            if ok and actionResult then
-                                insertedSuccessfully = true
-                            else
-                                -- 2. Try Jieshuo's insertText (Also respects cursor position)
-                                local okInsert = pcall(function() service.insertText(targetNode, textToActuallyInsert) end)
-                                if okInsert then
-                                    insertedSuccessfully = true
-                                else
-                                    -- 3. Fallback to commitText (very strong for browsers/webviews)
-                                    local okCommit = pcall(function() return service.commitText(textToActuallyInsert) end)
-                                    -- Jieshuo commitText might not return a boolean, so we assume success if no error was thrown.
-                                    if okCommit then
-                                        insertedSuccessfully = true
+                        local function tryInject()
+                            attempt = attempt + 1
+                            local targetNode = nil
+                            local windows = service.getWindows()
+                            if windows then
+                                for i = 0, windows.size() - 1 do
+                                    local win = windows.get(i)
+                                    if win then
+                                        local root = win.getRoot()
+                                        if root then
+                                            targetNode = scanForEditableNode(root)
+                                            if targetNode then break end
+                                        end
                                     end
                                 end
                             end
-                            pcall(targetNode.recycle, targetNode)
-                        end
 
-                        -- Fourth attempt: Fallback to commitText if node logic failed
-                        if not insertedSuccessfully then
-                            local okCommit = pcall(function() return service.commitText(textToActuallyInsert) end)
-                            if okCommit then
-                                insertedSuccessfully = true
-                            end
-                        end
+                            local insertedSuccessfully = false
 
-                        -- Fifth attempt: Fallback to Jieshuo paste or copy
-                        if not insertedSuccessfully then
-                            local okPaste = pcall(function() service.paste(textToActuallyInsert) end)
-                            if okPaste then
-                                insertedSuccessfully = true
+                            if targetNode then
+                                local ok, actionResult = pcall(function() return targetNode.performAction(AccessibilityNodeInfo.ACTION_PASTE) end)
+                                if ok and actionResult then
+                                    insertedSuccessfully = true
+                                else
+                                    local okInsert = pcall(function() service.insertText(targetNode, cleanText) end)
+                                    if okInsert then
+                                        insertedSuccessfully = true
+                                    else
+                                        local okCommit = pcall(function() return service.commitText(cleanText) end)
+                                        if okCommit then
+                                            insertedSuccessfully = true
+                                        end
+                                    end
+                                end
+                                pcall(targetNode.recycle, targetNode)
                             else
-                                -- Absolute fallback: copy to clipboard so the user doesn't lose data
-                                pcall(function() service.copy(textToActuallyInsert) end)
-                                service.asyncSpeak("لم يتم العثور على مربع كتابة، تم نسخ النص للحافظة")
+                                -- Fallback commitText without node
+                                local okCommit = pcall(function() return service.commitText(cleanText) end)
+                                if okCommit then
+                                    insertedSuccessfully = true
+                                end
+                            end
+
+                            if insertedSuccessfully then
+                                if shouldContinue then startListening() elseif not continuousDictationEnabled then cleanupResources() end
+                            else
+                                if attempt < maxAttempts then
+                                    mainHandler.postDelayed(luajava.createProxy("java.lang.Runnable", {
+                                        run = function() tryInject() end
+                                    }), 200)
+                                else
+                                    service.asyncSpeak("لم يتم العثور على مربع كتابة، تم نسخ النص للحافظة")
+                                    if shouldContinue then startListening() elseif not continuousDictationEnabled then cleanupResources() end
+                                end
                             end
                         end
 
-                        if shouldContinue then startListening() elseif not continuousDictationEnabled then cleanupResources() end
+                        tryInject()
                     end
 
                     local function handleCorrection(textToCorrect, callback)

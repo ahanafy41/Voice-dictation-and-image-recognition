@@ -1,2 +1,2 @@
-9.7
-Fix & Core: Resolve Llama hallucinations, enforce auto-updates, and bump version
+9.8
+Fix: Implemented robust multi-window retry text injection and enforced auto-updates.
