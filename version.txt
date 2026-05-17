@@ -1,2 +1,2 @@
-9.5
-إصلاح مشكلة الإملاء والترجمة مع موديلات Groq عن طريق تقليل الـ tokens لتحسين التوافق، وإضافة توضيح صوتي دقيق لسبب رفض الذكاء الاصطناعي.
+9.6
+Fix: Resolve AI dictation hallucinations and text injection hint-capture bugs
