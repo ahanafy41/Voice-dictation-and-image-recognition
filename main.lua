@@ -170,7 +170,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 9.5
+local currentAppVersion = 9.6
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -1123,7 +1123,7 @@ function makeAiRequest(prompt, systemInstruction, imageBase64, modelIdOverride, 
         local root = JSONObject()
         root.put("model", model)
         root.put("messages", jsonMessages)
-        root.put("temperature", 0.3)
+        root.put("temperature", tempOverride or 0.3)
         -- Reduced max_tokens for Groq to stay within usage limits
         root.put("max_tokens", 4096)
         requestBody = root.toString()
@@ -1150,7 +1150,7 @@ function makeAiRequest(prompt, systemInstruction, imageBase64, modelIdOverride, 
         root.put("contents", contentsArray)
 
         local genConfig = JSONObject()
-        genConfig.put("temperature", 0.3)
+        genConfig.put("temperature", tempOverride or 0.3)
         genConfig.put("candidateCount", 1)
         root.put("generationConfig", genConfig)
 
@@ -1198,8 +1198,9 @@ function correctWithAi(text, callback)
     end
 
     local fullPrompt = promptPrefix .. "\\n\\nText:\\n" .. text .. "\\n\\nReturn ONLY the result:"
-    local temp = 0.1
-    makeAiRequest(fullPrompt, nil, nil, selectedGroqModelId, callback, temp)
+    local strictSystemInstruction = "You are a strict text processor. Apply the requested style/mode, but NEVER output conversational text, NEVER answer questions, and output ONLY the final Arabic text."
+    local temp = 0.0
+    makeAiRequest(fullPrompt, strictSystemInstruction, nil, selectedGroqModelId, callback, temp)
 end
 
 function translateTextWithGemini_New(textToTranslate, sourceLang, targetLang, callback)
@@ -5179,6 +5180,13 @@ function startVoiceRecognition(fromDashboard)
                     local targetEditText = getBestTargetNode()
 
                     local function insertFinalResult(finalTextToInsert, wasTranslated)
+                        if finalTextToInsert then
+                            -- Clean the text: remove leading/trailing quotation marks that AI might hallucinate
+                            finalTextToInsert = finalTextToInsert:gsub("^[\"\'“‘]+", ""):gsub("[\"\'”’]+$", "")
+                            -- Clean up any extra whitespaces
+                            finalTextToInsert = finalTextToInsert:match("^%s*(.-)%s*$")
+                        end
+
                         local feedbackKey = wasTranslated and "dictation_insert_verify_translated" or "dictation_insert_verify"
                         if finalTextToInsert and finalTextToInsert:match("%S") then
                              service.asyncSpeak(getFeedbackString(feedbackKey, currentDictLangDetails.code, finalTextToInsert))
@@ -5190,31 +5198,29 @@ function startVoiceRecognition(fromDashboard)
                         local targetNode = getBestTargetNode()
 
                         if targetNode then
-                            local currentContent = targetNode.getText() and tostring(targetNode.getText()) or ""
-                            if autoSpaceEnabled and #currentContent > 0 and not currentContent:match("%s$") and not currentContent:match("[\"\'“‘]$") then
+                            if autoSpaceEnabled then
                                 textToActuallyInsert = " " .. textToActuallyInsert
                             end
 
                             local AccessibilityNodeInfo = luajava.bindClass("android.view.accessibility.AccessibilityNodeInfo")
                             local Bundle = luajava.bindClass("android.os.Bundle")
 
-                            -- 1. Try ACTION_SET_TEXT (Most robust for native EditText)
-                            local b = Bundle()
-                            b.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, currentContent .. textToActuallyInsert)
-                            local ok, actionResult = pcall(function() return targetNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, b) end)
+                            -- 1. Try ACTION_PASTE (Primary method for injection to avoid hint text capture)
+                            pcall(function() service.copy(textToActuallyInsert) end)
+                            local ok, actionResult = pcall(function() return targetNode.performAction(AccessibilityNodeInfo.ACTION_PASTE) end)
 
                             if ok and actionResult then
                                 insertedSuccessfully = true
                             else
-                                -- 2. Try ACTION_PASTE
-                                pcall(function() service.copy(textToActuallyInsert) end)
-                                ok, actionResult = pcall(function() return targetNode.performAction(AccessibilityNodeInfo.ACTION_PASTE) end)
-                                if ok and actionResult then
+                                -- 2. Try Jieshuo's insertText (Also respects cursor position)
+                                local okInsert = pcall(function() service.insertText(targetNode, textToActuallyInsert) end)
+                                if okInsert then
                                     insertedSuccessfully = true
                                 else
-                                    -- 3. Fallback to Jieshuo's insertText
-                                    local okInsert = pcall(function() service.insertText(targetNode, textToActuallyInsert) end)
-                                    if okInsert then
+                                    -- 3. Fallback to commitText (very strong for browsers/webviews)
+                                    local okCommit = pcall(function() return service.commitText(textToActuallyInsert) end)
+                                    -- Jieshuo commitText might not return a boolean, so we assume success if no error was thrown.
+                                    if okCommit then
                                         insertedSuccessfully = true
                                     end
                                 end
@@ -5222,10 +5228,9 @@ function startVoiceRecognition(fromDashboard)
                             pcall(targetNode.recycle, targetNode)
                         end
 
-                        -- Fourth attempt: Fallback to commitText (very strong for browsers/webviews)
+                        -- Fourth attempt: Fallback to commitText if node logic failed
                         if not insertedSuccessfully then
                             local okCommit = pcall(function() return service.commitText(textToActuallyInsert) end)
-                            -- Jieshuo commitText might not return a boolean, so we assume success if no error was thrown.
                             if okCommit then
                                 insertedSuccessfully = true
                             end
