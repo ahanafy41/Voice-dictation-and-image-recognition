@@ -170,7 +170,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 9.6
+local currentAppVersion = 9.7
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -1198,7 +1198,7 @@ function correctWithAi(text, callback)
     end
 
     local fullPrompt = promptPrefix .. "\\n\\nText:\\n" .. text .. "\\n\\nReturn ONLY the result:"
-    local strictSystemInstruction = "You are a strict text processor. Apply the requested style/mode, but NEVER output conversational text, NEVER answer questions, and output ONLY the final Arabic text."
+    local strictSystemInstruction = "You are a strict text processor API. RULES: 1. NO conversational filler (e.g., 'Here is the text'). 2. NO Markdown formatting. 3. Output EXACTLY AND ONLY the raw Arabic text."
     local temp = 0.0
     makeAiRequest(fullPrompt, strictSystemInstruction, nil, selectedGroqModelId, callback, temp)
 end
