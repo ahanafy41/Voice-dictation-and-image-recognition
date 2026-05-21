@@ -170,7 +170,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 9.8
+local currentAppVersion = 9.9
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -5179,87 +5179,74 @@ function startVoiceRecognition(fromDashboard)
                             cleanText = " " .. cleanText
                         end
 
-                        -- 1. Backup Save: Instantly copy to clipboard as a fail-safe
-                        pcall(function() service.copy(cleanText) end)
-
-                        -- 2. Radar Scanner: Deep recursive scanner
-                        local function scanForEditableNode(node)
+                        -- 1. دالة البحث العكسي لقطف "آخر" مربع نصي تم التفاعل معه على الشاشة
+                        local function findLastEditableNode(node)
                             if not node then return nil end
-                            if node.isEditable() then return node end
-                            for i = 0, node.getChildCount() - 1 do
-                                local child = node.getChild(i)
+                            local lastNode = nil
+
+                            -- لو العقدة الحالية قابلة للكتابة، بنحفظها مبدئياً
+                            if node.isEditable() then lastNode = node end
+
+                            local childCount = 0
+                            pcall(function() childCount = node.getChildCount() end)
+
+                            -- البحث في الأبناء بشكل تعمقي
+                            for i = 0, childCount - 1 do
+                                local child = nil
+                                pcall(function() child = node.getChild(i) end)
                                 if child then
-                                    local found = scanForEditableNode(child)
-                                    if found then return found end
-                                    pcall(child.recycle, child)
+                                    local found = findLastEditableNode(child)
+                                    if found then
+                                        if lastNode then pcall(lastNode.recycle, lastNode) end
+                                        lastNode = found -- استبدال المربع بآخر مربع تم العثور عليه (غالباً مربع الشات)
+                                    else
+                                        pcall(child.recycle, child)
+                                    end
                                 end
                             end
-                            return nil
+                            return lastNode
                         end
 
-                        -- 3. Smart Retry Loop
-                        local attempt = 0
-                        local maxAttempts = 4
+                        -- 2. بدء عملية الفحص الفعلي للشاشة الحالية
+                        local root = nil
+                        pcall(function() root = service.getRootInActiveWindow() end)
+                        local targetNode = findLastEditableNode(root)
                         local AccessibilityNodeInfo = luajava.bindClass("android.view.accessibility.AccessibilityNodeInfo")
 
-                        local function tryInject()
-                            attempt = attempt + 1
-                            local targetNode = nil
-                            local windows = service.getWindows()
-                            if windows then
-                                for i = 0, windows.size() - 1 do
-                                    local win = windows.get(i)
-                                    if win then
-                                        local root = win.getRoot()
-                                        if root then
-                                            targetNode = scanForEditableNode(root)
-                                            if targetNode then break end
-                                        end
+                        if targetNode then
+                            -- 🌟 الترقيعة السحرية: إيقاظ المربع وإعطائه أمر فوكس وكليك برمجياً عشان الكيبورد يفتح لو قفل
+                            pcall(function()
+                                targetNode.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+                                targetNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                            end)
+
+                            -- ⏳ تجميد مؤقت لمدة 150 مللي ثانية حتى يستجيب نظام الأندرويد ويفتح مربع النص بالكامل
+                            mainHandler.postDelayed(luajava.createProxy("java.lang.Runnable", {
+                                run = function()
+                                    local insertedSuccessfully = false
+
+                                    -- محاولة حقن النص عبر دالة الناطق insertText بدون استخدام الحافظة
+                                    insertedSuccessfully = pcall(function() service.insertText(targetNode, cleanText) end)
+
+                                    -- تنظيف الذاكرة فوراً
+                                    pcall(targetNode.recycle, targetNode)
+
+                                    -- لو الطريقة فشلت، بنعمل حقن أعمى للنظام
+                                    if not insertedSuccessfully then
+                                        pcall(function() service.commitText(cleanText) end)
                                     end
-                                end
-                            end
 
-                            local insertedSuccessfully = false
-
-                            if targetNode then
-                                local ok, actionResult = pcall(function() return targetNode.performAction(AccessibilityNodeInfo.ACTION_PASTE) end)
-                                if ok and actionResult then
-                                    insertedSuccessfully = true
-                                else
-                                    local okInsert = pcall(function() service.insertText(targetNode, cleanText) end)
-                                    if okInsert then
-                                        insertedSuccessfully = true
-                                    else
-                                        local okCommit = pcall(function() return service.commitText(cleanText) end)
-                                        if okCommit then
-                                            insertedSuccessfully = true
-                                        end
-                                    end
-                                end
-                                pcall(targetNode.recycle, targetNode)
-                            else
-                                -- Fallback commitText without node
-                                local okCommit = pcall(function() return service.commitText(cleanText) end)
-                                if okCommit then
-                                    insertedSuccessfully = true
-                                end
-                            end
-
-                            if insertedSuccessfully then
-                                if shouldContinue then startListening() elseif not continuousDictationEnabled then cleanupResources() end
-                            else
-                                if attempt < maxAttempts then
-                                    mainHandler.postDelayed(luajava.createProxy("java.lang.Runnable", {
-                                        run = function() tryInject() end
-                                    }), 200)
-                                else
-                                    service.asyncSpeak("لم يتم العثور على مربع كتابة، تم نسخ النص للحافظة")
                                     if shouldContinue then startListening() elseif not continuousDictationEnabled then cleanupResources() end
                                 end
-                            end
+                            }), 150)
+                        else
+                            -- إذا لم يجد الكود أي مربع نصي مفتوح على الشاشة، بيحقنه فوراً
+                            pcall(function() service.commitText(cleanText) end)
+                            if shouldContinue then startListening() elseif not continuousDictationEnabled then cleanupResources() end
                         end
 
-                        tryInject()
+                        -- تنظيف عقدة الجزر الرئيسية
+                        if root then pcall(root.recycle, root) end
                     end
 
                     local function handleCorrection(textToCorrect, callback)
