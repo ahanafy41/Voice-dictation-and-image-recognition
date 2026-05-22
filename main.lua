@@ -170,7 +170,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 10.0
+local currentAppVersion = 10.1
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -5172,7 +5172,6 @@ function startVoiceRecognition(fromDashboard)
                         end
 
                         local feedbackKey = wasTranslated and "dictation_insert_verify_translated" or "dictation_insert_verify"
-                        service.asyncSpeak(getFeedbackString(feedbackKey, currentDictLangDetails.code, finalTextToInsert))
 
                         local cleanText = finalTextToInsert
                         if autoSpaceEnabled then
@@ -5236,12 +5235,15 @@ function startVoiceRecognition(fromDashboard)
                                         pcall(function() service.commitText(cleanText) end)
                                     end
 
+                                    service.asyncSpeak(getFeedbackString(feedbackKey, currentDictLangDetails.code, finalTextToInsert))
+
                                     if shouldContinue then startListening() elseif not continuousDictationEnabled then cleanupResources() end
                                 end
                             }), 150)
                         else
                             -- إذا لم يجد الكود أي مربع نصي مفتوح على الشاشة، بيحقنه فوراً
                             pcall(function() service.commitText(cleanText) end)
+                            service.asyncSpeak(getFeedbackString(feedbackKey, currentDictLangDetails.code, finalTextToInsert))
                             if shouldContinue then startListening() elseif not continuousDictationEnabled then cleanupResources() end
                         end
 
