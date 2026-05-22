@@ -170,7 +170,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 9.9
+local currentAppVersion = 10.0
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -5764,7 +5764,7 @@ function showGeminiLiveWindow()
     }]
     ]]
 
-    local sysInstr = (geminiLiveSystemInstruction or "أنت مساعد صوتي ذكي. مهمتك الرد المباشر بصوتك فقط.") .. " (لديك الآن القدرة على رؤية ما تعرضه الكاميرا في بث مباشر. ساعد المستخدم، وهو كفيف، في وصف البيئة أو قراءة النصوص أو التعرف على المنتجات عند سؤاله. ركز على الدقة والإيجاز في الوصف. أيضاً لديك أداة بحث في الإنترنت 'tavily_search' يمكنك استدعاؤها متى احتجت لمعلومات محدثة أو للبحث عن إجابة.)"
+    local sysInstr = (geminiLiveSystemInstruction or "أنت مساعد صوتي ذكي. مهمتك الرد المباشر بصوتك فقط.") .. " (لديك الآن القدرة على رؤية ما تعرضه الكاميرا في بث مباشر. ساعد المستخدم، وهو كفيف، في وصف البيئة أو قراءة النصوص أو التعرف على المنتجات عند سؤاله. ركز على الدقة والإيجاز في الوصف. أيضاً لديك أداة بحث في الإنترنت 'tavily_search' يمكنك استدعاؤها متى احتجت لمعلومات محدثة أو للبحث عن إجابة. هام جداً: إذا لم يتم إرسال صور لك أو كانت الصور سوداء أو غير واضحة المعالم تماماً، فهذا يعني أن الكاميرا مغلقة أو محجوبة. في هذه الحالة، يمنع منعاً باتاً اختلاق أو تخيل أي تفاصيل، ويجب عليك الاعتراف بوضوح أنك لا ترى شيئاً لأن الكاميرا يبدو أنها مغلقة.)"
 
     sysInstr = escapeJsonString(sysInstr)
 
@@ -5819,16 +5819,22 @@ function showGeminiLiveWindow()
         let isFlashActive = false;
         let isFlashTransitioning = false;
 
+        let isCameraActive = false;
+
         async function toggleCamera() {
             if (camStream) {
                 stopCamera();
                 toggleCamBtn.innerText = '📷 فتح الكاميرا';
+                toggleCamBtn.setAttribute('aria-label', 'الكاميرا حاليا مقفولة. اضغط لفتح الكاميرا');
                 toggleCamBtn.style.background = '#444';
+                isCameraActive = false;
             } else {
                 const started = await startCamera();
                 if (started) {
                     toggleCamBtn.innerText = '🚫 غلق الكاميرا';
+                    toggleCamBtn.setAttribute('aria-label', 'الكاميرا حاليا مفتوحة. اضغط لغلق الكاميرا');
                     toggleCamBtn.style.background = '#ff8800';
+                    isCameraActive = true;
                 }
             }
         }
@@ -5896,6 +5902,7 @@ function showGeminiLiveWindow()
         flashBtn.onclick = toggleFlash;
 
         function stopCamera() {
+            isCameraActive = false;
             if (camStream) camStream.getTracks().forEach(t => t.stop());
             camStream = null;
             video.style.display = 'none';
@@ -5914,13 +5921,14 @@ function showGeminiLiveWindow()
         function startVideoPusher() {
             if (videoInterval) clearInterval(videoInterval);
             videoInterval = setInterval(() => {
-                if (ws && ws.readyState === WebSocket.OPEN && camStream) {
+                if (ws && ws.readyState === WebSocket.OPEN && camStream && isCameraActive) {
                     captureAndSendFrame();
                 }
             }, 1500);
         }
 
         function captureAndSendFrame() {
+            if (!isCameraActive || !camStream) return;
             const context = canvas.getContext('2d');
             canvas.width = video.videoWidth / 2; // Resize for efficiency
             canvas.height = video.videoHeight / 2;
@@ -5995,6 +6003,7 @@ function showGeminiLiveWindow()
         function endSession() {
             stopCamera();
             toggleCamBtn.style.display = "none";
+            toggleCamBtn.setAttribute('aria-label', 'فتح وإغلاق الكاميرا');
             switchCamBtn.style.display = "none";
             flashBtn.style.display = "none";
             if (isFlashActive) {
