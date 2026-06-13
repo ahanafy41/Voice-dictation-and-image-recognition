@@ -1,0 +1,7 @@
+1. Update `geminiModels` and `audioModels` in `main.lua` to remove the `-preview` suffix from Gemini 3.1 Flash Lite. Set `gemini-3.1-flash-lite` as the default Gemini text model.
+2. Update the `dictationModes` in `main.lua` for `correct` and `correct_emoji` modes with the precise Arabic prompt provided by the user.
+3. Update `translateTextWithGemini_New` in `main.lua` to use a strict Arabic prompt instructing the model to translate without greetings or filler text.
+4. Introduce a new settings preference: `textProcessorProvider` (defaulting to "groq") and add a UI spinner in the settings panel (under Voice & Language or Tools) to let the user select between "Groq" and "Gemini".
+5. Update `correctWithAi` and `translateTextWithGemini_New` to read the selected provider and pass the correct model/API key to `makeAiRequest`.
+6. Increment the `currentAppVersion` in `main.lua` (from 10.1 to 10.2) to trigger the OTA update mechanism.
+7. Run Lua syntax checker to ensure no syntax errors were introduced.
