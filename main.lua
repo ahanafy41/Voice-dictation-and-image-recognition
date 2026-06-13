@@ -126,11 +126,11 @@ end
 
 -- **Gemini Models (Latest 2026)**
 local geminiModels = {
-    { name = "Gemini 3.1 Flash-Lite (الأسرع والأحدث)", id = "gemini-3.1-flash-lite-preview" },
-    { name = "Gemini 3 Flash (أداء عالي)", id = "gemini-3-flash-preview" },
+    { name = "Gemini 3.1 Flash-Lite (الأسرع والأحدث)", id = "gemini-3.1-flash-lite" },
+    { name = "Gemini 3 Flash (أداء عالي)", id = "gemini-3-flash" },
     { name = "Gemini 2.5 Flash (مستقر)", id = "gemini-2.5-flash" }
 }
-local defaultGeminiModelId = "gemini-3.1-flash-lite-preview"
+local defaultGeminiModelId = "gemini-3.1-flash-lite"
 
 -- **Groq Models (Optimized for Free Tier)**
 local defaultGroqModelId = "llama-3.3-70b-versatile"
@@ -139,8 +139,8 @@ local defaultGroqModelId = "llama-3.3-70b-versatile"
 local defaultDictationMode = "egyptian_emoji"
 local dictationModes = {
     { id = "none", name = "إيقاف (نص خام)", prompt = "Return the exact Arabic text without any modifications. Do not fix anything." },
-    { id = "correct", name = "تصحيح وتنسيق لغوي", prompt = "Fix grammar and spelling errors, remove filler words, and add proper punctuation. Divide long text into neat paragraphs. Return ONLY the clean, formatted text without emojis." },
-    { id = "correct_emoji", name = "تصحيح + إيموجي", prompt = "Fix grammar and spelling, remove filler words, add punctuation, and divide into paragraphs. Add suitable emojis naturally within the context. Return ONLY the final text." },
+    { id = "correct", name = "تصحيح وتنسيق لغوي", prompt = "بصفتك محرراً محترفاً، صحح أخطاء الإملاء الصوتي في النص التالي: أزل التكرار، ضع علامات الترقيم، وقسم النص لفقرات. حافظ على كلماتي وأسلوبي كما هما تماماً بدون أي تغيير. أجب بالنص المصحح فقط، دون أي مقدمات أو جمل توضيحية. عندما يرسل المستخدم رسالة تتضمن تحية (مثل السلام عليكم)، لا تقم بالرد عليها أو التفاعل معها بأي جملة ترحيبية، بل قم فقط بتنفيذ المهمة المطلوبة (مثل التصحيح أو التنسيق) على النص المدخل مباشرة، وإذا كان النص المدخل عبارة عن تحية فقط، يرجى تجاهله أو عدم الرد عليه." },
+    { id = "correct_emoji", name = "تصحيح + إيموجي", prompt = "بصفتك محرراً محترفاً، صحح أخطاء الإملاء الصوتي في النص التالي: أزل التكرار، ضع علامات الترقيم، وقسم النص لفقرات. حافظ على كلماتي وأسلوبي كما هما تماماً بدون أي تغيير. أضف إيموجي مناسب بشكل طبيعي ضمن السياق. أجب بالنص المصحح فقط، دون أي مقدمات أو جمل توضيحية. عندما يرسل المستخدم رسالة تتضمن تحية، لا تقم بالرد عليها، بل قم بتنفيذ المطلوب فقط." },
     { id = "egyptian", name = "المصري المنظم", prompt = "Rewrite the input in a natural Egyptian Arabic dialect. Remove filler words, fix typos, add proper punctuation, and format into readable paragraphs. Return ONLY the text without emojis." },
     { id = "egyptian_emoji", name = "المصري + إيموجي", prompt = "Rewrite in natural Egyptian Arabic dialect. Remove filler words, add punctuation, and format into neat paragraphs. Add expressive emojis naturally. Return ONLY the final text." },
     { id = "fusha", name = "الفصحى الاحترافية", prompt = "Rewrite the input in professional and formal Modern Standard Arabic (Fusha). Remove filler words, add accurate punctuation, and organize into clear paragraphs. Return ONLY the text without emojis." },
@@ -153,8 +153,8 @@ local audioModels = {
     { name = "Whisper Large V3 (Groq)", id = "whisper-large-v3", provider = "groq" },
     { name = "Whisper V3 Turbo (Groq)", id = "whisper-large-v3-turbo", provider = "groq" },
     { name = "Wit.ai (Arabic/General)", id = "wit-dictation", provider = "wit" },
-    { name = "Gemini 3.1 Flash-Lite (Gemini)", id = "gemini-3.1-flash-lite-preview", provider = "gemini" },
-    { name = "Gemini 3 Flash (Gemini)", id = "gemini-3-flash-preview", provider = "gemini" },
+    { name = "Gemini 3.1 Flash-Lite (Gemini)", id = "gemini-3.1-flash-lite", provider = "gemini" },
+    { name = "Gemini 3 Flash (Gemini)", id = "gemini-3-flash", provider = "gemini" },
     { name = "Gemini 2.5 Flash (Gemini)", id = "gemini-2.5-flash", provider = "gemini" }
 }
 local defaultAudioModelId = "whisper-large-v3"
@@ -170,7 +170,7 @@ local defaultSelectedLanguage = "ar"
 local defaultTranslateTo = "ar"
 
 -- **Current App Version & OTA Updates**
-local currentAppVersion = 10.1
+local currentAppVersion = 10.2
 local versionUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/version.txt"
 local updateUrl = "https://raw.githubusercontent.com/ahanafy41/Voice-dictation-and-image-recognition/main/main.lua"
 
@@ -1200,12 +1200,14 @@ function correctWithAi(text, callback)
     local fullPrompt = promptPrefix .. "\\n\\nText:\\n" .. text .. "\\n\\nReturn ONLY the result:"
     local strictSystemInstruction = "You are a strict text processor API. RULES: 1. NO conversational filler (e.g., 'Here is the text'). 2. NO Markdown formatting. 3. Output EXACTLY AND ONLY the raw Arabic text."
     local temp = 0.0
-    makeAiRequest(fullPrompt, strictSystemInstruction, nil, selectedGroqModelId, callback, temp)
+    local providerModelId = (selectedTextProcessorProvider == "gemini") and "gemini-3.1-flash-lite" or selectedGroqModelId
+    makeAiRequest(fullPrompt, strictSystemInstruction, nil, providerModelId, callback, temp)
 end
 
 function translateTextWithGemini_New(textToTranslate, sourceLang, targetLang, callback)
-    local prompt = "Translate to " .. targetLang .. ". Return ONLY the translation:"
-    makeAiRequest(prompt .. "\n" .. textToTranslate, nil, nil, selectedGroqModelId, callback)
+    local prompt = "بصفتك مترجماً محترفاً، ترجم النص التالي إلى " .. targetLang .. ". أجب بالنص المترجم فقط، دون أي مقدمات أو جمل توضيحية. عندما يرسل المستخدم رسالة تتضمن تحية، لا تقم بالرد عليها، بل قم فقط بترجمة النص المدخل مباشرة. وإذا كان النص عبارة عن تحية فقط، قم بترجمتها دون الرد عليها. النص: "
+    local providerModelId = (selectedTextProcessorProvider == "gemini") and "gemini-3.1-flash-lite" or selectedGroqModelId
+    makeAiRequest(prompt .. "\n" .. textToTranslate, nil, nil, providerModelId, callback)
 end
 
 function summarizeWithGemini(text, callback)
@@ -4450,6 +4452,19 @@ function openAiSettingsWindow()
             local currDmIdx = 0; for i, id in ipairs(dmIds) do if id == selectedDictationMode then currDmIdx = i-1 break end end
             dmSpinner.setSelection(currDmIdx); dmSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener { onItemSelected = function(p, v, pos, id) selectedDictationMode = dmIds[pos + 1] end }); dictationCard.addView(dmSpinner)
 
+            -- Text Processor Provider Setting
+            local providerLabel = TextView(service)
+            providerLabel.setText("مزود خدمة الإملاء والترجمة:")
+            providerLabel.setTextColor(0xFFE0E0E0); providerLabel.setTextSize(16); providerLabel.setTypeface(nil, Typeface.BOLD); providerLabel.setPadding(0, 30, 0, 10)
+            dictationCard.addView(providerLabel)
+
+            local tpNames = ArrayList(); tpIds = { "groq", "gemini" }
+            tpNames.add("Groq (سريع ومجاني)"); tpNames.add("Gemini (أكثر دقة - Gemini 3.1 Flash Lite)")
+            local tpAdapter = ArrayAdapter(service, android.R.layout.simple_spinner_item, tpNames); tpAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+            tpSpinner = Spinner(service); tpSpinner.setAdapter(tpAdapter)
+            local currTpIdx = 0; if selectedTextProcessorProvider == "gemini" then currTpIdx = 1 end
+            tpSpinner.setSelection(currTpIdx); tpSpinner.setOnItemSelectedListener(AdapterView.OnItemSelectedListener { onItemSelected = function(p, v, pos, id) selectedTextProcessorProvider = tpIds[pos + 1] end }); dictationCard.addView(tpSpinner)
+
             local helpTxt = TextView(service)
             helpTxt.setText("💡 تم دمج إعدادات التشكيل، علامات الترقيم، والإيموجي بذكاء داخل الأوضاع السابقة لضمان أفضل جودة للنص بدون تعارض.")
             helpTxt.setTextColor(0xFF888888)
@@ -4462,6 +4477,7 @@ function openAiSettingsWindow()
             local saveBtn = Button(service); saveBtn.setText("💾 حفظ التغييرات"); styleButton(saveBtn, "primary")
             saveBtn.setOnClickListener(function()
                 if dmSpinner and dmIds then selectedDictationMode = dmIds[dmSpinner.getSelectedItemPosition() + 1] end
+                if tpSpinner and tpIds then selectedTextProcessorProvider = tpIds[tpSpinner.getSelectedItemPosition() + 1] end
                 if swCont then continuousDictationEnabled = swCont.isChecked() end
                 if swSpace then autoSpaceEnabled = swSpace.isChecked() end
                 saveSettings()
