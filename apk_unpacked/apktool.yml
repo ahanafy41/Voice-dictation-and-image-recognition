@@ -1,0 +1,55 @@
+version: 2.9.3
+apkFileName: AndroLua+5.0.22.apk
+isFrameworkApk: false
+usesFramework:
+  ids:
+  - 1
+  tag: null
+sdkInfo:
+  minSdkVersion: 18
+  targetSdkVersion: '28'
+packageInfo:
+  forcedPackageId: 127
+  renameManifestPackage: null
+versionInfo:
+  versionCode: 50022
+  versionName: 5.0.22
+resourcesAreCompressed: false
+sharedLibrary: false
+sparseResources: false
+unknownFiles:
+  readme.txt: 8
+  lua/autotheme.lua: 8
+  lua/base64.lua: 8
+  lua/bin.lua: 8
+  lua/bmob.lua: 8
+  lua/check.lua: 8
+  lua/console.lua: 8
+  lua/ftp.lua: 8
+  lua/hex.lua: 8
+  lua/http.lua: 8
+  lua/import.lua: 8
+  lua/json.lua: 8
+  lua/loadbitmap.lua: 8
+  lua/loadlayout.lua: 8
+  lua/loadmenu.lua: 8
+  lua/logcat.lua: 8
+  lua/ltn12.lua: 8
+  lua/mbox.lua: 8
+  lua/mime.lua: 8
+  lua/options.lua: 8
+  lua/permission.lua: 8
+  lua/smtp.lua: 8
+  lua/socket.lua: 8
+  lua/su.lua: 8
+  lua/test.lua: 8
+  lua/xml.lua: 8
+  lua/socket/headers.lua: 8
+  lua/socket/tp.lua: 8
+  lua/socket/url.lua: 8
+doNotCompress:
+- resources.arsc
+- png
+- assets/keys/platform.pk8
+- assets/keys/testkey.pk8
+- gif

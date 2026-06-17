@@ -1,0 +1,351 @@
+Manifest-Version: 1.0
+Built-By: Generated-by-ADT
+Created-By: Android Gradle 3.4.0
+
+Name: AndroidManifest.xml
+SHA-256-Digest: nUv0lj5b0SSVzoxh/i/EfahQbM6+HLOa3vOMnUeIYxI=
+
+Name: assets/help.lua
+SHA-256-Digest: LBNQn+31v9VPrvWXfPUKaqrG/hOOuzydVHWksOTvXJs=
+
+Name: assets/init.lua
+SHA-256-Digest: G+Gy4E0QawuiB1K3bj2CbuNliYplwteQ5vWcWx2qFKU=
+
+Name: assets/javaapi/android.lua
+SHA-256-Digest: qEos+cQWTp7ik/aBQohaxeqnjZGi5Q2b+/Nzc3iDYNU=
+
+Name: assets/javaapi/clayout.aly
+SHA-256-Digest: Js/PZqpdkQoMWtP5LgVblyGDoZxFQe998e3r4SRw7TQ=
+
+Name: assets/javaapi/fiximport.lua
+SHA-256-Digest: 0rAznGxyFmjmqD9FCH6Ni/SwyiH/xiGLWHZ7m4Ut7yA=
+
+Name: assets/javaapi/init.lua
+SHA-256-Digest: antM02g0lJCrOATkziXfXkfb9fdVikvD0kSX8bGEVEQ=
+
+Name: assets/javaapi/layout.aly
+SHA-256-Digest: ceUpB9y5pDZdONG4b4d5tdYqO2M/hiirZzONKPpoBjg=
+
+Name: assets/javaapi/main.lua
+SHA-256-Digest: dqt0ykxWxCdg1xERJIPOvnBhCYFloct/fBeNIuzG0Pk=
+
+Name: assets/javaapi/mlayout.aly
+SHA-256-Digest: AZ08bSVI59sIJJAPzdJkzWunlEAPeZJUohlipSqvO/g=
+
+Name: assets/keys/keystore.ks
+SHA-256-Digest: 7V6fjYcVfjdylYuxiXZb0DNoCHnzNuV4wlSfZFG7EcM=
+
+Name: assets/keys/platform.pk8
+SHA-256-Digest: GtjvVWhw7bcPaanTwRJUTAfeUWK6RA2E0z+LsMWWKHU=
+
+Name: assets/keys/platform.sbt
+SHA-256-Digest: ryaeWbZfof7G7z5LQMrAYLq04aMjMBa1I6DLUkMR12E=
+
+Name: assets/keys/platform.x509.pem
+SHA-256-Digest: e3DOFDR/dlDG36j6eDO8467viY/9wWYpBnSpuOUBAZs=
+
+Name: assets/keys/testkey.pk8
+SHA-256-Digest: SVZ10y6JoUnVq+GR9OnA4hi5BocU6bU6fJHhZKB0GiM=
+
+Name: assets/keys/testkey.sbt
+SHA-256-Digest: DCNESbq1OvFlEOMhAquZuGGoxaV1zx2qKH1fJQEOs6Y=
+
+Name: assets/keys/testkey.x509.pem
+SHA-256-Digest: jyuUcXgVIMmoKEEAuXjYQY+RZqS2mwzfR36LYaOotSs=
+
+Name: assets/layout.lua
+SHA-256-Digest: OLNbwBwGEEV4m0gXsQF6VNAQ87k2W3a45naeJZhGI/U=
+
+Name: assets/layouthelper/init.lua
+SHA-256-Digest: p3bY0GbGCol9cAiWCOvHb31rwPH+QfEGSAkoKRqE4MM=
+
+Name: assets/layouthelper/layout.lua
+SHA-256-Digest: mV5TFbjIiazj4mlJ/GFitS1ZLygRdQWYG1dzm4RU7MM=
+
+Name: assets/layouthelper/loadlayout2.lua
+SHA-256-Digest: bGo5m7Jmnlqkf46iUUwpj0pkzl2fpbXizztNBFNXq0A=
+
+Name: assets/layouthelper/loadlayout3.lua
+SHA-256-Digest: K9s9cazFFI+K7veDfjBR65RZdE1Vt+ZMGDmBB7v4QxQ=
+
+Name: assets/layouthelper/main.lua
+SHA-256-Digest: 6RXWGY0L1h16AtaHq0mzkG92OvJ/KHp/eujsRI5eUUo=
+
+Name: assets/layouthelper/xml2table.lua
+SHA-256-Digest: /NJv979j010Ks6MR6W4Pmh5OG5RKI7a8MqAM+83Jer4=
+
+Name: assets/logcat.lua
+SHA-256-Digest: fGozjTGjeZcbfgp71Qdhyjn/BysQ62Wbz6Gshh24v70=
+
+Name: assets/luadoc.lua
+SHA-256-Digest: IZ76e7ik4IxzcXYMW2g4Xj3u9BKrLXOiN5pq9hJbPVI=
+
+Name: assets/luadoc/contents.html
+SHA-256-Digest: kaqrQ1rIr6wvCsmqQGnvgvwaurL6rzM+SnDNbquDpsA=
+
+Name: assets/luadoc/glossary.html
+SHA-256-Digest: D4ImLdEngLHn7yLeMLeLFaOqNUqkzqO9yMOPRJI3izQ=
+
+Name: assets/luadoc/logo.gif
+SHA-256-Digest: UTFGkS7KOu5CPae2nWNltD7FNK1kaHf9a2OpYciyDp8=
+
+Name: assets/luadoc/manual.html
+SHA-256-Digest: q0QRcUCFpY7yq2FFZLHatGmSg0tMcF6ov0dVDBWHK/8=
+
+Name: assets/main.lua
+SHA-256-Digest: NgIj0tEfx0Q2Hji/0+pxf4psgWPbFRyZntGM0+w3KKE=
+
+Name: assets/mao.dex
+SHA-256-Digest: 4yvDuiskF5zSY7uq2QU5aC+C7Is1aX0w5hgriMWQ7CQ=
+
+Name: assets/play.png
+SHA-256-Digest: DYZDCp8CrsClOxHb6wBUuaE+Xy3ptbH4CrE8YFYnV9E=
+
+Name: assets/plugin/init.lua
+SHA-256-Digest: YREdiDiV2pVwRJOwnNnO96Mvzbc8wjewdOQ3PL80dYU=
+
+Name: assets/plugin/item.aly
+SHA-256-Digest: /aVLVJ9NtI2247wgn1qgM5NVcXqGKrAUCQbpslhw68s=
+
+Name: assets/plugin/layout.aly
+SHA-256-Digest: PiHEiM1OojEbNu9XRtMSfUtEXAUrSL1KJ/BNEZFFovo=
+
+Name: assets/plugin/main.lua
+SHA-256-Digest: YRcOMKusQ8FIcKoPsAnlG2T/mbHXBV8fHXiG5FSReII=
+
+Name: assets/project/init.lua
+SHA-256-Digest: 2a3kRnGyyJIUGaRU5aXILu+JVqgQYKN/QBN1lbp5zn0=
+
+Name: assets/project/item.aly
+SHA-256-Digest: yuuEdQ42DeGmYK/VIYeDQM9aDyH9oKGOSqy/iQuq1hI=
+
+Name: assets/project/layout.aly
+SHA-256-Digest: uHiJsHyAPQdDi2MSpsp+7IM0PnL5JOejEj1t79RWiJU=
+
+Name: assets/project/main.lua
+SHA-256-Digest: 8Oo/o/C7fzTOjlHNE0K1Mlzb69oJKDyr40LrnX7ALS0=
+
+Name: assets/projectinfo/init.lua
+SHA-256-Digest: p+rGwV5SFAbqcpXu2nxVWEJDtp4JfmnjuW/O/5WP/I4=
+
+Name: assets/projectinfo/layout.aly
+SHA-256-Digest: 3AxkcGkA1V3pZH7gJIYePzJKDeB3zlGZqUGveJppqyQ=
+
+Name: assets/projectinfo/main.lua
+SHA-256-Digest: U1KTZyM8YBozmqf+KjwCFaFgi0y0Z/OrijKeaPN/1Q8=
+
+Name: assets/redo.png
+SHA-256-Digest: Ilp+EQEsSHaY0VXtecMiW9IEzCMvmX6AY3Qy0QrF1VU=
+
+Name: assets/sign.dex
+SHA-256-Digest: QNvrNZ4TCKGks4DbOuiiM2LJMAO93Sxu5dHZSJFJchU=
+
+Name: assets/undo.png
+SHA-256-Digest: bjkECtuTVT+fKrKRz+6dyN55IYQWcZXMEKEZ60GyRyI=
+
+Name: classes.dex
+SHA-256-Digest: kETSsNt+cEC9ChMvNqqUe3Ssi6hdiz+JXrtCBrHC3Yo=
+
+Name: lib/arm64-v8a/libbson.so
+SHA-256-Digest: FfkHZs0jTKEBehEPuqYqJ30c+BPFF56BDciO6AmxdAo=
+
+Name: lib/arm64-v8a/libcjson.so
+SHA-256-Digest: PVjzMBOs4S/8FGwdHoUW+ds0T+o73pUZjR3v5NWOuMA=
+
+Name: lib/arm64-v8a/libcrypt.so
+SHA-256-Digest: XUT4HQnOjq0722O5IL5WxafvaafElde1rjzN2s00bTM=
+
+Name: lib/arm64-v8a/libgl.so
+SHA-256-Digest: GhGUW9Mj82CGoMonNSK+6yBNzz7/W05rBwQ5fmcgFFc=
+
+Name: lib/arm64-v8a/libluajava.so
+SHA-256-Digest: VYThbTEKcTp28lz18ogkaS+MOM5H1JBNLABMiEyqiVM=
+
+Name: lib/arm64-v8a/libluv.so
+SHA-256-Digest: ZwWdWHCIqGVKU2nl7haROoZoZT1ysQlTEiMToMskGwg=
+
+Name: lib/arm64-v8a/libmd5.so
+SHA-256-Digest: umviPCAKMpPSB/RdqpDYCy//zl5ARVYB5kID2rktWDc=
+
+Name: lib/arm64-v8a/libmime.so
+SHA-256-Digest: R1chr+ac6Ch1UMIfmf6v6HnfvtGLht+EDjRiIp9nN50=
+
+Name: lib/arm64-v8a/libregex.so
+SHA-256-Digest: PmM15C3Lk4LaGdiIch4Idse28lMuyovFWQPLxwRxLYQ=
+
+Name: lib/arm64-v8a/libsensor.so
+SHA-256-Digest: TdnVc904NgSadlqPnLXPW99nr7IjvvxpFcv1Aok5cco=
+
+Name: lib/arm64-v8a/libsocket.so
+SHA-256-Digest: xeoU6s69r5QuxJpueHysQPIDDEscgHNGg7sP8Tt9YrI=
+
+Name: lib/arm64-v8a/libtcc.so
+SHA-256-Digest: Hl6I24ln7S9TTrR+hSEasl+qYF0n/q7roLycmkZ5H8w=
+
+Name: lib/arm64-v8a/libxml.so
+SHA-256-Digest: Ui8tFQdeI9Tj/pwDvd5kW90SYNOgB0fSed4ybDjLUJw=
+
+Name: lib/arm64-v8a/libyaml.so
+SHA-256-Digest: hqOoOMV3pZ5fZcdNx0SMhAvwp+EiaozgsICTVp1sorg=
+
+Name: lib/arm64-v8a/libzip.so
+SHA-256-Digest: 9b8rbSqt+lCTnJftm9omWUVoBQesvZO+OFS2xzVyFKQ=
+
+Name: lib/arm64-v8a/libzlib.so
+SHA-256-Digest: VYdSHdh2X1pjhE02P2/Fo+vp5Ky3dUl2dhsw4nsIqNg=
+
+Name: lib/armeabi-v7a/libbson.so
+SHA-256-Digest: Lg4D0wul7fk85jmLahHwxl3Zu8PHxbRa0lQQjikOLNY=
+
+Name: lib/armeabi-v7a/libcjson.so
+SHA-256-Digest: 47hWf1IkyMwwBVkm5dXFKk/xXVPwI6NRVqqilrDvrNw=
+
+Name: lib/armeabi-v7a/libcrypt.so
+SHA-256-Digest: AVVeJhY5Ub1aNMBIobZ3wWbotd6/UcP4rsfkDf/URaY=
+
+Name: lib/armeabi-v7a/libgl.so
+SHA-256-Digest: 47xpzCouqG3Zb8Kl8T8/q+RCN1HfvP2SZsW/yROu9E4=
+
+Name: lib/armeabi-v7a/libluajava.so
+SHA-256-Digest: B6SXBo1nZrezAJahUAo1jC7lZI3EXWTfcvhGz5vm4fs=
+
+Name: lib/armeabi-v7a/libluv.so
+SHA-256-Digest: 8yMaLKm5u6nrpSj51eNO090iRLn6o+5Q8G1C6GEbuCM=
+
+Name: lib/armeabi-v7a/libmd5.so
+SHA-256-Digest: 93Re6PrBYNeS1SiPmfBlh6miEWrZW0rxJA4labjUuHQ=
+
+Name: lib/armeabi-v7a/libmime.so
+SHA-256-Digest: 3GNI79JDjge1U1fgGSomV8gmcEQyvym/E3gQXfsFbbA=
+
+Name: lib/armeabi-v7a/libregex.so
+SHA-256-Digest: 0k/LxL8CzbuZJXS6Jx//INDLF5KMB9C6T3quzzmxde8=
+
+Name: lib/armeabi-v7a/libsensor.so
+SHA-256-Digest: moOAxLiI8hWAoPlYvdsSgavPOFE39qIj64ZkIBKgA9k=
+
+Name: lib/armeabi-v7a/libsocket.so
+SHA-256-Digest: twML6WpdoKzBNVJx9Yj7bBepTegVp+yj8HgOa6YfkDM=
+
+Name: lib/armeabi-v7a/libtcc.so
+SHA-256-Digest: hGX1LNqTAwOspbPf9lcTu9BbRofDltBXjq/dD81Q2A4=
+
+Name: lib/armeabi-v7a/libxml.so
+SHA-256-Digest: EoCK4+rOPezvLLDIwNjgEKwmePrmgY3/fb2vVCiG+MQ=
+
+Name: lib/armeabi-v7a/libyaml.so
+SHA-256-Digest: givZRL/VKoIoB20T2PEluudvdy5nL65r8a1DqWNWgPs=
+
+Name: lib/armeabi-v7a/libzip.so
+SHA-256-Digest: 9atdi50E5uTPMk84Ece2SeW2cvEFUoDEuo8P87bj0Y8=
+
+Name: lib/armeabi-v7a/libzlib.so
+SHA-256-Digest: 3BOLERAdTLwbTYkXDi1/NLusA04QTqzkFEfAF8qaSIw=
+
+Name: lua/autotheme.lua
+SHA-256-Digest: /pnTCAD59Jh0C114mFfeLPKh7kmEXZyFzvdGqTL+MFw=
+
+Name: lua/base64.lua
+SHA-256-Digest: c5ayuAi1jCiukwlKVzrXAxQ3J2XOOG0vrqt/pTYhgD8=
+
+Name: lua/bin.lua
+SHA-256-Digest: 2/hwTyJ678M1emOtoxnjjb1x0aTa4GFk2JdjJWHhzFo=
+
+Name: lua/bmob.lua
+SHA-256-Digest: tUGAA7rZS+CXuY50a1CHOLNDyz3kMA/MmsahOjY9v8M=
+
+Name: lua/check.lua
+SHA-256-Digest: 1lkqbwYIG3cRcXFlaXXFmCcVATMUcydcKlMhXAZhw8Y=
+
+Name: lua/console.lua
+SHA-256-Digest: JAhzEP8IlBI9pd04xAyuTP/7co9Y7y/GEthvMrt96Lo=
+
+Name: lua/ftp.lua
+SHA-256-Digest: gCX5M/5qPoVqwHZX8EU04UotX3UgU5f8BmpeLHj6eZg=
+
+Name: lua/hex.lua
+SHA-256-Digest: UaOhF9jU2fMGxdMfOcpAsx4QEjzJN7doTQWGpMHuYAc=
+
+Name: lua/http.lua
+SHA-256-Digest: I+cOlXJwVAWMyByeprCD07LI3k66sazCFAj8jsEBGks=
+
+Name: lua/import.lua
+SHA-256-Digest: FIQla1V+a/oLLHXpC8bKorD7bHSA/AZyMv2Ow4jGe78=
+
+Name: lua/json.lua
+SHA-256-Digest: Uhoq3it1XhLFngrdW5AknyfYRcHtlgfnhosWTVShHXQ=
+
+Name: lua/loadbitmap.lua
+SHA-256-Digest: FbmydSvdFKzNe5K2mmyqPI1OCu2Y71UR+oeByDcGY3k=
+
+Name: lua/loadlayout.lua
+SHA-256-Digest: vwrpcFfMUl7zn46aMmwzl1lIUiPoG9jP7IMHnBIetjs=
+
+Name: lua/loadmenu.lua
+SHA-256-Digest: xDYt34YQ49gxkCMp/oyMpFJL8m0EioalpzRK/AXHQbM=
+
+Name: lua/logcat.lua
+SHA-256-Digest: Simnxk9b2aXWobSBt9JHJftbKBv5e5YuGQoLXY80Kfg=
+
+Name: lua/ltn12.lua
+SHA-256-Digest: giuIeuOI5fzooqEv2AQXPpE1c3/EydRfMn3DUb3bobM=
+
+Name: lua/mbox.lua
+SHA-256-Digest: YDXHHSdl+txapaULCkFtE54I6IecmuSOSyWeggeIPzA=
+
+Name: lua/mime.lua
+SHA-256-Digest: pUj8IUrB6TWvpoPfm9vt7QymDPNT38wW9tsBh7n8US0=
+
+Name: lua/options.lua
+SHA-256-Digest: 2SqWg1yBtbAp8m4VCwRDtEoGDlBOYL6cAMBp6iw1vtE=
+
+Name: lua/permission.lua
+SHA-256-Digest: ahXoPe+h7c+GGzqXv6OfI0qr7CGe0i0xzD6fM2ju7Nc=
+
+Name: lua/smtp.lua
+SHA-256-Digest: Vb3v85Lf/DgbFIe26Uk6eq21L4UfeOwpMW3s9Q2I31g=
+
+Name: lua/socket.lua
+SHA-256-Digest: qSrhMs4JLcW44WTMvHxzf5h7i7vUgbUx25tk1sK+ThE=
+
+Name: lua/socket/headers.lua
+SHA-256-Digest: rs/4wtmdd6ZHMmk2fVsIWtDbGJ2WmcL0fcuXrlrTSN8=
+
+Name: lua/socket/tp.lua
+SHA-256-Digest: n6rN/N4xZ6tCYFRiXM8MqCVaJNx3UvWFQ+28kyFrU7E=
+
+Name: lua/socket/url.lua
+SHA-256-Digest: Lz6LY21hcJm1yaMq0LOpA0uIPIrSSA2X0p9Yr02X2Vw=
+
+Name: lua/su.lua
+SHA-256-Digest: /MXlEAe0NGLnvXEn3maBdPfCv+azdnv4cUOgMDcR1co=
+
+Name: lua/test.lua
+SHA-256-Digest: WZMW7QA7RNVn6/xt7ozvTflAwDcWov04rCcAgo4VJSI=
+
+Name: lua/xml.lua
+SHA-256-Digest: Rvr+5piGGWiI9XIZrbjLBOrWEBp87y57CAfZXGWwTKM=
+
+Name: readme.txt
+SHA-256-Digest: G03FY6RcyVNlzFSE+p+CSa+M5GAtlvQ/UqcJyOdjAes=
+
+Name: res/drawable/icon.png
+SHA-256-Digest: eOKS306DPV0z7oM9TErRtFZV5RSpoVxbAmDP3dEa07E=
+
+Name: res/drawable/welcome.png
+SHA-256-Digest: yVaTMy82Ev2ojMvUuoJj2lYp+HYc90VOmci+QJ2dDtA=
+
+Name: res/raw/android.json
+SHA-256-Digest: kxhUC1nRBlUzBO8hgqHsEZNAYuaGEOHodSi0bc3ul+0=
+
+Name: res/xml-v22/accessibility_service_config.xml
+SHA-256-Digest: TLgBCK3txMXOlkbdYdVNUgpHfv9LcIGI/bLGp23yHt0=
+
+Name: res/xml/accessibility_service_config.xml
+SHA-256-Digest: NmTjK+kJguq+vloCzZtKTUmuBoOpycbjNgjP143MI2k=
+
+Name: res/xml/androlua_filepaths.xml
+SHA-256-Digest: NJp3++RduQxW88+Hhhkke7S3Sm7chkuSioeRM+WHobs=
+
+Name: resources.arsc
+SHA-256-Digest: NnMzaHd1hWscEVbdRk4SArSAjYPLW/TrKwLoJWPPj74=
