@@ -144,10 +144,14 @@ Always think:
 
 ---
 
-# 🔄 AUTOMATIC UPDATE (OTA) MECHANISM
+# 🔄 AUTOMATIC UPDATE (OTA) & WEB SYNC MECHANISM
 - The application MUST support an Over-The-Air (OTA) update mechanism.
 - Every release must check for version updates on GitHub.
 - You MUST increment `currentAppVersion` in `main.lua` and update `version.txt` whenever a deployment-ready change is made.
+- 🚨 **MANDATORY WEB SYNC & COPY RULE (مزامنة ملف الكود مع تطبيق الويب):**
+  - Whenever ANY modification or update is made to `main.lua`, you MUST IMMEDIATELY synchronize it to `public/main.lua` (`cp main.lua public/main.lua`).
+  - The Web App must ALWAYS display and provide the latest `main.lua` with a prominent one-click copy button (`[📋 نسخ الكود بالكامل إلى الحافظة]`), download button, and accessible viewer tailored for visually impaired users and screen readers (Jieshuo / TalkBack).
+  - You must never leave `public/main.lua` out of sync with `main.lua`.
 
 ---
 

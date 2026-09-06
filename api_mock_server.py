@@ -39,28 +39,6 @@ class MockApiHandler(http.server.BaseHTTPRequestHandler):
                     ]
                 }
 
-            elif "api.groq.com" in self.path or "/openai/v1/chat/completions" in self.path:
-                logging.info("Handling Groq Text Mock")
-                req_json = json.loads(body)
-                if 'messages' not in req_json:
-                     raise ValueError("Missing 'messages' in Groq request")
-
-                response_data = {
-                    "choices": [
-                        {
-                            "message": {
-                                "content": "رد المحاكاة من Groq: كل شيء يعمل بنجاح."
-                            }
-                        }
-                    ]
-                }
-            elif "api.wit.ai" in self.path or "/dictation" in self.path:
-                 logging.info("Handling Wit.ai Mock")
-                 response_data = {
-                     "text": "نص محاكاة من Wit.ai",
-                     "is_final": True
-                 }
-
             elif "upload/v1beta/files" in self.path:
                  logging.info("Handling Gemini File Upload Mock")
                  response_data = {
@@ -90,12 +68,13 @@ class MockApiHandler(http.server.BaseHTTPRequestHandler):
         response_data = {}
 
         try:
-             if "api.groq.com" in self.path or "/openai/v1/models" in self.path:
-                  logging.info("Handling Groq Models GET")
+             if "generativelanguage.googleapis.com" in self.path and "/v1beta/models" in self.path:
+                  logging.info("Handling Gemini Models GET")
                   response_data = {
-                      "data": [
-                          {"id": "llama3-8b-8192"},
-                          {"id": "mixtral-8x7b-32768"}
+                      "models": [
+                          {"name": "models/gemini-3.1-flash-lite", "displayName": "Gemini 3.1 Flash Lite"},
+                          {"name": "models/gemini-2.5-flash", "displayName": "Gemini 2.5 Flash"},
+                          {"name": "models/gemini-2.5-pro", "displayName": "Gemini 2.5 Pro"}
                       ]
                   }
              elif "generativelanguage.googleapis.com" in self.path and "mock_file_uri" in self.path:

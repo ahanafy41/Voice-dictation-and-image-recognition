@@ -43,18 +43,19 @@ _G.prefs = {
         }
     end
 }
-_G.groqModels = {}
+_G.geminiModels = {}
 _G.service = {
     getSharedPreferences = function() return _G.prefs end,
 
     getSharedPreferences = function(name, mode)
         return {
-            getString = function(key, default) if key == "geminiApiKey" then return "fake_key" end if key == "groqApiKey" then return "fake_key" end if key == "imageDescriptionProvider" then return "gemini" end return default end, getInt = function(key, default) return default end, getFloat = function(key, default) return default end,
+            getString = function(key, default) if key == "geminiApiKey" then return "fake_key" end if key == "imageDescriptionProvider" then return "gemini" end return default end, getInt = function(key, default) return default end, getFloat = function(key, default) return default end,
             getBoolean = function(key, default) return default end,
             edit = function()
                 return {
                     putString = function(k, v) end,
                     putBoolean = function(k, v) end,
+                    remove = function(k) end,
                     apply = function() end,
                 }
             end,
@@ -76,8 +77,6 @@ _G.service = {
 _G.Http = {
     post = function(url, body, headers, callback)
         local parsed_url = url:gsub("https://generativelanguage.googleapis.com", "")
-        parsed_url = parsed_url:gsub("https://api.groq.com", "")
-        parsed_url = parsed_url:gsub("https://api.wit.ai", "")
 
         local command = string.format("curl -s -X POST -H 'Content-Type: application/json' -d '%s' \"http://localhost:8080%s\"", body:gsub("'", "'\\''"), parsed_url)
         local handle = io.popen(command)
@@ -91,7 +90,6 @@ _G.Http = {
     end,
     get = function(url, body, charset, headers, callback)
         local parsed_url = url:gsub("https://generativelanguage.googleapis.com", "")
-        parsed_url = parsed_url:gsub("https://api.groq.com", "")
         local command = string.format("curl -s \"http://localhost:8080%s\"", parsed_url)
         local handle = io.popen(command)
         local result = handle:read("*a")
@@ -343,8 +341,7 @@ end
 
 function TestGeminiFunctions:test_correctWithAi_success()
     local originalText = "this is a tst"
-    -- The mock server will return: "رد المحاكاة من Groq: كل شيء يعمل بنجاح."
-    local expectedResponse = "رد المحاكاة من Groq: كل شيء يعمل بنجاح."
+    local expectedResponse = "رد المحاكاة من Gemini: كل شيء يعمل بنجاح."
 
     correctWithAi(originalText, function(result)
         assertEquals(result, expectedResponse)
@@ -355,7 +352,7 @@ end
 
 function TestGeminiFunctions:test_summarizeWithGemini_success()
     local originalText = "This is a very long text that needs to be summarized."
-    local expectedResponse = "رد المحاكاة من Groq: كل شيء يعمل بنجاح."
+    local expectedResponse = "رد المحاكاة من Gemini: كل شيء يعمل بنجاح."
 
     summarizeWithGemini(originalText, function(result)
         assertEquals(result, expectedResponse)
@@ -376,7 +373,7 @@ end
 
 function TestGeminiFunctions:test_translateTextWithGemini_New_success()
     local text = "Hello"
-    local expectedResponse = "رد المحاكاة من Groq: كل شيء يعمل بنجاح."
+    local expectedResponse = "رد المحاكاة من Gemini: كل شيء يعمل بنجاح."
 
     translateTextWithGemini_New(text, "English", "Arabic", function(result)
         assertEquals(result, expectedResponse)

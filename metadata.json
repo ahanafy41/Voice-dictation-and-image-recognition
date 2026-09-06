@@ -1,0 +1,6 @@
+{
+  "name": "Smart Vision & Accessibility Suite",
+  "description": "Smart AI-powered accessibility suite and companion control dashboard for Android, TalkBack, and Jieshuo screen readers.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
